@@ -1,0 +1,56 @@
+services:
+  db:
+    image: ${POSTGRES_IMAGE}
+    container_name: cooperative-db
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB}
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+    command: ["postgres", "-p", "${POSTGRES_CONTAINER_PORT}"]
+    ports:
+      - "${POSTGRES_PORT}:${POSTGRES_CONTAINER_PORT}"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB} -p ${POSTGRES_CONTAINER_PORT}"]
+      interval: ${DB_HEALTHCHECK_INTERVAL}
+      timeout: ${DB_HEALTHCHECK_TIMEOUT}
+      retries: ${DB_HEALTHCHECK_RETRIES}
+
+  backend:
+    build: ./backend
+    container_name: cooperative-api
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      DATABASE_URL: ${DATABASE_URL}
+    ports:
+      - "${API_PORT}:${API_CONTAINER_PORT}"
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+    command: sh -c "alembic upgrade head && uvicorn app.main:app --host 0.0.0.0 --port ${API_CONTAINER_PORT} --reload"
+
+  web:
+    build: ./web
+    container_name: cooperative-web
+    restart: unless-stopped
+    env_file: .env
+    environment:
+      VITE_API_BASE_URL: ${VITE_API_BASE_URL}
+    ports:
+      - "${WEB_PORT}:${WEB_CONTAINER_PORT}"
+    volumes:
+      - ./web:/app
+      - web_node_modules:/app/node_modules
+    depends_on:
+      - backend
+    command: npm run dev -- --host 0.0.0.0 --port ${WEB_CONTAINER_PORT}
+
+volumes:
+  postgres_data:
+  web_node_modules:
