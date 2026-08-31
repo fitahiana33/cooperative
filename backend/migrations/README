@@ -1,0 +1,2 @@
+Les migrations Alembic seront ajoutées par module métier. Utiliser `alembic revision --autogenerate -m "description"` puis `alembic upgrade head`.
+

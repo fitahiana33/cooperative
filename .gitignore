@@ -1,0 +1,39 @@
+# .env
+# .env.*
+# !.env.example
+
+# Documentation and local/generated project files
+docs/
+node_modules/
+**/node_modules/
+dist/
+build/
+
+# Python caches and local environments
+__pycache__/
+**/__pycache__/
+*.py[cod]
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+htmlcov/
+.venv/
+venv/
+ENV/
+backend/.venv/
+
+# Flutter/Dart generated files
+mobile/.dart_tool/
+mobile/.packages
+mobile/build/
+mobile/.flutter-plugins
+mobile/.flutter-plugins-dependencies
+mobile/android/.gradle/
+mobile/ios/Pods/
+
+# IDE and operating-system files
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
