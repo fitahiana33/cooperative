@@ -18,8 +18,8 @@ async function requestToken() {
     const res = await auth.forgotPassword({ email: email.value })
     successMessage.value = res.message || 'Jeton de réinitialisation généré avec succès.'
     isResetStep.value = true
-  } catch {
-    /* error captured by store */
+  } catch (error) {
+    console.error('[FORGOT_PASSWORD_ERROR]', error)
   }
 }
 
@@ -33,8 +33,8 @@ async function submitReset() {
     setTimeout(() => {
       router.push({ name: 'login' })
     }, 2000)
-  } catch {
-    /* error captured by store */
+  } catch (error) {
+    console.error('[RESET_PASSWORD_ERROR]', error)
   }
 }
 </script>

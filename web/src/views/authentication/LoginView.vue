@@ -14,8 +14,8 @@ async function submit() {
   try {
     await auth.login({ email: email.value, password: password.value })
     await router.push({ name: 'home' })
-  } catch {
-    /* error exposed in auth.error */
+  } catch (error) {
+    console.error('[LOGIN_ERROR]', error)
   }
 }
 </script>

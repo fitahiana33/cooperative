@@ -32,7 +32,41 @@ const router = createRouter({
       path: '/users',
       name: 'users',
       component: () => import('../views/UsersView.vue'),
-      meta: { requiresAuth: true, layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/gares',
+      name: 'gares',
+      component: () => import('../views/ManagementView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'agent_gare'], layout: 'default' },
+    },
+    {
+      path: '/gares/new', name: 'gare-create', component: () => import('../views/management/GareFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare'], layout: 'default' },
+    },
+    {
+      path: '/gares/:id/edit', name: 'gare-edit', component: () => import('../views/management/GareFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare'], layout: 'default' },
+    },
+    {
+      path: '/cooperatives',
+      name: 'cooperatives',
+      component: () => import('../views/ManagementView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/cooperatives/new', name: 'cooperative-create', component: () => import('../views/management/CooperativeFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/cooperatives/:id/edit', name: 'cooperative-edit', component: () => import('../views/management/CooperativeFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/roles',
+      name: 'roles',
+      component: () => import('../views/ManagementView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
   ],
 })
@@ -44,8 +78,17 @@ router.beforeEach((to) => {
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login' }
   }
+
   if (publicAuthRoutes.includes(to.name as string) && auth.isAuthenticated) {
     return { name: 'home' }
+  }
+
+  if (to.meta.requiredRoles && Array.isArray(to.meta.requiredRoles)) {
+    const userRole = (auth.userRole || '').toLowerCase()
+    const allowedRoles = (to.meta.requiredRoles as string[]).map((r) => r.toLowerCase())
+    if (userRole !== 'admin' && !allowedRoles.includes(userRole)) {
+      return { name: 'home' }
+    }
   }
 })
 

@@ -1,4 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 import '../../../core/network/api_client.dart';
 import '../../../core/storage/token_storage.dart';
@@ -79,7 +80,8 @@ class AuthController extends StateNotifier<AuthState> {
           state = state.copyWith(status: AuthStatus.unauthenticated);
         }
       }
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[AUTH_SESSION_ERROR] $error');
       state = state.copyWith(status: AuthStatus.unauthenticated);
     }
   }

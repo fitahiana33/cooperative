@@ -52,7 +52,8 @@ def get_current_user(
 
 def require_roles(*allowed_roles: str) -> Callable[[User], User]:
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        if current_user.role not in allowed_roles:
+        assigned = {role.libelle for role in current_user.roles if role.is_active}
+        if current_user.role not in allowed_roles and not assigned.intersection(allowed_roles):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Accès refusé. Rôle(s) requis: {', '.join(allowed_roles)}.",
@@ -60,6 +61,21 @@ def require_roles(*allowed_roles: str) -> Callable[[User], User]:
         return current_user
 
     return role_checker
+
+
+def require_permission(code: str) -> Callable[[User], User]:
+    def permission_checker(current_user: User = Depends(get_current_user)) -> User:
+        if current_user.role == UserRole.ADMIN:
+            return current_user
+        permissions = {
+            permission.code
+            for role in current_user.roles if role.is_active
+            for permission in role.permissions if permission.is_active
+        }
+        if code not in permissions:
+            raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail=f"Permission requise: {code}.")
+        return current_user
+    return permission_checker
 
 
 require_admin = require_roles(UserRole.ADMIN)

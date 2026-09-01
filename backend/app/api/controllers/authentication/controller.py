@@ -53,3 +53,8 @@ def reset_password(request: Request, data: ResetPasswordRequest, db: Session = D
 @router.get("/me", response_model=UserRead)
 def current_user(user: User = Depends(get_current_user)):
     return user
+
+
+@router.post("/logout", response_model=MessageResponse)
+def logout(user: User = Depends(get_current_user)):
+    return MessageResponse(message="Déconnexion effectuée.")

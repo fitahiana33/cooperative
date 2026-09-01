@@ -37,8 +37,8 @@ async function submit() {
       password: password.value,
     })
     await router.push({ name: 'home' })
-  } catch {
-    /* error exposed in auth.error */
+  } catch (error) {
+    console.error('[REGISTER_ERROR]', error)
   }
 }
 </script>

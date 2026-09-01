@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../controllers/auth/auth_controller.dart';
+import '../management/cooperatives_page.dart';
+import '../management/gares_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -9,6 +11,8 @@ class HomePage extends ConsumerWidget {
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
+    final role = (user?.role ?? 'passenger').toLowerCase();
+    final isStaff = ['admin', 'responsable_gare', 'agent_gare', 'responsable_cooperative', 'manager'].contains(role);
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
@@ -136,6 +140,47 @@ class HomePage extends ConsumerWidget {
             ),
             const SizedBox(height: 28),
 
+            if (isStaff) ...[
+              const Text(
+                'Administration & Gestion',
+                style: TextStyle(
+                  color: Colors.white,
+                  fontSize: 18,
+                  fontWeight: FontWeight.bold,
+                ),
+              ),
+              const SizedBox(height: 14),
+              GridView.count(
+                crossAxisCount: 2,
+                shrinkWrap: true,
+                physics: const NeverScrollableScrollPhysics(),
+                crossAxisSpacing: 14,
+                mainAxisSpacing: 14,
+                childAspectRatio: 1.3,
+                children: [
+                  _buildActionCard(
+                    icon: Icons.location_city_rounded,
+                    title: 'Gérer les Gares',
+                    subtitle: 'Créer, activer et consulter les gares',
+                    color: const Color(0xFF3B82F6),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const GaresPage()));
+                    },
+                  ),
+                  _buildActionCard(
+                    icon: Icons.business_rounded,
+                    title: 'Gérer Coopératives',
+                    subtitle: 'Partenaires, agréments & membres',
+                    color: const Color(0xFF10B981),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => const CooperativesPage()));
+                    },
+                  ),
+                ],
+              ),
+              const SizedBox(height: 28),
+            ],
+
             const Text(
               'Services & Réservations',
               style: TextStyle(
@@ -213,46 +258,50 @@ class HomePage extends ConsumerWidget {
     required String title,
     required String subtitle,
     required Color color,
+    VoidCallback? onTap,
   }) {
-    return Container(
-      padding: const EdgeInsets.all(16),
-      decoration: BoxDecoration(
-        color: Colors.white.withValues(alpha: 0.06),
-        borderRadius: BorderRadius.circular(18),
-        border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        mainAxisAlignment: MainAxisAlignment.center,
-        children: [
-          Container(
-            padding: const EdgeInsets.all(8),
-            decoration: BoxDecoration(
-              color: color.withValues(alpha: 0.15),
-              borderRadius: BorderRadius.circular(10),
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.all(16),
+        decoration: BoxDecoration(
+          color: Colors.white.withValues(alpha: 0.06),
+          borderRadius: BorderRadius.circular(18),
+          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [
+            Container(
+              padding: const EdgeInsets.all(8),
+              decoration: BoxDecoration(
+                color: color.withValues(alpha: 0.15),
+                borderRadius: BorderRadius.circular(10),
+              ),
+              child: Icon(icon, color: color, size: 24),
             ),
-            child: Icon(icon, color: color, size: 24),
-          ),
-          const SizedBox(height: 10),
-          Text(
-            title,
-            style: const TextStyle(
-              color: Colors.white,
-              fontWeight: FontWeight.bold,
-              fontSize: 14,
+            const SizedBox(height: 10),
+            Text(
+              title,
+              style: const TextStyle(
+                color: Colors.white,
+                fontWeight: FontWeight.bold,
+                fontSize: 14,
+              ),
             ),
-          ),
-          const SizedBox(height: 2),
-          Text(
-            subtitle,
-            maxLines: 2,
-            overflow: TextOverflow.ellipsis,
-            style: TextStyle(
-              color: Colors.grey.shade400,
-              fontSize: 11,
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: TextStyle(
+                color: Colors.grey.shade400,
+                fontSize: 11,
+              ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     );
   }

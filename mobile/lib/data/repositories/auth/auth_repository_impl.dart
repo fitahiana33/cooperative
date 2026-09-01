@@ -1,4 +1,5 @@
 import '../../../core/storage/token_storage.dart';
+import 'package:flutter/foundation.dart';
 import '../../../domain/entities/user/user_entity.dart';
 import '../../../domain/repositories/auth/auth_repository.dart';
 import '../../datasources/auth/auth_remote_datasource.dart';
@@ -88,7 +89,8 @@ class AuthRepositoryImpl implements AuthRepository {
       final user = await _remoteDataSource.getCurrentUser();
       await _tokenStorage.saveUser(user.toJson());
       return user;
-    } catch (_) {
+    } catch (error) {
+      debugPrint('[CURRENT_USER_ERROR] $error');
       return null;
     }
   }

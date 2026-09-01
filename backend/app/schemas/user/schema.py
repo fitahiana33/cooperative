@@ -16,7 +16,7 @@ class UserCreate(BaseModel):
 class UserRead(BaseModel):
     id: int
     name: str
-    first_name: str
+    first_name: str | None
     email: EmailStr
     telephone: str | None
     address: str | None
@@ -24,4 +24,3 @@ class UserRead(BaseModel):
     is_active: bool
     created_at: datetime
     model_config = ConfigDict(from_attributes=True)
-

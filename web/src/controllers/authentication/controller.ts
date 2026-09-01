@@ -26,4 +26,8 @@ export const authenticationController = {
   me() {
     return authenticationService.me()
   },
+
+  logout() {
+    return authenticationService.logout()
+  },
 }

@@ -3,6 +3,8 @@ from fastapi import HTTPException, status
 from sqlalchemy.orm import Session
 
 from app.models.user import User, UserRole
+from app.models.role import Role
+from datetime import datetime, timezone
 from app.repositories.user import UserRepository
 from app.schemas.authentication import (
     ForgotPasswordRequest,
@@ -39,6 +41,8 @@ class AuthenticationService:
                 detail="Email ou mot de passe incorrect.",
             )
 
+        user.last_login_at = datetime.now(timezone.utc)
+        self.db.commit()
         access_token = create_access_token(subject=str(user.id), role=user.role)
         refresh_token = create_refresh_token(subject=str(user.id))
 
@@ -64,11 +68,14 @@ class AuthenticationService:
             telephone=data.telephone.strip() if data.telephone else None,
             address=data.address.strip() if data.address else None,
             password_hash=hash_password(data.password),
-            role=UserRole.PASSENGER,
             is_active=True,
         )
 
         user = self.users.create(new_user)
+        passenger_role = self.db.query(Role).filter(Role.libelle == UserRole.PASSAGER).first()
+        if passenger_role:
+            user.roles.append(passenger_role)
+            self.db.commit()
         access_token = create_access_token(subject=str(user.id), role=user.role)
         refresh_token = create_refresh_token(subject=str(user.id))
 

@@ -14,6 +14,7 @@ export const useAuthenticationStore = defineStore('authentication', {
     token: localStorage.getItem(TOKEN_KEY) || '',
     refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || '',
     user: null as User | null,
+    initialized: false,
     loading: false,
     error: '',
     infoMessage: '',
@@ -21,7 +22,7 @@ export const useAuthenticationStore = defineStore('authentication', {
 
   getters: {
     isAuthenticated: (state) => Boolean(state.token),
-    userRole: (state) => state.user?.role || 'passenger',
+    userRole: (state) => state.user?.role || '',
   },
 
   actions: {
@@ -115,19 +116,20 @@ export const useAuthenticationStore = defineStore('authentication', {
     },
 
     async loadUser() {
-      if (this.token) {
-        try {
-          this.user = await authenticationController.me()
-        } catch {
-          this.logout()
-        }
-      }
+      if (!this.token) { this.initialized = true; return }
+      try { this.user = await authenticationController.me() }
+      catch (error) { console.error('[LOAD_USER_ERROR]', error); await this.logout() }
+      finally { this.initialized = true }
     },
 
-    logout() {
+    async logout() {
+      if (this.token) {
+        try { await authenticationController.logout() } catch (error) { console.error('[LOGOUT_ERROR]', error) }
+      }
       this.token = ''
       this.refreshToken = ''
       this.user = null
+      this.initialized = true
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem(REFRESH_TOKEN_KEY)
     },
