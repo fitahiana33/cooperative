@@ -1,0 +1,2 @@
+"""Permission HTTP endpoints."""
+
