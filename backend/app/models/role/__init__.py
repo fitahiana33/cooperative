@@ -1,0 +1,2 @@
+"""Role persistence models."""
+

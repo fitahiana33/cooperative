@@ -1,0 +1,97 @@
+import 'package:dio/dio.dart';
+import '../config/env.dart';
+import '../storage/token_storage.dart';
+
+class ApiClient {
+  late final Dio dio;
+  final TokenStorage tokenStorage;
+  final void Function()? onUnauthenticated;
+
+  ApiClient({
+    required this.tokenStorage,
+    this.onUnauthenticated,
+    String? baseUrl,
+  }) {
+    dio = Dio(
+      BaseOptions(
+        baseUrl: baseUrl ?? Env.apiBaseUrl,
+        connectTimeout: const Duration(seconds: 10),
+        receiveTimeout: const Duration(seconds: 10),
+        headers: {
+          'Content-Type': 'application/json',
+          'Accept': 'application/json',
+        },
+      ),
+    );
+
+    dio.interceptors.add(
+      InterceptorsWrapper(
+        onRequest: (options, handler) {
+          final token = tokenStorage.getAccessToken();
+          if (token != null && token.isNotEmpty) {
+            options.headers['Authorization'] = 'Bearer $token';
+          }
+          return handler.next(options);
+        },
+        onError: (DioException error, handler) async {
+          if (error.response?.statusCode == 401 &&
+              !error.requestOptions.path.contains('/auth/login') &&
+              !error.requestOptions.path.contains('/auth/refresh') &&
+              !error.requestOptions.path.contains('/auth/register')) {
+            final refreshed = await _attemptRefreshToken();
+            if (refreshed) {
+              final newAccessToken = tokenStorage.getAccessToken();
+              final opts = error.requestOptions;
+              opts.headers['Authorization'] = 'Bearer $newAccessToken';
+              try {
+                final response = await dio.fetch(opts);
+                return handler.resolve(response);
+              } catch (retryError) {
+                return handler.next(error);
+              }
+            } else {
+              await tokenStorage.clear();
+              onUnauthenticated?.call();
+            }
+          }
+          return handler.next(error);
+        },
+      ),
+    );
+  }
+
+  Future<bool> _attemptRefreshToken() async {
+    final refreshToken = tokenStorage.getRefreshToken();
+    if (refreshToken == null || refreshToken.isEmpty) {
+      return false;
+    }
+
+    try {
+      final refreshDio = Dio(
+        BaseOptions(
+          baseUrl: dio.options.baseUrl,
+          headers: {'Content-Type': 'application/json'},
+        ),
+      );
+      final response = await refreshDio.post(
+        '/auth/refresh',
+        data: {'refresh_token': refreshToken},
+      );
+
+      if (response.statusCode == 200) {
+        final data = response.data as Map<String, dynamic>;
+        final newAccess = data['access_token'] as String;
+        final newRefresh = data['refresh_token'] as String;
+        await tokenStorage.saveTokens(
+          accessToken: newAccess,
+          refreshToken: newRefresh,
+        );
+        if (data['user'] != null) {
+          await tokenStorage.saveUser(data['user'] as Map<String, dynamic>);
+        }
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+}

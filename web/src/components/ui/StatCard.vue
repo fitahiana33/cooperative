@@ -1,0 +1,2 @@
+<script setup lang="ts">import BaseCard from './BaseCard.vue'; defineProps<{ label: string; value: string; detail: string; icon: string; tone: string }>()</script>
+<template><BaseCard><div class="stat-card"><div class="stat-card-top"><span class="stat-icon" :class="tone">{{ icon }}</span><span class="stat-label">{{ label }}</span></div><strong class="stat-value">{{ value }}</strong><span class="stat-detail">{{ detail }}</span></div></BaseCard></template>
