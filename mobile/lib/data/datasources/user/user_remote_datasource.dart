@@ -1,4 +1,5 @@
 import 'package:dio/dio.dart';
+import 'package:flutter/foundation.dart';
 import '../../../core/network/api_client.dart';
 import '../../models/user/user_dto.dart';
 
@@ -13,8 +14,10 @@ class UserRemoteDataSource {
       return (response.data as List)
           .map((item) => UserDto.fromJson(item as Map<String, dynamic>))
           .toList();
-    } on DioException catch (e) {
-      throw Exception(e.message ?? 'Erreur lors de la récupération des utilisateurs');
+    } on DioException catch (error, stackTrace) {
+      debugPrint('[USERS_LOAD_ERROR] $error');
+      debugPrintStack(stackTrace: stackTrace);
+      throw Exception('Impossible de charger les utilisateurs.');
     }
   }
 }

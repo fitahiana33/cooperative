@@ -12,7 +12,7 @@ class UserRepository:
         return list(self.db.scalars(select(User).order_by(User.id)))
 
     def find_by_email(self, email: str) -> User | None:
-        return self.db.scalar(select(User).where(User.email == email))
+        return self.db.scalar(select(User).where(User.email == email.lower().strip()))
 
     def find_by_id(self, user_id: int) -> User | None:
         return self.db.get(User, user_id)

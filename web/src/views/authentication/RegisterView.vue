@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
+document.title = 'Créer un compte | Gestion'
 
 const router = useRouter()
 const auth = useAuthenticationStore()
@@ -37,8 +38,8 @@ async function submit() {
       password: password.value,
     })
     await router.push({ name: 'home' })
-  } catch {
-    /* error exposed in auth.error */
+  } catch (error) {
+    console.error('[REGISTER_ERROR]', error)
   }
 }
 </script>
@@ -51,7 +52,7 @@ async function submit() {
         <span>Coopérative</span>
       </div>
 
-      <h2>Créer un compte</h2>
+      <h1>Créer un compte</h1>
       <p class="subtitle">Rejoignez la plateforme et gérez vos réservations.</p>
 
       <form @submit.prevent="submit">
@@ -167,7 +168,7 @@ async function submit() {
   justify-content: center;
 }
 
-h2 {
+h1 {
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0;

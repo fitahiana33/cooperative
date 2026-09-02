@@ -8,12 +8,14 @@ import type {
 } from '../../models/authentication/model'
 import type { User } from '../../models/user/model'
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '../../services/authentication/constants'
+import { userError } from '../../utils/errors'
 
 export const useAuthenticationStore = defineStore('authentication', {
   state: () => ({
     token: localStorage.getItem(TOKEN_KEY) || '',
     refreshToken: localStorage.getItem(REFRESH_TOKEN_KEY) || '',
     user: null as User | null,
+    initialized: false,
     loading: false,
     error: '',
     infoMessage: '',
@@ -21,7 +23,7 @@ export const useAuthenticationStore = defineStore('authentication', {
 
   getters: {
     isAuthenticated: (state) => Boolean(state.token),
-    userRole: (state) => state.user?.role || 'passenger',
+    userRole: (state) => state.user?.role || '',
   },
 
   actions: {
@@ -40,13 +42,9 @@ export const useAuthenticationStore = defineStore('authentication', {
         } else {
           this.user = await authenticationController.me()
         }
-      } catch (error: any) {
-        this.error =
-          error?.response?.data?.detail ||
-          (error?.response?.status === 401
-            ? 'Email ou mot de passe incorrect.'
-            : 'Le serveur est indisponible. Vérifiez la connexion et réessayez.')
-        this.logout()
+      } catch (error: unknown) {
+        this.error = userError(error, 'Email ou mot de passe incorrect.', 'LOGIN_ERROR')
+        await this.logout()
         throw error
       } finally {
         this.loading = false
@@ -68,10 +66,8 @@ export const useAuthenticationStore = defineStore('authentication', {
         } else {
           this.user = await authenticationController.me()
         }
-      } catch (error: any) {
-        this.error =
-          error?.response?.data?.detail ||
-          'Une erreur est survenue lors de la création de votre compte.'
+      } catch (error: unknown) {
+        this.error = userError(error, 'Une erreur est survenue lors de la création de votre compte.', 'REGISTER_ERROR')
         throw error
       } finally {
         this.loading = false
@@ -86,10 +82,8 @@ export const useAuthenticationStore = defineStore('authentication', {
         const response = await authenticationController.forgotPassword(payload)
         this.infoMessage = response.message
         return response
-      } catch (error: any) {
-        this.error =
-          error?.response?.data?.detail ||
-          'Impossible d’envoyer la demande de réinitialisation.'
+      } catch (error: unknown) {
+        this.error = userError(error, 'Impossible d’envoyer la demande de réinitialisation.', 'FORGOT_PASSWORD_ERROR')
         throw error
       } finally {
         this.loading = false
@@ -104,10 +98,8 @@ export const useAuthenticationStore = defineStore('authentication', {
         const response = await authenticationController.resetPassword(payload)
         this.infoMessage = response.message
         return response
-      } catch (error: any) {
-        this.error =
-          error?.response?.data?.detail ||
-          'Code ou jeton de réinitialisation invalide ou expiré.'
+      } catch (error: unknown) {
+        this.error = userError(error, 'Code ou jeton de réinitialisation invalide ou expiré.', 'RESET_PASSWORD_ERROR')
         throw error
       } finally {
         this.loading = false
@@ -115,19 +107,20 @@ export const useAuthenticationStore = defineStore('authentication', {
     },
 
     async loadUser() {
-      if (this.token) {
-        try {
-          this.user = await authenticationController.me()
-        } catch {
-          this.logout()
-        }
-      }
+      if (!this.token) { this.initialized = true; return }
+      try { this.user = await authenticationController.me() }
+      catch (error) { console.error('[LOAD_USER_ERROR]', error); await this.logout() }
+      finally { this.initialized = true }
     },
 
-    logout() {
+    async logout() {
+      if (this.token) {
+        try { await authenticationController.logout({ refresh_token: this.refreshToken }) } catch (error) { console.error('[LOGOUT_ERROR]', error) }
+      }
       this.token = ''
       this.refreshToken = ''
       this.user = null
+      this.initialized = true
       localStorage.removeItem(TOKEN_KEY)
       localStorage.removeItem(REFRESH_TOKEN_KEY)
     },

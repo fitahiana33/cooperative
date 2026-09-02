@@ -1,7 +1,11 @@
 from contextlib import asynccontextmanager
+from pathlib import Path
 
-from fastapi import FastAPI
+import logging
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from fastapi.staticfiles import StaticFiles
 from slowapi import _rate_limit_exceeded_handler
 from slowapi.errors import RateLimitExceeded
 
@@ -11,6 +15,7 @@ from app.core.rate_limiter import limiter
 from app.db.base import Base
 from app.db.seed import seed_default_admin
 from app.db.session import SessionLocal, engine
+import app.models  # noqa: F401
 
 
 @asynccontextmanager
@@ -23,8 +28,22 @@ async def lifespan(_: FastAPI):
 
 
 app = FastAPI(title=settings.app_name, version="0.1.0", lifespan=lifespan)
+upload_directory = Path(__file__).resolve().parents[1] / "uploads"
+upload_directory.mkdir(parents=True, exist_ok=True)
+app.mount("/uploads", StaticFiles(directory=upload_directory), name="uploads")
 app.state.limiter = limiter
 app.add_exception_handler(RateLimitExceeded, _rate_limit_exceeded_handler)
+
+
+@app.exception_handler(Exception)
+async def handle_unexpected_error(request: Request, exc: Exception) -> JSONResponse:
+    logging.getLogger("cooperative.api").exception(
+        "Erreur interne sur %s %s", request.method, request.url.path, exc_info=exc
+    )
+    return JSONResponse(
+        status_code=500,
+        content={"message": "Une erreur est survenue. Veuillez réessayer."},
+    )
 
 app.add_middleware(
     CORSMiddleware,

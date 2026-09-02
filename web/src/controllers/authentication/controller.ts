@@ -4,6 +4,7 @@ import type {
   LoginPayload,
   RegisterPayload,
   ResetPasswordPayload,
+  RefreshTokenPayload,
 } from '../../models/authentication/model'
 
 export const authenticationController = {
@@ -25,5 +26,9 @@ export const authenticationController = {
 
   me() {
     return authenticationService.me()
+  },
+
+  logout(payload?: RefreshTokenPayload) {
+    return authenticationService.logout(payload)
   },
 }

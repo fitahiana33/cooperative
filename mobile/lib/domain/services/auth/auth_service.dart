@@ -39,6 +39,7 @@ class AuthService {
   }
 
   Future<void> logout() async {
-    await _repository.logout();
+    final token = _repository.getRefreshTokenForLogout();
+    await _repository.logout(refreshToken: token);
   }
 }

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
+document.title = 'Mot de passe oublié | Gestion'
 
 const router = useRouter()
 const auth = useAuthenticationStore()
@@ -18,8 +19,8 @@ async function requestToken() {
     const res = await auth.forgotPassword({ email: email.value })
     successMessage.value = res.message || 'Jeton de réinitialisation généré avec succès.'
     isResetStep.value = true
-  } catch {
-    /* error captured by store */
+  } catch (error) {
+    console.error('[FORGOT_PASSWORD_ERROR]', error)
   }
 }
 
@@ -33,8 +34,8 @@ async function submitReset() {
     setTimeout(() => {
       router.push({ name: 'login' })
     }, 2000)
-  } catch {
-    /* error captured by store */
+  } catch (error) {
+    console.error('[RESET_PASSWORD_ERROR]', error)
   }
 }
 </script>
@@ -47,7 +48,7 @@ async function submitReset() {
         <span>Coopérative</span>
       </div>
 
-      <h2>Mot de passe oublié</h2>
+      <h1>Mot de passe oublié</h1>
       <p class="subtitle">
         {{
           isResetStep
@@ -153,7 +154,7 @@ async function submitReset() {
   justify-content: center;
 }
 
-h2 {
+h1 {
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0;

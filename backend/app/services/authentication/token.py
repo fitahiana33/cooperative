@@ -57,12 +57,17 @@ def decode_access_token(token: str) -> dict | None:
 
 
 def decode_refresh_token(token: str) -> str | None:
+    payload = decode_refresh_payload(token)
+    subject = payload.get("sub") if payload else None
+    return str(subject) if subject else None
+
+
+def decode_refresh_payload(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
         if payload.get("type") != "refresh":
             return None
-        subject = payload.get("sub")
-        return str(subject) if subject else None
+        return payload
     except jwt.PyJWTError:
         return None
 

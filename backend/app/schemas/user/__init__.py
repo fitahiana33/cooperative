@@ -1,4 +1,3 @@
-from .schema import UserCreate, UserRead
+from .schema import UserCreate, UserRead, UserUpdate, UserRoleRead
 
-__all__ = ["UserCreate", "UserRead"]
-
+__all__ = ["UserCreate", "UserRead", "UserUpdate", "UserRoleRead"]

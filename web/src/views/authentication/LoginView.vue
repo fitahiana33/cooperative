@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
+document.title = 'Connexion | Gestion'
 
 const router = useRouter()
 const auth = useAuthenticationStore()
@@ -14,8 +15,8 @@ async function submit() {
   try {
     await auth.login({ email: email.value, password: password.value })
     await router.push({ name: 'home' })
-  } catch {
-    /* error exposed in auth.error */
+  } catch (error) {
+    console.error('[LOGIN_ERROR]', error)
   }
 }
 </script>
