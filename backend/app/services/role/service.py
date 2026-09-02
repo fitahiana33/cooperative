@@ -3,6 +3,7 @@ from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models import Role, Permission, User
 from app.core.pagination import paginate
+from app.models.user import UserRole
 
 class RoleService:
     def __init__(self, db: Session):
@@ -28,7 +29,7 @@ class RoleService:
         self.db.refresh(role)
         return role
 
-    def update_role(self, role_id: int, libelle: str | None = None, description: str | None = None) -> Role:
+    def update_role(self, role_id: int, libelle: str | None = None, description: str | None = None, is_active: bool | None = None) -> Role:
         role = self.get_role(role_id)
         if libelle and libelle.strip() != role.libelle:
             existing = self.db.scalar(select(Role).where(Role.libelle == libelle.strip()))
@@ -37,6 +38,8 @@ class RoleService:
             role.libelle = libelle.strip()
         if description is not None:
             role.description = description
+        if is_active is not None:
+            role.is_active = is_active
         self.db.commit()
         self.db.refresh(role)
         return role
@@ -66,11 +69,12 @@ class RoleService:
         return perm
 
     def create_permission(self, code: str, libelle: str, module: str, description: str | None = None) -> Permission:
-        existing = self.db.scalar(select(Permission).where(Permission.code == code.strip()))
+        normalized_code = code.strip().upper()
+        existing = self.db.scalar(select(Permission).where(Permission.code == normalized_code))
         if existing:
             raise HTTPException(status_code=400, detail="Une permission avec ce code existe déjà.")
         perm = Permission(
-            code=code.strip().upper(),
+            code=normalized_code,
             libelle=libelle.strip(),
             module=module.strip().upper(),
             description=description,
@@ -80,7 +84,7 @@ class RoleService:
         self.db.refresh(perm)
         return perm
 
-    def update_permission(self, permission_id: int, code: str | None = None, libelle: str | None = None, module: str | None = None, description: str | None = None) -> Permission:
+    def update_permission(self, permission_id: int, code: str | None = None, libelle: str | None = None, module: str | None = None, description: str | None = None, is_active: bool | None = None) -> Permission:
         perm = self.get_permission(permission_id)
         if code and code.strip().upper() != perm.code:
             existing = self.db.scalar(select(Permission).where(Permission.code == code.strip().upper()))
@@ -93,6 +97,8 @@ class RoleService:
             perm.module = module.strip().upper()
         if description is not None:
             perm.description = description
+        if is_active is not None:
+            perm.is_active = is_active
         self.db.commit()
         self.db.refresh(perm)
         return perm
@@ -149,7 +155,7 @@ class RoleService:
     # --- Permission Checking ---
     @staticmethod
     def user_has_permission(user: User, permission_code: str) -> bool:
-        if user.role == "admin":
+        if user.role == UserRole.ADMIN:
             return True
         user_permissions = {
             perm.code

@@ -10,18 +10,19 @@ import '../../../data/repositories/auth/auth_repository_impl.dart';
 import '../../../domain/repositories/auth/auth_repository.dart';
 import '../../../domain/services/auth/auth_service.dart';
 import 'auth_state.dart';
+import '../../../core/errors/user_error.dart';
 
-final Provider<SharedPreferences> sharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+final Provider<SharedPreferences> authSharedPreferencesProvider = Provider<SharedPreferences>((ref) {
   throw UnimplementedError('SharedPreferences non initialisé.');
 });
 
-final Provider<TokenStorage> tokenStorageProvider = Provider<TokenStorage>((ref) {
-  final prefs = ref.watch(sharedPreferencesProvider);
+final Provider<TokenStorage> authTokenStorageProvider = Provider<TokenStorage>((ref) {
+  final prefs = ref.watch(authSharedPreferencesProvider);
   return TokenStorage(prefs);
 });
 
-final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((ref) {
-  final storage = ref.watch(tokenStorageProvider);
+final Provider<ApiClient> authApiClientProvider = Provider<ApiClient>((ref) {
+  final storage = ref.watch(authTokenStorageProvider);
   return ApiClient(
     tokenStorage: storage,
     onUnauthenticated: () {
@@ -31,13 +32,13 @@ final Provider<ApiClient> apiClientProvider = Provider<ApiClient>((ref) {
 });
 
 final Provider<AuthRemoteDataSource> authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
-  final apiClient = ref.watch(apiClientProvider);
+  final apiClient = ref.watch(authApiClientProvider);
   return AuthRemoteDataSource(apiClient);
 });
 
 final Provider<AuthRepository> authRepositoryProvider = Provider<AuthRepository>((ref) {
   final remote = ref.watch(authRemoteDataSourceProvider);
-  final storage = ref.watch(tokenStorageProvider);
+  final storage = ref.watch(authTokenStorageProvider);
   return AuthRepositoryImpl(
     remoteDataSource: remote,
     tokenStorage: storage,
@@ -103,10 +104,10 @@ class AuthController extends StateNotifier<AuthState> {
         user: user,
       );
       return true;
-    } catch (e) {
+    } catch (error) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
+        errorMessage: userError(error, 'Email ou mot de passe incorrect.', 'MOBILE_LOGIN_ERROR'),
       );
       return false;
     }
@@ -141,10 +142,10 @@ class AuthController extends StateNotifier<AuthState> {
         infoMessage: 'Inscription réussie! Vous êtes connecté.',
       );
       return true;
-    } catch (e) {
+    } catch (error) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
+        errorMessage: userError(error, 'Une erreur est survenue lors de la création du compte.', 'MOBILE_REGISTER_ERROR'),
       );
       return false;
     }
@@ -156,9 +157,9 @@ class AuthController extends StateNotifier<AuthState> {
       final message = await _authService.forgotPassword(email);
       state = state.copyWith(infoMessage: message);
       return true;
-    } catch (e) {
+    } catch (error) {
       state = state.copyWith(
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
+        errorMessage: userError(error, 'Impossible d’envoyer la demande de réinitialisation.', 'MOBILE_FORGOT_PASSWORD_ERROR'),
       );
       return false;
     }
@@ -176,9 +177,9 @@ class AuthController extends StateNotifier<AuthState> {
       );
       state = state.copyWith(infoMessage: message);
       return true;
-    } catch (e) {
+    } catch (error) {
       state = state.copyWith(
-        errorMessage: e.toString().replaceAll('Exception: ', ''),
+        errorMessage: userError(error, 'Code ou jeton invalide ou expiré.', 'MOBILE_RESET_PASSWORD_ERROR'),
       );
       return false;
     }

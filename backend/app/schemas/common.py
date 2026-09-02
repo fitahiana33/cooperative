@@ -7,5 +7,5 @@ class PageResponse(BaseModel, Generic[T]):
     items: list[T]
     total: int
     page: int = Field(ge=1)
-    page_size: int = Field(ge=1)
+    page_size: int = Field(ge=1, le=100)
     pages: int = Field(ge=0)

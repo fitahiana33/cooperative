@@ -1,6 +1,13 @@
 from functools import lru_cache
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BACKEND_DIR / ".env"
+if not ENV_FILE.exists():
+    ENV_FILE = BACKEND_DIR.parent / ".env"
 
 
 class Settings(BaseSettings):
@@ -17,7 +24,11 @@ class Settings(BaseSettings):
     default_admin_email: str
     default_admin_password: str
 
-    model_config = SettingsConfigDict(env_file=".env", env_file_encoding="utf-8", extra="ignore")
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
 
 
 @lru_cache

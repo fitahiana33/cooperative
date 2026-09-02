@@ -4,6 +4,7 @@ from sqlalchemy.orm import Session
 
 from app.models.user import User, UserRole
 from app.models.role import Role
+from app.models.authentication import RevokedToken
 from datetime import datetime, timezone
 from app.repositories.user import UserRepository
 from app.schemas.authentication import (
@@ -23,6 +24,7 @@ from .token import (
     create_refresh_token,
     decode_password_reset_token,
     decode_refresh_token,
+    decode_refresh_payload,
 )
 
 logger = logging.getLogger("cooperative.auth")
@@ -86,7 +88,10 @@ class AuthenticationService:
         )
 
     def refresh_token(self, data: RefreshTokenRequest) -> TokenResponse:
-        user_id_str = decode_refresh_token(data.refresh_token)
+        refresh_payload = decode_refresh_payload(data.refresh_token)
+        if refresh_payload and self.db.get(RevokedToken, refresh_payload.get("jti")):
+            refresh_payload = None
+        user_id_str = str(refresh_payload.get("sub")) if refresh_payload and refresh_payload.get("sub") is not None else None
         if not user_id_str or not user_id_str.isdigit():
             raise HTTPException(
                 status_code=status.HTTP_401_UNAUTHORIZED,
@@ -115,7 +120,11 @@ class AuthenticationService:
         if user and user.is_active:
             reset_token = create_password_reset_token(email_clean)
             # In a production environment, send an email with the reset token / link.
-            logger.info(f"[PASSWORD_RESET] Token generated for {email_clean}: {reset_token}")
+            logger.info(
+                "[PASSWORD_RESET] Reset token generated for email=%s at=%s",
+                email_clean,
+                datetime.now(timezone.utc).isoformat(),
+            )
 
         return MessageResponse(
             message="Si cet email existe dans notre système, des instructions de réinitialisation ont été envoyées."

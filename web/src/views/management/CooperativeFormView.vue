@@ -4,11 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import { managementService } from '../../services/management/service'
+import { userError } from '../../utils/errors'
 const route = useRoute(); const router = useRouter(); const id = route.params.id ? Number(route.params.id) : null
 const editing = Boolean(id); const loading = ref(editing); const submitting = ref(false); const error = ref('')
 const form = reactive({ nom: '', sigle: '', numero_agrement: '', adresse: '', ville: '', telephone: '', email: '', description: '', responsable_id: null as number | null })
-onMounted(async () => { if (!id) return; try { Object.assign(form, await managementService.getCooperative(id)) } catch (e: any) { error.value = e?.response?.data?.detail || 'Impossible de charger cette coopérative.' } finally { loading.value = false } })
-async function submit() { if (submitting.value) return; submitting.value = true; error.value = ''; try { if (id) await managementService.updateCooperative(id, form); else await managementService.createCooperative(form); router.push('/cooperatives') } catch (e: any) { error.value = e?.response?.data?.detail || 'Enregistrement impossible.' } finally { submitting.value = false } }
+onMounted(async () => { if (!id) { loading.value = false; return }; try { Object.assign(form, await managementService.getCooperative(id)) } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de charger cette coopérative.', 'COOPERATIVE_FORM_LOAD_ERROR') } finally { loading.value = false } })
+async function submit() { if (submitting.value) return; submitting.value = true; error.value = ''; try { if (id) await managementService.updateCooperative(id, form); else await managementService.createCooperative(form); await router.push({ path: '/cooperatives', query: { success: id ? 'Coopérative modifiée avec succès.' : 'Coopérative créée avec succès.' } }) } catch (errorValue: unknown) { error.value = userError(errorValue, 'Enregistrement impossible.', 'COOPERATIVE_FORM_SAVE_ERROR') } finally { submitting.value = false } }
 </script>
 <template><AppLayout><template #title>{{ editing ? 'Modifier la coopérative' : 'Nouvelle coopérative' }}</template>
 <div class="page-intro"><div><p class="eyebrow">GESTION DES COOPÉRATIVES</p><h2>{{ editing ? 'Modifier la coopérative' : 'Ajouter une coopérative' }}</h2><p>Renseignez les informations de la coopérative puis enregistrez.</p></div><RouterLink class="secondary-button" to="/cooperatives">Retour à la liste</RouterLink></div>

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
+document.title = 'Connexion | Gestion'
 
 const router = useRouter()
 const auth = useAuthenticationStore()

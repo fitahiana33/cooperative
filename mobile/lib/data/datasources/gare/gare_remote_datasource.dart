@@ -14,20 +14,20 @@ class GareRemoteDataSourceImpl implements GareRemoteDataSource {
 
   @override
   Future<List<GareDto>> getGares() async {
-    final response = await _apiClient.get('/management/gares');
-    final List list = response.data as List;
+    final response = await _apiClient.get('/gares', queryParameters: {'page': 1, 'page_size': 100});
+    final List list = response.data['items'] as List;
     return list.map((json) => GareDto.fromJson(json as Map<String, dynamic>)).toList();
   }
 
   @override
   Future<GareDto> createGare(Map<String, dynamic> data) async {
-    final response = await _apiClient.post('/management/gares', data: data);
+    final response = await _apiClient.post('/gares', data: data);
     return GareDto.fromJson(response.data as Map<String, dynamic>);
   }
 
   @override
   Future<GareDto> toggleGareStatus(int gareId) async {
-    final response = await _apiClient.patch('/management/gares/$gareId/toggle');
+    final response = await _apiClient.patch('/gares/$gareId/toggle');
     return GareDto.fromJson(response.data as Map<String, dynamic>);
   }
 }

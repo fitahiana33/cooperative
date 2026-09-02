@@ -35,7 +35,7 @@ export const authenticationService = {
     return (await api.get<User>('/auth/me')).data
   },
 
-  async logout(): Promise<MessageResponse> {
-    return (await api.post<MessageResponse>('/auth/logout')).data
+  async logout(payload?: RefreshTokenPayload): Promise<MessageResponse> {
+    return (await api.post<MessageResponse>('/auth/logout', payload)).data
   },
 }

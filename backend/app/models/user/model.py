@@ -4,6 +4,7 @@ from sqlalchemy import BigInteger, Boolean, DateTime, Table, Column, ForeignKey,
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
+from app.core.roles import normalize_role
 
 
 class UserRole:
@@ -46,5 +47,7 @@ class User(Base):
 
     @property
     def role(self) -> str:
-        active_roles = [role.libelle for role in self.roles if role.is_active]
+        active_roles = [normalize_role(role.libelle) for role in self.roles if role.is_active]
+        if UserRole.ADMIN in active_roles:
+            return UserRole.ADMIN
         return active_roles[0] if active_roles else UserRole.PASSENGER

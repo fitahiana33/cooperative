@@ -5,6 +5,8 @@ from app.models.user import User, UserRole
 from app.models.role import Role, Permission
 from app.repositories.user import UserRepository
 from app.services.authentication.password import hash_password
+from sqlalchemy import func
+from app.core.roles import normalize_role
 
 
 def seed_default_admin(db: Session) -> None:
@@ -18,10 +20,13 @@ def seed_default_admin(db: Session) -> None:
     }
     roles = {}
     for name in role_names:
-        role = db.query(Role).filter(Role.libelle == name).first()
+        role = db.query(Role).filter(func.lower(Role.libelle) == normalize_role(name)).first()
         if not role:
             role = Role(libelle=name, description=f"Rôle {name}")
             db.add(role)
+        if role and role.libelle != name:
+            role.libelle = name
+        role.is_active = True
         roles[name] = role
     db.commit()
 
@@ -47,6 +52,11 @@ def seed_default_admin(db: Session) -> None:
         ("VEHICULE_READ", "Consultation des véhicules", "VEHICULE"),
         ("VEHICULE_CREATE", "Ajout de véhicules", "VEHICULE"),
         ("VEHICULE_UPDATE", "Modification de véhicules", "VEHICULE"),
+        ("VEHICULE_DELETE", "Suppression des véhicules", "VEHICULE"),
+        ("CHAUFFEUR_READ", "Consultation des chauffeurs", "CHAUFFEUR"),
+        ("CHAUFFEUR_CREATE", "Ajout de chauffeurs", "CHAUFFEUR"),
+        ("CHAUFFEUR_UPDATE", "Modification des chauffeurs", "CHAUFFEUR"),
+        ("CHAUFFEUR_DELETE", "Suppression des chauffeurs", "CHAUFFEUR"),
         # DEPART
         ("DEPART_CREATE", "Création de départs", "DEPART"),
         ("DEPART_READ", "Consultation des départs", "DEPART"),
@@ -70,6 +80,7 @@ def seed_default_admin(db: Session) -> None:
         else:
             permission.libelle = libelle
             permission.module = module
+            permission.is_active = True
         permissions[code] = permission
     db.commit()
 
@@ -78,6 +89,22 @@ def seed_default_admin(db: Session) -> None:
     for perm in permissions.values():
         if perm not in admin_role.permissions:
             admin_role.permissions.append(perm)
+    db.commit()
+
+    role_permissions = {
+        UserRole.RESPONSABLE_GARE: {"GARE_READ", "GARE_CREATE", "GARE_UPDATE", "GARE_DELETE"},
+        UserRole.AGENT_GARE: {"GARE_READ"},
+        UserRole.RESPONSABLE_COOPERATIVE: {
+            "COOPERATIVE_READ", "COOPERATIVE_CREATE", "COOPERATIVE_UPDATE", "COOPERATIVE_DELETE",
+            "VEHICULE_READ", "VEHICULE_CREATE", "VEHICULE_UPDATE", "VEHICULE_DELETE",
+            "CHAUFFEUR_READ", "CHAUFFEUR_CREATE", "CHAUFFEUR_UPDATE", "CHAUFFEUR_DELETE",
+        },
+        UserRole.CHAUFFEUR: {"VEHICULE_READ"},
+    }
+    for role_name, codes in role_permissions.items():
+        for code in codes:
+            if permissions[code] not in roles[role_name].permissions:
+                roles[role_name].permissions.append(permissions[code])
     db.commit()
 
     repository = UserRepository(db)

@@ -19,11 +19,11 @@ def upgrade() -> None:
     if sa.inspect(bind).has_table("roles"):
         return
     op.create_table("roles",
-        sa.Column("id_role", sa.BigInteger(), primary_key=True), sa.Column("libelle", sa.String(100), nullable=False, unique=True),
+        sa.Column("id_role", sa.BigInteger(), sa.Identity(always=True), primary_key=True), sa.Column("libelle", sa.String(100), nullable=False, unique=True),
         sa.Column("description", sa.String(255)), sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()),
         sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
     op.create_table("permissions",
-        sa.Column("id_permission", sa.BigInteger(), primary_key=True), sa.Column("libelle", sa.String(100), nullable=False),
+        sa.Column("id_permission", sa.BigInteger(), sa.Identity(always=True), primary_key=True), sa.Column("libelle", sa.String(100), nullable=False),
         sa.Column("description", sa.String(255)), sa.Column("code", sa.String(100), nullable=False, unique=True), sa.Column("module", sa.String(100), nullable=False),
         sa.Column("is_active", sa.Boolean(), nullable=False, server_default=sa.true()), sa.Column("created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False))
     op.create_table("users_roles", sa.Column("id_user", sa.BigInteger(), sa.ForeignKey("users.id_user", ondelete="CASCADE"), primary_key=True), sa.Column("id_role", sa.BigInteger(), sa.ForeignKey("roles.id_role", ondelete="CASCADE"), primary_key=True))

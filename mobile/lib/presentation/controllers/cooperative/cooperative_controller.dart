@@ -4,6 +4,7 @@ import '../../../data/datasources/cooperative/cooperative_remote_datasource.dart
 import '../../../data/repositories/cooperative/cooperative_repository_impl.dart';
 import '../../../domain/entities/cooperative/cooperative_entity.dart';
 import '../../../domain/services/cooperative/cooperative_service.dart';
+import '../../../core/errors/user_error.dart';
 
 final cooperativeServiceProvider = Provider<CooperativeService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
@@ -48,8 +49,8 @@ class CooperativeController extends StateNotifier<CooperativeState> {
     try {
       final list = await _service.getCooperatives();
       state = state.copyWith(isLoading: false, cooperatives: list);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+    } catch (error) {
+      state = state.copyWith(isLoading: false, error: userError(error, 'Impossible de charger les coopératives.', 'COOPERATIVES_LOAD_ERROR'));
     }
   }
 
@@ -77,8 +78,8 @@ class CooperativeController extends StateNotifier<CooperativeState> {
       );
       await loadCooperatives();
       return true;
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+    } catch (error) {
+      state = state.copyWith(isLoading: false, error: userError(error, 'Impossible d’enregistrer la coopérative.', 'COOPERATIVE_CREATE_ERROR'));
       return false;
     }
   }
@@ -88,8 +89,8 @@ class CooperativeController extends StateNotifier<CooperativeState> {
       await _service.toggleCooperativeStatus(id);
       await loadCooperatives();
       return true;
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
+    } catch (error) {
+      state = state.copyWith(error: userError(error, 'Impossible de modifier le statut de la coopérative.', 'COOPERATIVE_TOGGLE_ERROR'));
       return false;
     }
   }

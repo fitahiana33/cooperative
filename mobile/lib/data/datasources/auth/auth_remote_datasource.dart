@@ -87,16 +87,34 @@ class AuthRemoteDataSource {
     }
   }
 
+  Future<void> logout(String refreshToken) async {
+    try {
+      await _apiClient.dio.post(
+        '/auth/logout',
+        data: {'refresh_token': refreshToken},
+      );
+    } on DioException catch (e) {
+      throw _handleDioError(e);
+    }
+  }
+
   Exception _handleDioError(DioException e) {
     if (e.response?.statusCode == 429) {
       return Exception('Trop de tentatives. Veuillez patienter une minute avant de réessayer.');
     }
+    final status = e.response?.statusCode;
+    if (status == 401) return Exception('Email ou mot de passe incorrect.');
+    if (status == 403) return Exception('Vous n’êtes pas autorisé à effectuer cette action.');
+    if (status == 404) return Exception('La ressource demandée est introuvable.');
+    if (status == 409) return Exception('Cette donnée existe déjà ou est encore utilisée.');
+    if (status == 422) return Exception('Vérifiez les champs saisis puis réessayez.');
+    if (status != null && status >= 500) return Exception('Une erreur est survenue. Veuillez réessayer.');
     if (e.response != null && e.response?.data != null) {
       final data = e.response?.data;
       if (data is Map<String, dynamic>) {
         if (data.containsKey('detail')) {
           final detail = data['detail'];
-          if (detail is String) return Exception(detail);
+          if (detail is String) return Exception('La demande ne peut pas être traitée. Vérifiez les informations saisies.');
         }
         if (data.containsKey('error')) {
           return Exception('Trop de tentatives. Veuillez patienter une minute avant de réessayer.');

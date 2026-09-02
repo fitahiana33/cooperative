@@ -3,8 +3,12 @@ from typing import Any
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-def paginate(db: Session, model: Any, *, page: int, page_size: int, search: str | None, search_fields: tuple[str, ...], sort_by: str, sort_fields: tuple[str, ...], sort_order: str):
-    statement = select(model)
+MAX_PAGE_SIZE = 100
+
+def paginate(db: Session, model: Any, *, statement=None, page: int, page_size: int, search: str | None, search_fields: tuple[str, ...], sort_by: str, sort_fields: tuple[str, ...], sort_order: str):
+    page_size = min(max(int(page_size), 1), MAX_PAGE_SIZE)
+    if statement is None:
+        statement = select(model)
     if search and search.strip():
         term = f"%{search.strip()}%"
         fields = [getattr(model, name) for name in search_fields]

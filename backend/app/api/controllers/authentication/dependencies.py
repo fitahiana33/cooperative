@@ -6,8 +6,10 @@ from sqlalchemy.orm import Session
 
 from app.db.session import get_db
 from app.models.user import User, UserRole
+from app.models.authentication import RevokedToken
 from app.repositories.user import UserRepository
 from app.services.authentication.token import decode_access_token
+from app.core.roles import normalize_role
 
 bearer = HTTPBearer(auto_error=False)
 
@@ -28,6 +30,13 @@ def get_current_user(
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail="Jeton d'accès invalide ou expiré.",
+            headers={"WWW-Authenticate": "Bearer"},
+        )
+
+    if db.get(RevokedToken, payload.get("jti")):
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Jeton révoqué.",
             headers={"WWW-Authenticate": "Bearer"},
         )
 
@@ -52,8 +61,9 @@ def get_current_user(
 
 def require_roles(*allowed_roles: str) -> Callable[[User], User]:
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
-        assigned = {role.libelle for role in current_user.roles if role.is_active}
-        if current_user.role not in allowed_roles and not assigned.intersection(allowed_roles):
+        allowed = {normalize_role(role) for role in allowed_roles}
+        assigned = {normalize_role(role.libelle) for role in current_user.roles if role.is_active}
+        if normalize_role(current_user.role) not in allowed and not assigned.intersection(allowed):
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN,
                 detail=f"Accès refusé. Rôle(s) requis: {', '.join(allowed_roles)}.",

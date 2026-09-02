@@ -4,6 +4,7 @@ import '../../../data/datasources/gare/gare_remote_datasource.dart';
 import '../../../data/repositories/gare/gare_repository_impl.dart';
 import '../../../domain/entities/gare/gare_entity.dart';
 import '../../../domain/services/gare/gare_service.dart';
+import '../../../core/errors/user_error.dart';
 
 final gareServiceProvider = Provider<GareService>((ref) {
   final apiClient = ref.watch(apiClientProvider);
@@ -48,8 +49,8 @@ class GareController extends StateNotifier<GareState> {
     try {
       final list = await _service.getGares();
       state = state.copyWith(isLoading: false, gares: list);
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+    } catch (error) {
+      state = state.copyWith(isLoading: false, error: userError(error, 'Impossible de charger les gares.', 'GARES_LOAD_ERROR'));
     }
   }
 
@@ -75,8 +76,8 @@ class GareController extends StateNotifier<GareState> {
       );
       await loadGares();
       return true;
-    } catch (e) {
-      state = state.copyWith(isLoading: false, error: e.toString());
+    } catch (error) {
+      state = state.copyWith(isLoading: false, error: userError(error, 'Impossible d’enregistrer la gare.', 'GARE_CREATE_ERROR'));
       return false;
     }
   }
@@ -86,8 +87,8 @@ class GareController extends StateNotifier<GareState> {
       await _service.toggleGareStatus(id);
       await loadGares();
       return true;
-    } catch (e) {
-      state = state.copyWith(error: e.toString());
+    } catch (error) {
+      state = state.copyWith(error: userError(error, 'Impossible de modifier le statut de la gare.', 'GARE_TOGGLE_ERROR'));
       return false;
     }
   }

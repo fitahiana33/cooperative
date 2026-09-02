@@ -3,12 +3,9 @@ from sqlalchemy.orm import sessionmaker
 
 from app.core.config import settings
 
-if settings.database_url.startswith("sqlite"):
-    engine = create_engine(settings.database_url, connect_args={"check_same_thread": False})
-else:
-    if not settings.database_url.startswith("postgresql+psycopg://"):
-        raise RuntimeError("DATABASE_URL doit utiliser PostgreSQL avec le driver psycopg.")
-    engine = create_engine(settings.database_url, pool_pre_ping=True)
+if not settings.database_url.startswith("postgresql+psycopg://"):
+    raise RuntimeError("DATABASE_URL doit utiliser PostgreSQL avec le driver psycopg.")
+engine = create_engine(settings.database_url, pool_pre_ping=True)
 
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
 
@@ -19,4 +16,3 @@ def get_db():
         yield db
     finally:
         db.close()
-

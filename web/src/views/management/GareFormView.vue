@@ -4,11 +4,12 @@ import { useRoute, useRouter } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import { managementService } from '../../services/management/service'
+import { userError } from '../../utils/errors'
 const route = useRoute(); const router = useRouter(); const id = route.params.id ? Number(route.params.id) : null
 const editing = Boolean(id); const loading = ref(editing); const submitting = ref(false); const error = ref('')
 const form = reactive({ nom: '', adresse: '', ville: '', region: '', telephone: '', email: '', description: '', latitude: null as number | null, longitude: null as number | null })
-onMounted(async () => { if (!id) return; try { Object.assign(form, await managementService.getGare(id)) } catch (e: any) { error.value = e?.response?.data?.detail || 'Impossible de charger cette gare.' } finally { loading.value = false } })
-async function submit() { if (submitting.value) return; submitting.value = true; error.value = ''; try { if (id) await managementService.updateGare(id, form); else await managementService.createGare(form); router.push('/gares') } catch (e: any) { error.value = e?.response?.data?.detail || 'Enregistrement impossible.' } finally { submitting.value = false } }
+onMounted(async () => { if (!id) { loading.value = false; return }; try { Object.assign(form, await managementService.getGare(id)) } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de charger cette gare.', 'GARE_FORM_LOAD_ERROR') } finally { loading.value = false } })
+async function submit() { if (submitting.value) return; submitting.value = true; error.value = ''; try { if (id) await managementService.updateGare(id, form); else await managementService.createGare(form); await router.push({ path: '/gares', query: { success: id ? 'Gare modifiée avec succès.' : 'Gare créée avec succès.' } }) } catch (errorValue: unknown) { error.value = userError(errorValue, 'Enregistrement impossible.', 'GARE_FORM_SAVE_ERROR') } finally { submitting.value = false } }
 </script>
 <template><AppLayout><template #title>{{ editing ? 'Modifier la gare' : 'Nouvelle gare' }}</template>
 <div class="page-intro"><div><p class="eyebrow">GESTION DES GARES</p><h2>{{ editing ? 'Modifier la gare routière' : 'Ajouter une gare routière' }}</h2><p>Renseignez les informations de la gare puis enregistrez.</p></div><RouterLink class="secondary-button" to="/gares">Retour à la liste</RouterLink></div>

@@ -2,6 +2,7 @@
 import { ref } from 'vue'
 import { useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
+document.title = 'Mot de passe oublié | Gestion'
 
 const router = useRouter()
 const auth = useAuthenticationStore()
@@ -47,7 +48,7 @@ async function submitReset() {
         <span>Coopérative</span>
       </div>
 
-      <h2>Mot de passe oublié</h2>
+      <h1>Mot de passe oublié</h1>
       <p class="subtitle">
         {{
           isResetStep
@@ -153,7 +154,7 @@ async function submitReset() {
   justify-content: center;
 }
 
-h2 {
+h1 {
   font-size: 1.75rem;
   font-weight: 700;
   margin: 0;

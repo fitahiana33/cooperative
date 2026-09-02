@@ -96,7 +96,17 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> logout() async {
+  String? getRefreshTokenForLogout() => _tokenStorage.getRefreshToken();
+
+  @override
+  Future<void> logout({String? refreshToken}) async {
+    if (refreshToken != null && refreshToken.isNotEmpty) {
+      try {
+        await _remoteDataSource.logout(refreshToken);
+      } catch (error) {
+        debugPrint('[REMOTE_LOGOUT_ERROR] $error');
+      }
+    }
     await _tokenStorage.clear();
   }
 }
