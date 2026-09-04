@@ -34,12 +34,9 @@ export const vehiculeService = {
   async deleteDocument(documentId: number): Promise<void> {
     await api.delete(`/vehicules/documents/${documentId}`)
   },
-}
-
-export function getDocumentUrl(path?: string) {
-  if (!path) return ''
-  if (/^https?:\/\//i.test(path)) return path
-  const apiBase = String(api.defaults.baseURL || '')
-  const origin = apiBase.replace(/\/api\/v1\/?$/, '')
-  return `${origin}${path.startsWith('/') ? path : `/${path}`}`
+  async downloadDocument(documentId: number): Promise<Blob> {
+    return (await api.get<Blob>(`/vehicules/documents/${documentId}/download`, {
+      responseType: 'blob',
+    })).data
+  },
 }

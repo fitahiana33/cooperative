@@ -9,17 +9,17 @@ import { chauffeurService } from '../../services/chauffeur/service'
 import { marqueService } from '../../services/marque/service'
 import { modeleService } from '../../services/modele/service'
 import { cooperativeService } from '../../services/cooperative/service'
-import { userService } from '../../services/user/service'
 import type { Vehicule } from '../../models/vehicule/model'
 import type { Chauffeur } from '../../models/chauffeur/model'
 import type { Marque } from '../../models/marque/model'
 import type { Modele } from '../../models/modele/model'
 import type { Cooperative } from '../../models/cooperative/model'
-import type { User } from '../../models/user/model'
 import { userError } from '../../utils/errors'
+import { useAuthenticationStore } from '../../stores/authentication/store'
 
 type FleetSection = 'vehicules' | 'chauffeurs' | 'marques' | 'modeles'
 const route = useRoute()
+const auth = useAuthenticationStore()
 const section = computed<FleetSection>(() => {
   const name = String(route.name || 'vehicules')
   return ['vehicules', 'chauffeurs', 'marques', 'modeles'].includes(name) ? name as FleetSection : 'vehicules'
@@ -32,13 +32,13 @@ const description = computed(() => ({
   modeles: 'Consultez les modèles rattachés à chaque marque.',
 }[section.value]))
 const createPath = computed(() => `/${section.value}/new`)
+const canManageCatalog = computed(() => auth.userRole.toLowerCase() === 'admin')
 
 const vehicules = ref<Vehicule[]>([])
 const chauffeurs = ref<Chauffeur[]>([])
 const marques = ref<Marque[]>([])
 const modeles = ref<Modele[]>([])
 const cooperatives = ref<Cooperative[]>([])
-const users = ref<User[]>([])
 const total = ref(0)
 const page = ref(1)
 const pages = ref(1)
@@ -59,12 +59,10 @@ async function loadReferences() {
     marqueService.listMarques({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
     modeleService.listModeles({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
     cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
-    userService.list({ page: 1, page_size: 100, sort_by: 'name', sort_order: 'asc' }),
   ])
   if (results[0].status === 'fulfilled') marques.value = results[0].value.items
   if (results[1].status === 'fulfilled') modeles.value = results[1].value.items
   if (results[2].status === 'fulfilled') cooperatives.value = results[2].value.items
-  if (results[3].status === 'fulfilled') users.value = results[3].value.items
 }
 
 async function load() {
@@ -92,15 +90,22 @@ async function load() {
   }
 }
 
-function displayCooperative(id: number) { return cooperatives.value.find(item => item.id === id)?.nom || `Coopérative #${id}` }
-function displayUser(id: number) {
-  const item = users.value.find(user => user.id === id)
-  return item ? `${item.first_name} ${item.name}`.trim() : `Utilisateur #${id}`
+function displayCooperative(item: Vehicule | number) {
+  if (typeof item === 'number') return cooperatives.value.find(value => value.id === item)?.nom || `Coopérative #${item}`
+  return item.cooperative?.nom || cooperatives.value.find(value => value.id === item.id_cooperative)?.nom || `Coopérative #${item.id_cooperative}`
 }
-function displayModele(id: number) {
-  const item = modeles.value.find(model => model.id === id)
-  const brand = item ? marques.value.find(value => value.id === item.id_marque)?.nom : undefined
-  return item ? `${brand || ''} ${item.nom}`.trim() : `Modèle #${id}`
+function displayUser(item: Chauffeur | number) {
+  if (typeof item === 'number') return `Utilisateur #${item}`
+  return item.user ? `${item.user.first_name || ''} ${item.user.name}`.trim() : `Utilisateur #${item.id_user}`
+}
+function displayModele(item: Vehicule | number) {
+  if (typeof item === 'number') {
+    const model = modeles.value.find(value => value.id === item)
+    const brand = model ? marques.value.find(value => value.id === model.id_marque)?.nom : undefined
+    return model ? `${brand || ''} ${model.nom}`.trim() : `Modèle #${item}`
+  }
+  const brand = item.modele?.id_marque ? marques.value.find(value => value.id === item.modele?.id_marque)?.nom : undefined
+  return item.modele ? `${brand || ''} ${item.modele.nom}`.trim() : `Modèle #${item.id_modele}`
 }
 
 async function toggle(item: Vehicule | Chauffeur | Marque | Modele) {
@@ -145,7 +150,7 @@ watch(section, async () => { page.value = 1; search.value = ''; success.value = 
     <template #title>{{ title }}</template>
     <div class="page-intro">
       <div><p class="eyebrow">GESTION DE LA FLOTTE</p><h2>{{ title }}</h2><p>{{ description }}</p></div>
-      <RouterLink class="primary-button compact-button" :to="createPath">+ Ajouter</RouterLink>
+       <RouterLink v-if="section === 'vehicules' || section === 'chauffeurs' || canManageCatalog" class="primary-button compact-button" :to="createPath">+ Ajouter</RouterLink>
     </div>
     <div class="section-links">
       <RouterLink to="/vehicules" :class="{ active: section === 'vehicules' }">Véhicules</RouterLink>
@@ -169,7 +174,7 @@ watch(section, async () => { page.value = 1; search.value = ''; success.value = 
     <BaseCard v-else-if="section === 'chauffeurs'">
       <div class="card-heading"><div><h2>Chauffeurs enregistrés ({{ total }})</h2><p>Suivez les permis, disponibilités et statuts.</p></div></div>
       <div class="table-scroll"><table class="data-table"><thead><tr><th>Utilisateur</th><th>Permis</th><th>Catégorie</th><th>Coopérative</th><th>Expiration</th><th>Disponibilité</th><th>Statut</th><th>Actions</th></tr></thead><tbody>
-        <tr v-for="item in chauffeurs" :key="item.id"><td><strong>{{ displayUser(item.id_user) }}</strong></td><td>{{ item.numero_permis }}</td><td><span class="module-badge">{{ item.categorie_permis }}</span></td><td>{{ displayCooperative(item.id_cooperative) }}</td><td>{{ item.date_expiration_permis }}</td><td><span :class="['status-badge', item.disponibilite ? 'active' : 'inactive']">{{ item.disponibilite ? 'Disponible' : 'Indisponible' }}</span></td><td><span :class="['status-badge', item.is_active ? 'active' : 'inactive']">{{ item.is_active ? 'Actif' : 'Inactif' }}</span></td><td><button class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button><RouterLink class="table-action table-link" :to="`/chauffeurs/${item.id}`">Détails</RouterLink><RouterLink class="table-action table-link" :to="`/chauffeurs/${item.id}/edit`">Modifier</RouterLink><button class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button></td></tr>
+        <tr v-for="item in chauffeurs" :key="item.id"><td><strong>{{ displayUser(item) }}</strong></td><td>{{ item.numero_permis }}</td><td><span class="module-badge">{{ item.categorie_permis }}</span></td><td>{{ displayCooperative(item.id_cooperative) }}</td><td>{{ item.date_expiration_permis }}</td><td><span :class="['status-badge', item.disponibilite ? 'active' : 'inactive']">{{ item.disponibilite ? 'Disponible' : 'Indisponible' }}</span></td><td><span :class="['status-badge', item.is_active ? 'active' : 'inactive']">{{ item.is_active ? 'Actif' : 'Inactif' }}</span></td><td><button class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button><RouterLink class="table-action table-link" :to="`/chauffeurs/${item.id}`">Détails</RouterLink><RouterLink class="table-action table-link" :to="`/chauffeurs/${item.id}/edit`">Modifier</RouterLink><button class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button></td></tr>
         <tr v-if="!chauffeurs.length"><td colspan="8"><div class="empty-state">Aucun chauffeur trouvé.</div></td></tr>
       </tbody></table></div>
     </BaseCard>

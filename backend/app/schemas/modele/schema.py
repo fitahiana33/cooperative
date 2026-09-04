@@ -12,10 +12,18 @@ class ModeleUpdate(BaseModel):
     description: str | None = None
     is_active: bool | None = None
 
+class ModeleMarqueRead(BaseModel):
+    id: int
+    nom: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
 class ModeleRead(ModeleCreate):
     id: int
     is_active: bool
     created_at: datetime
     updated_at: datetime | None = None
+    marque: ModeleMarqueRead | None = None
 
     model_config = ConfigDict(from_attributes=True)

@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, String, Table, Column, ForeignKey, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, String, Table, Column, ForeignKey, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -8,6 +8,8 @@ roles_permissions = Table(
     Column("id_role", ForeignKey("roles.id_role", ondelete="CASCADE"), primary_key=True),
     Column("id_permission", ForeignKey("permissions.id_permission", ondelete="CASCADE"), primary_key=True),
     Column("assigned_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_roles_permissions_role", "id_role"),
+    Index("idx_roles_permissions_permission", "id_permission"),
 )
 
 class Role(Base):

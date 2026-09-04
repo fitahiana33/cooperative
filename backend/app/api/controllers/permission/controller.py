@@ -13,8 +13,8 @@ router = APIRouter(prefix="/permissions", tags=["permissions"])
 def list_permissions(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    search: str | None = None,
-    sort_by: str = "code",
+    search: str | None = Query(None, max_length=100),
+    sort_by: str = Query("code", pattern="^(code|module|created_at)$"),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     _: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),

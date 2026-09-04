@@ -29,4 +29,22 @@ export const gareService = {
   async addEmplacement(zoneId: number, data: { code: string; nom?: string; type_emplacement?: string; description?: string }) {
     return (await api.post(`/gares/zones/${zoneId}/emplacements`, data)).data
   },
+  async toggleQuai(gareId: number, quaiId: number) {
+    return (await api.patch(`/gares/${gareId}/quais/${quaiId}/toggle`)).data
+  },
+  async deleteQuai(gareId: number, quaiId: number): Promise<void> {
+    await api.delete(`/gares/${gareId}/quais/${quaiId}`)
+  },
+  async toggleZone(gareId: number, zoneId: number) {
+    return (await api.patch(`/gares/${gareId}/zones/${zoneId}/toggle`)).data
+  },
+  async deleteZone(gareId: number, zoneId: number): Promise<void> {
+    await api.delete(`/gares/${gareId}/zones/${zoneId}`)
+  },
+  async toggleEmplacement(gareId: number, zoneId: number, emplacementId: number) {
+    return (await api.patch(`/gares/${gareId}/zones/${zoneId}/emplacements/${emplacementId}/toggle`)).data
+  },
+  async deleteEmplacement(gareId: number, zoneId: number, emplacementId: number): Promise<void> {
+    await api.delete(`/gares/${gareId}/zones/${zoneId}/emplacements/${emplacementId}`)
+  },
 }

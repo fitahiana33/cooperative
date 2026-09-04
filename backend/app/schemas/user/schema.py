@@ -41,4 +41,7 @@ class UserRead(BaseModel):
     is_active: bool
     created_at: datetime
     roles: list[UserRoleRead] = []
+
+    permissions: list[str] = Field(default_factory=list)
+
     model_config = ConfigDict(from_attributes=True)

@@ -12,4 +12,4 @@ class Marque(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
-    modeles = relationship("Modele", back_populates="marque", cascade="all, delete-orphan")
+    modeles = relationship("Modele", back_populates="marque", passive_deletes=True)

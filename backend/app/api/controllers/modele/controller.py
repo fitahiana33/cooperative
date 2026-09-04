@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.modele import ModeleCreate, ModeleUpdate, ModeleRead
 from app.schemas.common import PageResponse
 from app.services.modele import ModeleService
-from app.api.controllers.authentication.dependencies import require_permission
+from app.api.controllers.authentication.dependencies import require_permission, require_roles
 
 router = APIRouter(prefix="/modeles", tags=["modeles"])
 
@@ -13,8 +13,8 @@ router = APIRouter(prefix="/modeles", tags=["modeles"])
 def list_modeles(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    search: str | None = None,
-    sort_by: str = "nom",
+    search: str | None = Query(None, max_length=100),
+    sort_by: str = Query("nom", pattern="^(nom|created_at)$"),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     id_marque: int | None = None,
     _: User = Depends(require_permission("VEHICULE_READ")),
@@ -25,7 +25,7 @@ def list_modeles(
 @router.post("", response_model=ModeleRead, status_code=status.HTTP_201_CREATED)
 def create_modele(
     data: ModeleCreate,
-    _: User = Depends(require_permission("VEHICULE_CREATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return ModeleService(db).create_modele(id_marque=data.id_marque, nom=data.nom, description=data.description)
@@ -42,7 +42,7 @@ def get_modele(
 def update_modele(
     modele_id: int,
     data: ModeleUpdate,
-    _: User = Depends(require_permission("VEHICULE_UPDATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return ModeleService(db).update_modele(modele_id, **data.model_dump(exclude_unset=True))
@@ -50,7 +50,7 @@ def update_modele(
 @router.patch("/{modele_id}/toggle", response_model=ModeleRead)
 def toggle_modele(
     modele_id: int,
-    _: User = Depends(require_permission("VEHICULE_UPDATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return ModeleService(db).toggle_modele(modele_id)
@@ -58,7 +58,7 @@ def toggle_modele(
 @router.delete("/{modele_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_modele(
     modele_id: int,
-    _: User = Depends(require_permission("VEHICULE_DELETE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     ModeleService(db).delete_modele(modele_id)

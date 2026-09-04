@@ -9,14 +9,13 @@ type SidebarSection = 'principal' | 'administration' | 'stations' | 'fleet'
 const sidebar = useSidebarStore()
 const auth = useAuthenticationStore()
 
-const userRole = computed(() => (auth.userRole || '').toLowerCase())
-const canSeeUsers = computed(() => ['admin', 'responsable_gare', 'responsable_cooperative'].includes(userRole.value))
-const canSeeGares = computed(() => ['admin', 'responsable_gare', 'agent_gare'].includes(userRole.value))
-const canSeeCooperatives = computed(() => ['admin', 'responsable_cooperative'].includes(userRole.value))
-const canSeeRoles = computed(() => userRole.value === 'admin')
-const canSeeVehicles = computed(() => ['admin', 'responsable_cooperative', 'chauffeur'].includes(userRole.value))
-const canSeeChauffeurs = computed(() => ['admin', 'responsable_cooperative'].includes(userRole.value))
-const canSeeFleetCatalog = computed(() => ['admin', 'responsable_cooperative'].includes(userRole.value))
+const canSeeUsers = computed(() => auth.hasPermission('USER_READ'))
+const canSeeGares = computed(() => auth.hasPermission('GARE_READ'))
+const canSeeCooperatives = computed(() => auth.hasPermission('COOPERATIVE_READ'))
+const canSeeRoles = computed(() => auth.hasPermission('ROLE_MANAGE'))
+const canSeeVehicles = computed(() => auth.hasPermission('VEHICULE_READ'))
+const canSeeChauffeurs = computed(() => auth.hasPermission('CHAUFFEUR_READ'))
+const canSeeFleetCatalog = computed(() => auth.hasPermission('VEHICULE_READ'))
 
 const openSections = reactive<Record<SidebarSection, boolean>>({
   principal: true,

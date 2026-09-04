@@ -1,13 +1,13 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
-import AppLayout from '../../components/layout/AppLayout.vue'
-import BaseCard from '../../components/ui/BaseCard.vue'
-import { userService } from '../../services/user/service'
-import { roleService } from '../../services/role/service'
-import type { User, UserCreate, UserUpdate } from '../../models/user/model'
-import type { Role } from '../../models/role/model'
-import { userError } from '../../utils/errors'
+import AppLayout from '../../../components/layout/AppLayout.vue'
+import BaseCard from '../../../components/ui/BaseCard.vue'
+import { userService } from '../../../services/user/service'
+import { roleService } from '../../../services/role/service'
+import type { User, UserCreate, UserUpdate } from '../../../models/user/model'
+import type { Role } from '../../../models/role/model'
+import { userError } from '../../../utils/errors'
 
 const route = useRoute()
 const router = useRouter()

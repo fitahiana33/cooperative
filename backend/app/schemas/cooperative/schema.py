@@ -1,5 +1,26 @@
 from datetime import date, datetime
+
 from pydantic import BaseModel, ConfigDict
+
+
+class CooperativeUserRead(BaseModel):
+    id: int
+    name: str
+    first_name: str | None = None
+    email: str
+    telephone: str | None = None
+    address: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class CooperativeGareRead(BaseModel):
+    id: int
+    nom: str
+    ville: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
 
 class CooperativeCreate(BaseModel):
     nom: str
@@ -29,6 +50,7 @@ class CooperativeRead(CooperativeCreate):
     is_active: bool
     created_at: datetime
     updated_at: datetime | None = None
+    responsable: CooperativeUserRead | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -44,6 +66,7 @@ class GareCooperativeRead(BaseModel):
     date_fin: date | None = None
     is_active: bool
     created_at: datetime
+    gare: CooperativeGareRead | None = None
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -67,5 +90,6 @@ class CooperativeMemberRead(BaseModel):
     date_fin: date | None = None
     is_active: bool
     created_at: datetime
+    user: CooperativeUserRead | None = None
 
     model_config = ConfigDict(from_attributes=True)

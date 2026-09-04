@@ -3,7 +3,7 @@ from typing import Literal
 from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 VehiculeEtat = Literal["BON_ETAT", "MOYEN", "A_REPARER", "HORS_SERVICE"]
-DocumentType = Literal["CARTE_GRISE", "ASSURANCE", "VISITE_TECHNIQUE"]
+DocumentType = Literal["CARTE_GRISE", "ASSURANCE", "VISITE_TECHNIQUE", "AUTRE_DOCUMENT"]
 
 class VehiculeDocumentDates(BaseModel):
     date_delivrance: date | None = None
@@ -23,18 +23,19 @@ class VehiculeDocumentDates(BaseModel):
 class VehiculeDocumentCreate(VehiculeDocumentDates):
     type_document: DocumentType
     numero_document: str | None = None
-    fichier_path: str | None = None
 
 class VehiculeDocumentUpdate(VehiculeDocumentDates):
     type_document: DocumentType | None = None
     numero_document: str | None = None
-    fichier_path: str | None = None
     is_valid: bool | None = None
     is_active: bool | None = None
 
-class VehiculeDocumentRead(VehiculeDocumentCreate):
+class VehiculeDocumentRead(VehiculeDocumentDates):
     id: int
     id_vehicule: int
+    type_document: DocumentType
+    numero_document: str | None = None
+    fichier_path: str | None = None
     is_valid: bool
     is_active: bool
     is_expired: bool
@@ -64,11 +65,27 @@ class VehiculeUpdate(BaseModel):
     description: str | None = None
     is_active: bool | None = None
 
+class VehiculeModeleRead(BaseModel):
+    id: int
+    id_marque: int
+    nom: str
+
+    model_config = ConfigDict(from_attributes=True)
+
+class VehiculeCooperativeRead(BaseModel):
+    id: int
+    nom: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
 class VehiculeRead(VehiculeCreate):
     id: int
     is_active: bool
     created_at: datetime
     updated_at: datetime | None = None
     documents: list[VehiculeDocumentRead] = []
+    modele: VehiculeModeleRead | None = None
+    cooperative: VehiculeCooperativeRead | None = None
 
     model_config = ConfigDict(from_attributes=True)

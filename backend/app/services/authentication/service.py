@@ -1,5 +1,6 @@
 import logging
 from fastapi import HTTPException, status
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.models.user import User, UserRole
@@ -22,8 +23,7 @@ from .token import (
     create_access_token,
     create_password_reset_token,
     create_refresh_token,
-    decode_password_reset_token,
-    decode_refresh_token,
+    decode_password_reset_payload,
     decode_refresh_payload,
 )
 
@@ -55,6 +55,14 @@ class AuthenticationService:
         )
 
     def register(self, data: UserRegisterRequest) -> TokenResponse:
+        name = data.name.strip()
+        first_name = data.first_name.strip()
+        if not name or not first_name:
+            raise HTTPException(
+                status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+                detail="Le nom et le prénom sont obligatoires.",
+            )
+
         email_clean = str(data.email).lower().strip()
         existing = self.users.find_by_email(email_clean)
         if existing:
@@ -63,9 +71,17 @@ class AuthenticationService:
                 detail="Cet adresse email est déjà utilisée.",
             )
 
+        passenger_role = self.db.query(Role).filter(Role.libelle == UserRole.PASSAGER).first()
+        if not passenger_role or not passenger_role.is_active:
+            logger.error("Rôle passager absent ou inactif lors de l'inscription")
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Le service d'inscription n'est pas correctement configuré.",
+            )
+
         new_user = User(
-            name=data.name.strip(),
-            first_name=data.first_name.strip(),
+            name=name,
+            first_name=first_name,
             email=email_clean,
             telephone=data.telephone.strip() if data.telephone else None,
             address=data.address.strip() if data.address else None,
@@ -73,11 +89,25 @@ class AuthenticationService:
             is_active=True,
         )
 
-        user = self.users.create(new_user)
-        passenger_role = self.db.query(Role).filter(Role.libelle == UserRole.PASSAGER).first()
-        if passenger_role:
-            user.roles.append(passenger_role)
+        new_user.roles.append(passenger_role)
+        try:
+            self.db.add(new_user)
             self.db.commit()
+            self.db.refresh(new_user)
+            user = new_user
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Impossible de créer ce compte avec les informations fournies.",
+            )
+        except Exception:
+            self.db.rollback()
+            logger.exception("Erreur interne lors de l'inscription email=%s", email_clean)
+            raise HTTPException(
+                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+                detail="Une erreur est survenue lors de la création du compte.",
+            )
         access_token = create_access_token(subject=str(user.id), role=user.role)
         refresh_token = create_refresh_token(subject=str(user.id))
 
@@ -89,7 +119,8 @@ class AuthenticationService:
 
     def refresh_token(self, data: RefreshTokenRequest) -> TokenResponse:
         refresh_payload = decode_refresh_payload(data.refresh_token)
-        if refresh_payload and self.db.get(RevokedToken, refresh_payload.get("jti")):
+        refresh_jti = refresh_payload.get("jti") if refresh_payload else None
+        if refresh_payload and (not refresh_jti or self.db.get(RevokedToken, refresh_jti)):
             refresh_payload = None
         user_id_str = str(refresh_payload.get("sub")) if refresh_payload and refresh_payload.get("sub") is not None else None
         if not user_id_str or not user_id_str.isdigit():
@@ -105,6 +136,22 @@ class AuthenticationService:
                 detail="Utilisateur introuvable ou inactif.",
             )
 
+        # Rotation : dès qu'un refresh token est utilisé, il ne peut plus être
+        # rejoué. La révocation est persistée dans PostgreSQL.
+        try:
+            self.db.add(RevokedToken(
+                jti=refresh_jti,
+                token_type="refresh",
+                expires_at=datetime.fromtimestamp(refresh_payload["exp"], tz=timezone.utc),
+            ))
+            self.db.commit()
+        except (KeyError, TypeError, ValueError, IntegrityError):
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Token de rafraîchissement invalide ou déjà utilisé.",
+            )
+
         new_access_token = create_access_token(subject=str(user.id), role=user.role)
         new_refresh_token = create_refresh_token(subject=str(user.id))
 
@@ -118,7 +165,7 @@ class AuthenticationService:
         email_clean = str(data.email).lower().strip()
         user = self.users.find_by_email(email_clean)
         if user and user.is_active:
-            reset_token = create_password_reset_token(email_clean)
+            create_password_reset_token(email_clean)
             # In a production environment, send an email with the reset token / link.
             logger.info(
                 "[PASSWORD_RESET] Reset token generated for email=%s at=%s",
@@ -131,12 +178,14 @@ class AuthenticationService:
         )
 
     def reset_password(self, data: ResetPasswordRequest) -> MessageResponse:
-        email = decode_password_reset_token(data.token)
-        if not email:
+        payload = decode_password_reset_payload(data.token)
+        if not payload or self.db.get(RevokedToken, payload.get("jti")):
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Token de réinitialisation invalide ou expiré.",
             )
+
+        email = str(payload["email"]).lower().strip()
 
         user = self.users.find_by_email(email)
         if not user or not user.is_active:
@@ -146,6 +195,18 @@ class AuthenticationService:
             )
 
         user.password_hash = hash_password(data.new_password)
-        self.users.update(user)
+        try:
+            self.db.add(RevokedToken(
+                jti=payload["jti"],
+                token_type="password_reset",
+                expires_at=datetime.fromtimestamp(payload["exp"], tz=timezone.utc),
+            ))
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Token de réinitialisation invalide ou déjà utilisé.",
+            )
 
         return MessageResponse(message="Votre mot de passe a été réinitialisé avec succès.")

@@ -23,4 +23,10 @@ export const chauffeurService = {
   async assignVehicule(chauffeurId: number, data: VehiculeChauffeurAssign) {
     return (await api.post(`/chauffeurs/${chauffeurId}/assign-vehicule`, data)).data
   },
+  async listAssignments(chauffeurId: number) {
+    return (await api.get(`/chauffeurs/${chauffeurId}/vehicules`)).data
+  },
+  async closeAssignment(chauffeurId: number, vehiculeId: number, dateDebut: string) {
+    await api.post(`/chauffeurs/${chauffeurId}/vehicules/${vehiculeId}/close`, { date_debut: dateDebut })
+  },
 }

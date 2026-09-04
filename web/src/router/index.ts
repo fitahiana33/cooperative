@@ -25,31 +25,43 @@ const router = createRouter({
     {
       path: '/',
       name: 'home',
-      component: () => import('../views/HomeView.vue'),
+        component: () => import('../views/dashboard/HomeView.vue'),
       meta: { requiresAuth: true, layout: 'default' },
     },
       {
         path: '/users',
         name: 'users',
-        component: () => import('../views/UsersView.vue'),
-        meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
+        component: () => import('../views/administration/users/UsersView.vue'),
+        meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
+      },
+      {
+        path: '/users/:id',
+        name: 'user-detail',
+        component: () => import('../views/administration/users/UserDetailView.vue'),
+        meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
       },
       {
         path: '/users/new',
         name: 'user-create',
-        component: () => import('../views/management/UserFormView.vue'),
+        component: () => import('../views/administration/users/UserFormView.vue'),
         meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
       },
       {
         path: '/users/:id/edit',
         name: 'user-edit',
-        component: () => import('../views/management/UserFormView.vue'),
+        component: () => import('../views/administration/users/UserFormView.vue'),
         meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
       },
     {
       path: '/gares',
       name: 'gares',
-      component: () => import('../views/ManagementView.vue'),
+      component: () => import('../views/management/ManagementView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'agent_gare'], layout: 'default' },
+    },
+    {
+      path: '/gares/:id',
+      name: 'gare-detail',
+      component: () => import('../views/management/GareDetailView.vue'),
       meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'agent_gare'], layout: 'default' },
     },
     {
@@ -67,14 +79,20 @@ const router = createRouter({
     {
       path: '/cooperatives',
       name: 'cooperatives',
-      component: () => import('../views/ManagementView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      component: () => import('../views/management/ManagementView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/cooperatives/:id',
+      name: 'cooperative-detail',
+      component: () => import('../views/management/CooperativeDetailView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
     },
     {
       path: '/cooperatives/new',
       name: 'cooperative-create',
       component: () => import('../views/management/CooperativeFormView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
     {
       path: '/cooperatives/:id/edit',
@@ -85,7 +103,7 @@ const router = createRouter({
       {
         path: '/roles',
         name: 'roles',
-        component: () => import('../views/RolesPermissionsView.vue'),
+        component: () => import('../views/administration/roles/RolesPermissionsView.vue'),
       meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
     {
@@ -146,7 +164,7 @@ const router = createRouter({
       path: '/marques/new',
       name: 'marque-create',
       component: () => import('../views/management/FleetFormView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
     {
       path: '/marques/:id',
@@ -158,7 +176,7 @@ const router = createRouter({
       path: '/marques/:id/edit',
       name: 'marque-edit',
       component: () => import('../views/management/FleetFormView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
     {
       path: '/modeles',
@@ -170,7 +188,7 @@ const router = createRouter({
       path: '/modeles/new',
       name: 'modele-create',
       component: () => import('../views/management/FleetFormView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
     {
       path: '/modeles/:id',
@@ -182,7 +200,7 @@ const router = createRouter({
       path: '/modeles/:id/edit',
       name: 'modele-edit',
       component: () => import('../views/management/FleetFormView.vue'),
-      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_cooperative'], layout: 'default' },
+      meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
   ],
 })
@@ -190,6 +208,17 @@ const router = createRouter({
 router.beforeEach((to) => {
   const auth = useAuthenticationStore()
   const publicAuthRoutes = ['login', 'register', 'forgot-password']
+  const routePermissions: Record<string, string> = {
+    users: 'USER_READ', 'user-detail': 'USER_READ', 'user-create': 'USER_CREATE', 'user-edit': 'USER_UPDATE',
+    gares: 'GARE_READ', 'gare-create': 'GARE_CREATE', 'gare-edit': 'GARE_UPDATE',
+    'gare-detail': 'GARE_READ',
+    cooperatives: 'COOPERATIVE_READ', 'cooperative-detail': 'COOPERATIVE_READ', 'cooperative-create': 'COOPERATIVE_CREATE', 'cooperative-edit': 'COOPERATIVE_UPDATE',
+    roles: 'ROLE_MANAGE',
+    vehicules: 'VEHICULE_READ', 'vehicule-detail': 'VEHICULE_READ', 'vehicule-create': 'VEHICULE_CREATE', 'vehicule-edit': 'VEHICULE_UPDATE',
+    chauffeurs: 'CHAUFFEUR_READ', 'chauffeur-detail': 'CHAUFFEUR_READ', 'chauffeur-create': 'CHAUFFEUR_CREATE', 'chauffeur-edit': 'CHAUFFEUR_UPDATE',
+    marques: 'VEHICULE_READ', 'marque-detail': 'VEHICULE_READ', 'marque-create': 'VEHICULE_CREATE', 'marque-edit': 'VEHICULE_UPDATE',
+    modeles: 'VEHICULE_READ', 'modele-detail': 'VEHICULE_READ', 'modele-create': 'VEHICULE_CREATE', 'modele-edit': 'VEHICULE_UPDATE',
+  }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
     return { name: 'login' }
@@ -205,6 +234,11 @@ router.beforeEach((to) => {
     if (userRole !== 'admin' && !allowedRoles.includes(userRole)) {
       return { name: 'home' }
     }
+  }
+
+  const requiredPermission = routePermissions[String(to.name || '')]
+  if (requiredPermission && !auth.hasPermission(requiredPermission)) {
+    return { name: 'home' }
   }
 })
 

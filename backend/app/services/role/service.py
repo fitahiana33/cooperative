@@ -1,9 +1,10 @@
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 from fastapi import HTTPException, status
 from app.models import Role, Permission, User
 from app.core.pagination import paginate
 from app.models.user import UserRole
+from app.core.roles import normalize_role
 
 class RoleService:
     def __init__(self, db: Session):
@@ -19,11 +20,25 @@ class RoleService:
             raise HTTPException(status_code=404, detail="Rôle introuvable.")
         return role
 
+    @staticmethod
+    def _is_admin(role: Role) -> bool:
+        return normalize_role(role.libelle) == UserRole.ADMIN
+
+    def _protect_admin_role(self, role: Role, *, active: bool | None = None) -> None:
+        if self._is_admin(role) and active is False:
+            raise HTTPException(
+                status_code=409,
+                detail="Le rôle administrateur système ne peut pas être désactivé.",
+            )
+
     def create_role(self, libelle: str, description: str | None = None) -> Role:
-        existing = self.db.scalar(select(Role).where(Role.libelle == libelle.strip()))
+        normalized_label = normalize_role(libelle)
+        if not normalized_label:
+            raise HTTPException(status_code=422, detail="Le libellé du rôle est obligatoire.")
+        existing = self.db.scalar(select(Role).where(func.lower(Role.libelle) == normalized_label))
         if existing:
             raise HTTPException(status_code=400, detail="Un rôle avec ce libellé existe déjà.")
-        role = Role(libelle=libelle.strip(), description=description)
+        role = Role(libelle=normalized_label, description=description.strip() if description else None)
         self.db.add(role)
         self.db.commit()
         self.db.refresh(role)
@@ -31,11 +46,15 @@ class RoleService:
 
     def update_role(self, role_id: int, libelle: str | None = None, description: str | None = None, is_active: bool | None = None) -> Role:
         role = self.get_role(role_id)
-        if libelle and libelle.strip() != role.libelle:
-            existing = self.db.scalar(select(Role).where(Role.libelle == libelle.strip()))
+        self._protect_admin_role(role, active=is_active)
+        if libelle and normalize_role(libelle) != normalize_role(role.libelle):
+            normalized_label = normalize_role(libelle)
+            existing = self.db.scalar(select(Role).where(func.lower(Role.libelle) == normalized_label))
             if existing:
                 raise HTTPException(status_code=400, detail="Un rôle avec ce libellé existe déjà.")
-            role.libelle = libelle.strip()
+            if self._is_admin(role):
+                raise HTTPException(status_code=409, detail="Le rôle administrateur système ne peut pas être renommé.")
+            role.libelle = normalized_label
         if description is not None:
             role.description = description
         if is_active is not None:
@@ -46,6 +65,7 @@ class RoleService:
 
     def toggle_role(self, role_id: int) -> Role:
         role = self.get_role(role_id)
+        self._protect_admin_role(role, active=not role.is_active)
         role.is_active = not role.is_active
         self.db.commit()
         self.db.refresh(role)
@@ -53,6 +73,8 @@ class RoleService:
 
     def delete_role(self, role_id: int) -> None:
         role = self.get_role(role_id)
+        if self._is_admin(role):
+            raise HTTPException(status_code=409, detail="Le rôle administrateur système ne peut pas être supprimé.")
         if role.users:
             raise HTTPException(status_code=400, detail="Impossible de supprimer un rôle attribué à des utilisateurs.")
         self.db.delete(role)
@@ -70,7 +92,7 @@ class RoleService:
 
     def create_permission(self, code: str, libelle: str, module: str, description: str | None = None) -> Permission:
         normalized_code = code.strip().upper()
-        existing = self.db.scalar(select(Permission).where(Permission.code == normalized_code))
+        existing = self.db.scalar(select(Permission).where(func.upper(Permission.code) == normalized_code))
         if existing:
             raise HTTPException(status_code=400, detail="Une permission avec ce code existe déjà.")
         perm = Permission(
@@ -87,7 +109,7 @@ class RoleService:
     def update_permission(self, permission_id: int, code: str | None = None, libelle: str | None = None, module: str | None = None, description: str | None = None, is_active: bool | None = None) -> Permission:
         perm = self.get_permission(permission_id)
         if code and code.strip().upper() != perm.code:
-            existing = self.db.scalar(select(Permission).where(Permission.code == code.strip().upper()))
+            existing = self.db.scalar(select(Permission).where(func.upper(Permission.code) == code.strip().upper()))
             if existing:
                 raise HTTPException(status_code=400, detail="Une permission avec ce code existe déjà.")
             perm.code = code.strip().upper()
@@ -114,6 +136,8 @@ class RoleService:
     def assign_permission_to_role(self, role_id: int, permission_id: int) -> Role:
         role = self.get_role(role_id)
         perm = self.get_permission(permission_id)
+        if not role.is_active or not perm.is_active:
+            raise HTTPException(status_code=422, detail="Le rôle et la permission doivent être actifs.")
         if perm not in role.permissions:
             role.permissions.append(perm)
             self.db.commit()
@@ -135,6 +159,8 @@ class RoleService:
         if not user:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
         role = self.get_role(role_id)
+        if not role.is_active:
+            raise HTTPException(status_code=422, detail="Le rôle sélectionné est inactif.")
         if role not in user.roles:
             user.roles.append(role)
             self.db.commit()
@@ -147,6 +173,12 @@ class RoleService:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
         role = self.get_role(role_id)
         if role in user.roles:
+            if self._is_admin(role) and sum(
+                1
+                for assigned_role in user.roles
+                if assigned_role.is_active and self._is_admin(assigned_role)
+            ) <= 1:
+                raise HTTPException(status_code=409, detail="Le dernier rôle administrateur d'un utilisateur ne peut pas être retiré.")
             user.roles.remove(role)
             self.db.commit()
             self.db.refresh(user)

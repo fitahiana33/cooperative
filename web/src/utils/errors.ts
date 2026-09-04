@@ -5,7 +5,16 @@ import axios from 'axios'
  * API internals must never be rendered directly in the interface.
  */
 export function userError(error: unknown, fallback: string, context: string): string {
-  console.error(`[${context}]`, error)
+  if (axios.isAxiosError(error)) {
+    console.error(`[${context}]`, {
+      message: error.message,
+      status: error.response?.status,
+      method: error.config?.method,
+      url: error.config?.url,
+    })
+  } else {
+    console.error(`[${context}]`, error)
+  }
 
   if (!axios.isAxiosError(error)) return fallback
 

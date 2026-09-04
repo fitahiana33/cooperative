@@ -5,6 +5,8 @@ import '../management/cooperatives_page.dart';
 import '../management/gares_page.dart';
 import '../management/vehicules_page.dart';
 import '../management/chauffeurs_page.dart';
+import '../management/catalog_page.dart';
+import '../management/administration_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -14,8 +16,16 @@ class HomePage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
     final role = (user?.role ?? 'passenger').toLowerCase();
-    final isStaff = ['admin', 'responsable_gare', 'agent_gare', 'responsable_cooperative', 'manager'].contains(role);
+    bool can(String permission) => role == 'admin' || user?.permissions.contains(permission) == true;
+    final canGares = can('GARE_READ');
+    final canCooperatives = can('COOPERATIVE_READ');
+    final canVehicules = can('VEHICULE_READ');
+    final canChauffeurs = can('CHAUFFEUR_READ');
+    final isAdmin = role == 'admin';
+    final canAdministration = isAdmin || can('USER_READ') || can('ROLE_MANAGE');
+    final isStaff = canGares || canCooperatives || canVehicules || canChauffeurs || canAdministration;
     final apiClient = ref.watch(authApiClientProvider);
+    final permissions = user?.permissions.toSet() ?? <String>{};
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
@@ -161,40 +171,58 @@ class HomePage extends ConsumerWidget {
                 mainAxisSpacing: 14,
                 childAspectRatio: 1.3,
                 children: [
-                  _buildActionCard(
+                  if (canGares) _buildActionCard(
                     icon: Icons.location_city_rounded,
                     title: 'Gérer les Gares',
                     subtitle: 'Créer & consulter gares',
                     color: const Color(0xFF3B82F6),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const GaresPage()));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => GaresPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
                     },
                   ),
-                  _buildActionCard(
+                  if (canCooperatives) _buildActionCard(
                     icon: Icons.business_rounded,
                     title: 'Coopératives',
                     subtitle: 'Partenaires & agréments',
                     color: const Color(0xFF10B981),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => const CooperativesPage()));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => CooperativesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
                     },
                   ),
-                  _buildActionCard(
+                  if (canVehicules) _buildActionCard(
                     icon: Icons.directions_bus_filled_rounded,
                     title: 'Véhicules',
                     subtitle: 'Parc & disponibilites',
                     color: const Color(0xFF8B5CF6),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => VehiculesPage(apiClient: apiClient)));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => VehiculesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
                     },
                   ),
-                  _buildActionCard(
+                  if (canVehicules) _buildActionCard(
+                    icon: Icons.category_rounded,
+                    title: 'Marques & modèles',
+                    subtitle: 'Référentiel des véhicules',
+                    color: const Color(0xFFEC4899),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => CatalogPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
+                    },
+                  ),
+                  if (canChauffeurs) _buildActionCard(
                     icon: Icons.badge_rounded,
                     title: 'Chauffeurs',
                     subtitle: 'Conducteurs & permis',
                     color: const Color(0xFFF59E0B),
                     onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => ChauffeursPage(apiClient: apiClient)));
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => ChauffeursPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
+                    },
+                  ),
+                  if (canAdministration) _buildActionCard(
+                    icon: Icons.admin_panel_settings_rounded,
+                    title: 'Administration',
+                    subtitle: 'Utilisateurs, rôles et permissions',
+                    color: const Color(0xFF64748B),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => AdministrationPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
                     },
                   ),
                 ],

@@ -1,11 +1,11 @@
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.marque import MarqueCreate, MarqueUpdate, MarqueRead
 from app.schemas.common import PageResponse
 from app.services.marque import MarqueService
-from app.api.controllers.authentication.dependencies import require_permission
+from app.api.controllers.authentication.dependencies import require_permission, require_roles
 
 router = APIRouter(prefix="/marques", tags=["marques"])
 
@@ -13,8 +13,8 @@ router = APIRouter(prefix="/marques", tags=["marques"])
 def list_marques(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    search: str | None = None,
-    sort_by: str = "nom",
+    search: str | None = Query(None, max_length=100),
+    sort_by: str = Query("nom", pattern="^(nom|created_at)$"),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     _: User = Depends(require_permission("VEHICULE_READ")),
     db: Session = Depends(get_db),
@@ -24,7 +24,7 @@ def list_marques(
 @router.post("", response_model=MarqueRead, status_code=status.HTTP_201_CREATED)
 def create_marque(
     data: MarqueCreate,
-    _: User = Depends(require_permission("VEHICULE_CREATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return MarqueService(db).create_marque(nom=data.nom, description=data.description)
@@ -41,7 +41,7 @@ def get_marque(
 def update_marque(
     marque_id: int,
     data: MarqueUpdate,
-    _: User = Depends(require_permission("VEHICULE_UPDATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return MarqueService(db).update_marque(marque_id, **data.model_dump(exclude_unset=True))
@@ -49,7 +49,7 @@ def update_marque(
 @router.patch("/{marque_id}/toggle", response_model=MarqueRead)
 def toggle_marque(
     marque_id: int,
-    _: User = Depends(require_permission("VEHICULE_UPDATE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     return MarqueService(db).toggle_marque(marque_id)
@@ -57,7 +57,7 @@ def toggle_marque(
 @router.delete("/{marque_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_marque(
     marque_id: int,
-    _: User = Depends(require_permission("VEHICULE_DELETE")),
+    _: User = Depends(require_roles(UserRole.ADMIN)),
     db: Session = Depends(get_db),
 ):
     MarqueService(db).delete_marque(marque_id)

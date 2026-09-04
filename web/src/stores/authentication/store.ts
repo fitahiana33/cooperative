@@ -24,6 +24,9 @@ export const useAuthenticationStore = defineStore('authentication', {
   getters: {
     isAuthenticated: (state) => Boolean(state.token),
     userRole: (state) => state.user?.role || '',
+    userPermissions: (state) => state.user?.permissions || [],
+    hasPermission: (state) => (permission: string) =>
+      state.user?.role?.toLowerCase() === 'admin' || Boolean(state.user?.permissions?.includes(permission)),
   },
 
   actions: {
@@ -113,8 +116,8 @@ export const useAuthenticationStore = defineStore('authentication', {
       finally { this.initialized = true }
     },
 
-    async logout() {
-      if (this.token) {
+    async logout(callApi = true) {
+      if (callApi && this.token) {
         try { await authenticationController.logout({ refresh_token: this.refreshToken }) } catch (error) { console.error('[LOGOUT_ERROR]', error) }
       }
       this.token = ''

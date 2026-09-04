@@ -30,6 +30,26 @@ def seed_default_admin(db: Session) -> None:
         roles[name] = role
     db.commit()
 
+    # Older development databases used translated/legacy labels. Consolidate
+    # them instead of leaving users with a role that no longer receives the
+    # canonical permissions.
+    legacy_to_canonical = {
+        "passager": UserRole.PASSAGER,
+        "manager": UserRole.RESPONSABLE_GARE,
+        "driver": UserRole.CHAUFFEUR,
+    }
+    for legacy_name, canonical_name in legacy_to_canonical.items():
+        legacy_role = db.query(Role).filter(func.lower(Role.libelle) == legacy_name).first()
+        canonical_role = roles[canonical_name]
+        if not legacy_role or legacy_role.id == canonical_role.id:
+            continue
+        for user in list(legacy_role.users):
+            if canonical_role not in user.roles:
+                user.roles.append(canonical_role)
+            user.roles.remove(legacy_role)
+        db.delete(legacy_role)
+    db.commit()
+
     permission_definitions = [
         # GARE
         ("GARE_READ", "Lecture des gares", "GARE"),
@@ -92,20 +112,42 @@ def seed_default_admin(db: Session) -> None:
     db.commit()
 
     role_permissions = {
-        UserRole.RESPONSABLE_GARE: {"GARE_READ", "GARE_CREATE", "GARE_UPDATE", "GARE_DELETE"},
-        UserRole.AGENT_GARE: {"GARE_READ"},
+        UserRole.RESPONSABLE_GARE: {
+            "GARE_READ", "GARE_CREATE", "GARE_UPDATE", "GARE_DELETE",
+            "COOPERATIVE_READ",
+            "VEHICULE_READ", "CHAUFFEUR_READ",
+            "DEPART_READ", "RESERVATION_READ", "PAIEMENT_READ",
+        },
         UserRole.RESPONSABLE_COOPERATIVE: {
-            "COOPERATIVE_READ", "COOPERATIVE_CREATE", "COOPERATIVE_UPDATE", "COOPERATIVE_DELETE",
+            "COOPERATIVE_READ", "COOPERATIVE_UPDATE",
             "VEHICULE_READ", "VEHICULE_CREATE", "VEHICULE_UPDATE", "VEHICULE_DELETE",
             "CHAUFFEUR_READ", "CHAUFFEUR_CREATE", "CHAUFFEUR_UPDATE", "CHAUFFEUR_DELETE",
+            "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL",
+            "RESERVATION_READ", "RESERVATION_CANCEL", "PAIEMENT_READ",
         },
-        UserRole.CHAUFFEUR: {"VEHICULE_READ"},
+        UserRole.AGENT_GARE: {"GARE_READ", "DEPART_READ", "RESERVATION_READ"},
+        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ"},
+    }
+    managed_permission_codes = {
+        code for code, _, _ in permission_definitions
     }
     for role_name, codes in role_permissions.items():
+        role = roles[role_name]
+        # The seed is declarative: permissions removed from the contract are
+        # also removed from the role. Custom permissions remain untouched.
+        for permission in list(role.permissions):
+            if permission.code in managed_permission_codes and permission.code not in codes:
+                role.permissions.remove(permission)
         for code in codes:
-            if permissions[code] not in roles[role_name].permissions:
-                roles[role_name].permissions.append(permissions[code])
+            if permissions[code] not in role.permissions:
+                role.permissions.append(permissions[code])
     db.commit()
+
+    # This permission existed in an older seed and must not remain active.
+    legacy_user_manage = db.query(Permission).filter(Permission.code == "USER_MANAGE").first()
+    if legacy_user_manage:
+        legacy_user_manage.is_active = False
+        db.commit()
 
     repository = UserRepository(db)
     existing_admin = repository.find_by_email(settings.default_admin_email)

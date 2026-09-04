@@ -1,5 +1,35 @@
 from datetime import date, datetime
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, model_validator
+
+
+class ChauffeurUserRead(BaseModel):
+    id: int
+    name: str
+    first_name: str | None = None
+    email: EmailStr
+    telephone: str | None = None
+    address: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChauffeurCooperativeRead(BaseModel):
+    id: int
+    nom: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class ChauffeurVehiculeRead(BaseModel):
+    id: int
+    id_modele: int
+    immatriculation: str
+    disponibilite: bool
+    etat: str
+    is_active: bool
+
+    model_config = ConfigDict(from_attributes=True)
 
 class ChauffeurCreate(BaseModel):
     id_user: int
@@ -20,6 +50,10 @@ class ChauffeurUpdate(BaseModel):
 class ChauffeurRead(ChauffeurCreate):
     id: int
     is_active: bool
+    permis_expire: bool
+    user: ChauffeurUserRead | None = None
+    cooperative: ChauffeurCooperativeRead | None = None
+    vehicule_actuel: ChauffeurVehiculeRead | None = None
     created_at: datetime
     updated_at: datetime | None = None
 
@@ -29,6 +63,12 @@ class VehiculeChauffeurAssign(BaseModel):
     id_vehicule: int
     date_debut: date
     date_fin: date | None = None
+
+    @model_validator(mode="after")
+    def validate_period(self):
+        if self.date_fin is not None and self.date_fin < self.date_debut:
+            raise ValueError("La date de fin ne peut pas être antérieure à la date de début.")
+        return self
 
 class VehiculeChauffeurClose(BaseModel):
     date_debut: date

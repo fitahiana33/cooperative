@@ -13,6 +13,8 @@ api.interceptors.request.use((config) => {
   const token = localStorage.getItem(TOKEN_KEY)
   if (token) {
     config.headers.Authorization = `Bearer ${token}`
+  } else {
+    delete config.headers.Authorization
   }
   return config
 })
@@ -38,13 +40,15 @@ api.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config
+    if (!originalRequest) return Promise.reject(error)
 
     if (
       error.response?.status === 401 &&
       !originalRequest._retry &&
       !originalRequest.url?.includes('/auth/login') &&
       !originalRequest.url?.includes('/auth/refresh') &&
-      !originalRequest.url?.includes('/auth/register')
+      !originalRequest.url?.includes('/auth/register') &&
+      !originalRequest.url?.includes('/auth/logout')
     ) {
       if (isRefreshing) {
         return new Promise((resolve, reject) => {
@@ -65,6 +69,8 @@ api.interceptors.response.use(
       if (!refreshToken) {
         localStorage.removeItem(TOKEN_KEY)
         localStorage.removeItem(REFRESH_TOKEN_KEY)
+        delete api.defaults.headers.common.Authorization
+        window.dispatchEvent(new Event('auth:session-expired'))
         isRefreshing = false
         return Promise.reject(error)
       }
@@ -91,6 +97,8 @@ api.interceptors.response.use(
         processQueue(refreshError, null)
         localStorage.removeItem(TOKEN_KEY)
         localStorage.removeItem(REFRESH_TOKEN_KEY)
+        delete api.defaults.headers.common.Authorization
+        window.dispatchEvent(new Event('auth:session-expired'))
         return Promise.reject(refreshError)
       } finally {
         isRefreshing = false

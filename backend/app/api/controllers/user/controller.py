@@ -3,15 +3,30 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import get_current_user, require_admin, require_permission
+from app.api.controllers.authentication.dependencies import get_current_user, require_permission
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
+from app.models.role import Role
 from app.schemas.user import UserCreate, UserRead, UserUpdate
 from app.schemas.common import PageResponse
 from app.services.user import UserService
 from app.services.role import RoleService
 
 router = APIRouter(prefix="/users", tags=["users"])
+
+
+def _ensure_admin_account_safety(db: Session, target: User, current_user: User, disabling: bool = False) -> None:
+    if target.id == current_user.id and disabling:
+        raise HTTPException(status_code=409, detail="Votre propre compte administrateur ne peut pas être désactivé.")
+    if disabling and target.role == UserRole.ADMIN:
+        active_admins = db.scalar(
+            select(func.count(User.id))
+            .select_from(User)
+            .join(User.roles)
+            .where(User.is_active.is_(True), Role.libelle == UserRole.ADMIN)
+        ) or 0
+        if active_admins <= 1:
+            raise HTTPException(status_code=409, detail="Le dernier compte administrateur ne peut pas être désactivé.")
 
 
 @router.get("/me", response_model=UserRead)
@@ -43,7 +58,7 @@ def list_users(
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     data: UserCreate,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("USER_CREATE")),
     db: Session = Depends(get_db),
 ):
     return UserService(db).create_user(data)
@@ -52,7 +67,7 @@ def create_user(
 @router.get("/{user_id}", response_model=UserRead)
 def get_user(
     user_id: int,
-    _: User = Depends(require_admin),
+    _: User = Depends(require_permission("USER_READ")),
     db: Session = Depends(get_db),
 ):
     user = UserService(db).repository.find_by_id(user_id)
@@ -65,30 +80,41 @@ def get_user(
 def update_user(
     user_id: int,
     data: UserUpdate,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_permission("USER_UPDATE")),
     db: Session = Depends(get_db),
 ):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    if data.is_active is False and target.is_active:
+        _ensure_admin_account_safety(db, target, current_user, disabling=True)
     return UserService(db).update_user(user_id, **data.model_dump(exclude_unset=True))
 
 
 @router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_user(
     user_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_permission("USER_DELETE")),
     db: Session = Depends(get_db),
 ):
+    target = db.get(User, user_id)
+    if not target:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    _ensure_admin_account_safety(db, target, current_user, disabling=True)
     UserService(db).delete_user(user_id)
 
 
 @router.patch("/{user_id}/toggle", response_model=UserRead)
 def toggle_user(
     user_id: int,
-    _: User = Depends(require_admin),
+    current_user: User = Depends(require_permission("USER_UPDATE")),
     db: Session = Depends(get_db),
 ):
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    if user.is_active:
+        _ensure_admin_account_safety(db, user, current_user, disabling=True)
     user.is_active = not user.is_active
     db.commit()
     db.refresh(user)

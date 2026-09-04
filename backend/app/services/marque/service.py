@@ -1,6 +1,6 @@
 import logging
 from fastapi import HTTPException, status
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -24,10 +24,13 @@ class MarqueService:
         return item
 
     def create_marque(self, *, nom: str, description: str | None = None) -> Marque:
-        existing = self.db.scalar(select(Marque).where(Marque.nom == nom.strip()))
+        clean_name = nom.strip()
+        if not clean_name:
+            raise HTTPException(status_code=422, detail="Le nom de la marque est obligatoire.")
+        existing = self.db.scalar(select(Marque).where(func.lower(Marque.nom) == clean_name.lower()))
         if existing:
             raise HTTPException(status_code=400, detail="Une marque avec ce nom existe déjà.")
-        item = Marque(nom=nom.strip(), description=description)
+        item = Marque(nom=clean_name, description=description.strip() if isinstance(description, str) else description)
         try:
             self.db.add(item)
             self.db.commit()
@@ -40,10 +43,12 @@ class MarqueService:
 
     def update_marque(self, marque_id: int, **fields) -> Marque:
         item = self.get_marque(marque_id)
+        if "nom" in fields and fields["nom"] is not None and not fields["nom"].strip():
+            raise HTTPException(status_code=422, detail="Le nom de la marque est obligatoire.")
         if "nom" in fields and fields["nom"]:
             new_nom = fields["nom"].strip()
             if new_nom != item.nom:
-                existing = self.db.scalar(select(Marque).where(Marque.nom == new_nom))
+                existing = self.db.scalar(select(Marque).where(func.lower(Marque.nom) == new_nom.lower()))
                 if existing:
                     raise HTTPException(status_code=400, detail="Une marque avec ce nom existe déjà.")
                 item.nom = new_nom
@@ -73,4 +78,4 @@ class MarqueService:
             self.db.commit()
         except IntegrityError:
             self.db.rollback()
-            raise HTTPException(status_code=400, detail="Impossible de supprimer une marque liée à des modèles.")
+            raise HTTPException(status_code=409, detail="Impossible de supprimer une marque liée à des modèles.")
