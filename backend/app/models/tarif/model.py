@@ -33,3 +33,4 @@ class Tarif(Base):
 
     itineraire = relationship("Itineraire", back_populates="tarifs")
     cooperative = relationship("Cooperative")
+    departs = relationship("Depart", back_populates="tarif", passive_deletes=True)

@@ -130,7 +130,8 @@ def seed_default_admin(db: Session) -> None:
             "GARE_READ", "GARE_CREATE", "GARE_UPDATE", "GARE_DELETE",
             "COOPERATIVE_READ",
             "VEHICULE_READ", "CHAUFFEUR_READ",
-            "DEPART_READ", "RESERVATION_READ", "PAIEMENT_READ",
+            "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL",
+            "RESERVATION_READ", "PAIEMENT_READ",
             "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ",
         },
         UserRole.RESPONSABLE_COOPERATIVE: {
@@ -143,8 +144,8 @@ def seed_default_admin(db: Session) -> None:
             "ITINERAIRE_COOPERATIVE_MANAGE",
         },
         UserRole.AGENT_GARE: {"GARE_READ", "DEPART_READ", "RESERVATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
-        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
-        UserRole.PASSAGER: {"DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
+        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DEPART_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
+        UserRole.PASSAGER: {"DEPART_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
     }
     managed_permission_codes = {
         code for code, _, _ in permission_definitions

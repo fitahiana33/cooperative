@@ -4,7 +4,7 @@ import { RouterLink } from 'vue-router'
 import { useSidebarStore } from './sidebarStore'
 import { useAuthenticationStore } from '../../stores/authentication/store'
 
-type SidebarSection = 'principal' | 'administration' | 'stations' | 'fleet' | 'network'
+type SidebarSection = 'principal' | 'administration' | 'stations' | 'fleet' | 'network' | 'planning'
 
 const sidebar = useSidebarStore()
 const auth = useAuthenticationStore()
@@ -19,6 +19,7 @@ const canSeeFleetCatalog = computed(() => auth.hasPermission('VEHICULE_READ'))
 const canSeeDestinations = computed(() => auth.hasPermission('DESTINATION_READ'))
 const canSeeItineraires = computed(() => auth.hasPermission('ITINERAIRE_READ'))
 const canSeeTarifs = computed(() => auth.hasPermission('TARIF_READ'))
+const canSeeDeparts = computed(() => auth.hasPermission('DEPART_READ'))
 
 const openSections = reactive<Record<SidebarSection, boolean>>({
   principal: true,
@@ -26,6 +27,7 @@ const openSections = reactive<Record<SidebarSection, boolean>>({
   stations: true,
   fleet: true,
   network: true,
+  planning: true,
 })
 
 function toggleSection(section: SidebarSection) {
@@ -106,6 +108,15 @@ function isSectionOpen(section: SidebarSection) {
           <RouterLink v-if="canSeeDestinations" to="/destinations" class="sidebar-link" @click="sidebar.closeMobile"><span>⌖</span><b>Destinations</b></RouterLink>
           <RouterLink v-if="canSeeItineraires" to="/itineraires" class="sidebar-link" @click="sidebar.closeMobile"><span>↔</span><b>Itineraires</b></RouterLink>
           <RouterLink v-if="canSeeTarifs" to="/tarifs" class="sidebar-link" @click="sidebar.closeMobile"><span>¤</span><b>Tarifs</b></RouterLink>
+        </div>
+      </div>
+
+      <div v-if="canSeeDeparts" class="sidebar-group">
+        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('planning')" @click="toggleSection('planning')">
+          <span>DÉPARTS & PLANNING</span><b>{{ isSectionOpen('planning') ? '⌃' : '⌄' }}</b>
+        </button>
+        <div v-if="isSectionOpen('planning')" class="sidebar-submenu">
+          <RouterLink to="/departs" class="sidebar-link" @click="sidebar.closeMobile"><span>◷</span><b>Départs</b></RouterLink>
         </div>
       </div>
     </nav>

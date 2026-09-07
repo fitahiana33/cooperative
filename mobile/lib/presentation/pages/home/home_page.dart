@@ -8,6 +8,7 @@ import '../management/chauffeurs_page.dart';
 import '../management/catalog_page.dart';
 import '../management/administration_page.dart';
 import '../management/routes_page.dart';
+import '../management/departs_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -23,6 +24,7 @@ class HomePage extends ConsumerWidget {
     final canVehicules = can('VEHICULE_READ');
     final canChauffeurs = can('CHAUFFEUR_READ');
     final canRoutes = can('DESTINATION_READ') || can('ITINERAIRE_READ') || can('TARIF_READ');
+    final canDeparts = can('DEPART_READ');
     final isAdmin = role == 'admin';
     final canAdministration = isAdmin || can('USER_READ') || can('ROLE_MANAGE');
     final isStaff = canGares || canCooperatives || canVehicules || canChauffeurs || canAdministration || canRoutes;
@@ -270,6 +272,13 @@ class HomePage extends ConsumerWidget {
                   title: 'Mes Réservations',
                   subtitle: 'Consultez vos billets validés',
                   color: const Color(0xFF10B981),
+                ),
+                if (canDeparts) _buildActionCard(
+                  icon: Icons.departure_board_rounded,
+                  title: 'Départs',
+                  subtitle: 'Consultez le planning et les places',
+                  color: const Color(0xFF14B8A6),
+                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DepartsPage(apiClient: apiClient))),
                 ),
               ],
             ),

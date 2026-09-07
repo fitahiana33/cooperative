@@ -25,6 +25,7 @@ class Chauffeur(Base):
     user = relationship("User")
     cooperative = relationship("Cooperative", back_populates="chauffeurs")
     vehicules_assignments = relationship("VehiculeChauffeur", back_populates="chauffeur", passive_deletes=True)
+    departs = relationship("Depart", back_populates="chauffeur", passive_deletes=True)
 
     @property
     def permis_expire(self) -> bool:

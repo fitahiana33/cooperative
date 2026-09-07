@@ -25,6 +25,7 @@ class Cooperative(Base):
     members = relationship("CooperativeMember", back_populates="cooperative", cascade="all, delete-orphan")
     vehicules = relationship("Vehicule", back_populates="cooperative", passive_deletes=True)
     chauffeurs = relationship("Chauffeur", back_populates="cooperative", passive_deletes=True)
+    departs = relationship("Depart", back_populates="cooperative", passive_deletes=True)
 
 
 class GareCooperative(Base):
