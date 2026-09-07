@@ -13,6 +13,7 @@ class ApiClient {
   late final Dio dio;
   final TokenStorage tokenStorage;
   final void Function()? onUnauthenticated;
+  Future<bool>? _refreshInProgress;
 
   ApiClient({
     required this.tokenStorage,
@@ -42,13 +43,16 @@ class ApiClient {
         },
         onError: (DioException error, handler) async {
           if (error.response?.statusCode == 401 &&
+              error.requestOptions.extra['authRetry'] != true &&
               !error.requestOptions.path.contains('/auth/login') &&
               !error.requestOptions.path.contains('/auth/refresh') &&
-              !error.requestOptions.path.contains('/auth/register')) {
+              !error.requestOptions.path.contains('/auth/register') &&
+              !error.requestOptions.path.contains('/auth/logout')) {
             final refreshed = await _attemptRefreshToken();
             if (refreshed) {
               final newAccessToken = tokenStorage.getAccessToken();
               final opts = error.requestOptions;
+              opts.extra['authRetry'] = true;
               opts.headers['Authorization'] = 'Bearer $newAccessToken';
               try {
                 final response = await dio.fetch(opts);
@@ -107,6 +111,16 @@ class ApiClient {
       dio.delete<T>(path, data: data, queryParameters: queryParameters, options: options);
 
   Future<bool> _attemptRefreshToken() async {
+    if (_refreshInProgress != null) return _refreshInProgress!;
+    _refreshInProgress = _refreshTokenOnce();
+    try {
+      return await _refreshInProgress!;
+    } finally {
+      _refreshInProgress = null;
+    }
+  }
+
+  Future<bool> _refreshTokenOnce() async {
     final refreshToken = tokenStorage.getRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
       return false;

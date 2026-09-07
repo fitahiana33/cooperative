@@ -1,6 +1,6 @@
 from datetime import datetime
 
-from sqlalchemy import BigInteger, Boolean, DateTime, Table, Column, ForeignKey, String, func
+from sqlalchemy import BigInteger, Boolean, DateTime, Index, Table, Column, ForeignKey, String, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -25,6 +25,8 @@ users_roles = Table(
     Column("id_user", ForeignKey("users.id_user", ondelete="CASCADE"), primary_key=True),
     Column("id_role", ForeignKey("roles.id_role", ondelete="CASCADE"), primary_key=True),
     Column("assigned_at", DateTime(timezone=True), server_default=func.now(), nullable=False),
+    Index("idx_users_roles_user", "id_user"),
+    Index("idx_users_roles_role", "id_role"),
 )
 
 
@@ -34,7 +36,7 @@ class User(Base):
     id: Mapped[int] = mapped_column("id_user", BigInteger, primary_key=True)
     name: Mapped[str] = mapped_column(String(100), nullable=False)
     first_name: Mapped[str | None] = mapped_column(String(100), nullable=True)
-    email: Mapped[str] = mapped_column(String(150), unique=True, index=True, nullable=False)
+    email: Mapped[str] = mapped_column(String(150), nullable=False)
     telephone: Mapped[str | None] = mapped_column(String(30))
     address: Mapped[str | None] = mapped_column("adresse", String(255))
     password_hash: Mapped[str] = mapped_column("password", String(255), nullable=False)
@@ -44,6 +46,11 @@ class User(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     roles = relationship("Role", secondary=users_roles, back_populates="users")
     cooperatives = relationship("CooperativeMember", back_populates="user")
+    __table_args__ = (
+        UniqueConstraint("email", name="uq_users_email"),
+        Index("idx_users_email", "email"),
+        Index("idx_users_telephone", "telephone"),
+    )
 
     @property
     def role(self) -> str:
@@ -51,3 +58,13 @@ class User(Base):
         if UserRole.ADMIN in active_roles:
             return UserRole.ADMIN
         return active_roles[0] if active_roles else UserRole.PASSENGER
+
+    @property
+    def permissions(self) -> list[str]:
+        return sorted({
+            permission.code
+            for role in self.roles
+            if role.is_active
+            for permission in role.permissions
+            if permission.is_active
+        })

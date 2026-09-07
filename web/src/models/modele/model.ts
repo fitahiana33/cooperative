@@ -6,6 +6,7 @@ export interface Modele {
   is_active: boolean
   created_at: string
   updated_at?: string
+  marque?: { id: number; nom: string; is_active: boolean }
 }
 
 export interface ModeleCreate {

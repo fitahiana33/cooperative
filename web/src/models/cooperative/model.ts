@@ -12,6 +12,7 @@ export interface Cooperative {
   is_active: boolean
   created_at: string
   updated_at?: string
+  responsable?: { id: number; name: string; first_name?: string; email: string; telephone?: string; address?: string } | null
 }
 
 export interface CooperativeCreate {

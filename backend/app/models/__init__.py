@@ -8,6 +8,9 @@ from app.models.modele import Modele
 from app.models.vehicule import Vehicule, VehiculeDocument, VehiculeChauffeur
 from app.models.chauffeur import Chauffeur
 from app.models.authentication import RevokedToken
+from app.models.destination import Destination
+from app.models.itineraire import Itineraire, ItineraireCooperative
+from app.models.tarif import Tarif
 
 __all__ = [
     "User",
@@ -27,4 +30,8 @@ __all__ = [
     "VehiculeChauffeur",
     "Chauffeur",
     "RevokedToken",
+    "Destination",
+    "Itineraire",
+    "ItineraireCooperative",
+    "Tarif",
 ]

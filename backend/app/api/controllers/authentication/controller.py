@@ -67,7 +67,7 @@ def logout(
     db: Session = Depends(get_db),
 ):
     access_payload = decode_access_token(credentials.credentials)
-    if access_payload and access_payload.get("jti"):
+    if access_payload and access_payload.get("jti") and not db.get(RevokedToken, access_payload["jti"]):
         db.add(RevokedToken(
             jti=access_payload["jti"],
             token_type="access",
@@ -75,7 +75,7 @@ def logout(
         ))
     if data and data.refresh_token:
         refresh_payload = decode_refresh_payload(data.refresh_token)
-        if refresh_payload and refresh_payload.get("jti"):
+        if refresh_payload and refresh_payload.get("jti") and not db.get(RevokedToken, refresh_payload["jti"]):
             db.add(RevokedToken(
                 jti=refresh_payload["jti"],
                 token_type="refresh",

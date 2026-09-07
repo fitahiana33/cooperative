@@ -1,5 +1,5 @@
 export type VehiculeEtat = 'BON_ETAT' | 'MOYEN' | 'A_REPARER' | 'HORS_SERVICE'
-export type DocumentType = 'CARTE_GRISE' | 'ASSURANCE' | 'VISITE_TECHNIQUE'
+export type DocumentType = 'CARTE_GRISE' | 'ASSURANCE' | 'VISITE_TECHNIQUE' | 'AUTRE_DOCUMENT'
 
 export interface VehiculeDocument {
   id: number
@@ -16,6 +16,18 @@ export interface VehiculeDocument {
   updated_at?: string
 }
 
+export interface VehiculeModele {
+  id: number
+  id_marque: number
+  nom: string
+}
+
+export interface VehiculeCooperative {
+  id: number
+  nom: string
+  is_active: boolean
+}
+
 export interface Vehicule {
   id: number
   id_modele: number
@@ -30,6 +42,8 @@ export interface Vehicule {
   created_at: string
   updated_at?: string
   documents: VehiculeDocument[]
+  modele?: VehiculeModele
+  cooperative?: VehiculeCooperative
 }
 
 export interface VehiculeCreate {

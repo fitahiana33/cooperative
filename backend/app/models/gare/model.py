@@ -1,5 +1,5 @@
 from datetime import datetime
-from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Numeric, String, Text, UniqueConstraint, func
+from sqlalchemy import BigInteger, Boolean, DateTime, ForeignKey, Index, Numeric, String, Text, UniqueConstraint, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -19,16 +19,16 @@ class Gare(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
-    quais = relationship("Quai", back_populates="gare", cascade="all, delete-orphan")
-    zones = relationship("Zone", back_populates="gare", cascade="all, delete-orphan")
+    quais = relationship("Quai", back_populates="gare", passive_deletes=True)
+    zones = relationship("Zone", back_populates="gare", passive_deletes=True)
     cooperatives = relationship("GareCooperative", back_populates="gare", cascade="all, delete-orphan")
 
 
 class Quai(Base):
     __tablename__ = "quais"
-    __table_args__ = (UniqueConstraint("id_gare", "numero"),)
+    __table_args__ = (UniqueConstraint("id_gare", "numero"), Index("idx_quais_gare", "id_gare"))
     id: Mapped[int] = mapped_column("id_quai", BigInteger, primary_key=True)
-    id_gare: Mapped[int] = mapped_column(ForeignKey("gares.id_gare", ondelete="CASCADE"), nullable=False)
+    id_gare: Mapped[int] = mapped_column(ForeignKey("gares.id_gare", ondelete="RESTRICT"), nullable=False)
     numero: Mapped[str] = mapped_column(String(50), nullable=False)
     nom: Mapped[str | None] = mapped_column(String(100))
     description: Mapped[str | None] = mapped_column(Text)
@@ -41,8 +41,9 @@ class Quai(Base):
 
 class Zone(Base):
     __tablename__ = "zones"
+    __table_args__ = (Index("idx_zones_gare", "id_gare"),)
     id: Mapped[int] = mapped_column("id_zone", BigInteger, primary_key=True)
-    id_gare: Mapped[int] = mapped_column(ForeignKey("gares.id_gare", ondelete="CASCADE"), nullable=False)
+    id_gare: Mapped[int] = mapped_column(ForeignKey("gares.id_gare", ondelete="RESTRICT"), nullable=False)
     nom: Mapped[str] = mapped_column(String(100), nullable=False)
     type_zone: Mapped[str | None] = mapped_column(String(50))
     description: Mapped[str | None] = mapped_column(Text)
@@ -51,14 +52,14 @@ class Zone(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     gare = relationship("Gare", back_populates="zones")
-    emplacements = relationship("Emplacement", back_populates="zone", cascade="all, delete-orphan")
+    emplacements = relationship("Emplacement", back_populates="zone", passive_deletes=True)
 
 
 class Emplacement(Base):
     __tablename__ = "emplacements"
-    __table_args__ = (UniqueConstraint("id_zone", "code"),)
+    __table_args__ = (UniqueConstraint("id_zone", "code"), Index("idx_emplacements_zone", "id_zone"))
     id: Mapped[int] = mapped_column("id_emplacement", BigInteger, primary_key=True)
-    id_zone: Mapped[int] = mapped_column(ForeignKey("zones.id_zone", ondelete="CASCADE"), nullable=False)
+    id_zone: Mapped[int] = mapped_column(ForeignKey("zones.id_zone", ondelete="RESTRICT"), nullable=False)
     code: Mapped[str] = mapped_column(String(50), nullable=False)
     nom: Mapped[str | None] = mapped_column(String(100))
     type_emplacement: Mapped[str | None] = mapped_column(String(50))

@@ -15,8 +15,8 @@ router = APIRouter(prefix="/roles", tags=["roles"])
 def list_roles(
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
-    search: str | None = None,
-    sort_by: str = "libelle",
+    search: str | None = Query(None, max_length=100),
+    sort_by: str = Query("libelle", pattern="^(libelle|created_at)$"),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
     _: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),

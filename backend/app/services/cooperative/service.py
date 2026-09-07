@@ -1,14 +1,15 @@
 import logging
-import logging
 from datetime import date
 
 from fastapi import HTTPException
-from sqlalchemy import select
+from sqlalchemy import and_, exists, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.roles import normalize_role
 from app.core.pagination import paginate
-from app.models import Cooperative, CooperativeMember, Gare, GareCooperative, User
+from app.models import Chauffeur, Cooperative, CooperativeMember, Gare, GareCooperative, Role, User
+from app.models.user import UserRole
 
 logger = logging.getLogger("cooperative.cooperative")
 
@@ -70,14 +71,28 @@ class CooperativeService:
         return item
 
     def remove_member(self, cooperative_id: int, user_id: int) -> None:
+        cooperative = self.get_cooperative(cooperative_id)
+        if cooperative.responsable_id == user_id:
+            raise HTTPException(409, "Le responsable doit être remplacé avant de retirer ce membre.")
         self.update_member(cooperative_id, user_id, is_active=False)
 
     def list_cooperatives(
-        self, *, page=1, page_size=20, search=None, sort_by="nom", sort_order="asc"
+        self,
+        *,
+        page=1,
+        page_size=20,
+        search=None,
+        sort_by="nom",
+        sort_order="asc",
+        cooperative_ids: set[int] | None = None,
     ):
+        statement = select(Cooperative)
+        if cooperative_ids is not None:
+            statement = statement.where(Cooperative.id.in_(cooperative_ids))
         return paginate(
             self.db,
             Cooperative,
+            statement=statement,
             page=page,
             page_size=page_size,
             search=search,
@@ -93,6 +108,122 @@ class CooperativeService:
             raise HTTPException(404, "Coopérative introuvable.")
         return item
 
+    def list_eligible_chauffeur_users(self, cooperative_id: int) -> list[User]:
+        """Return active users eligible to receive a chauffeur profile."""
+        cooperative = self.get_cooperative(cooperative_id)
+        if not cooperative.is_active:
+            raise HTTPException(422, "La coopérative sélectionnée est inactive.")
+        today = date.today()
+        member_exists = exists(select(CooperativeMember.id_user).where(
+            CooperativeMember.id_cooperative == cooperative_id,
+            CooperativeMember.id_user == User.id,
+            CooperativeMember.is_active.is_(True),
+            or_(CooperativeMember.date_adhesion.is_(None), CooperativeMember.date_adhesion <= today),
+            or_(CooperativeMember.date_fin.is_(None), CooperativeMember.date_fin >= today),
+        ))
+        driver_exists = exists(select(Chauffeur.id).where(Chauffeur.id_user == User.id))
+        chauffeur_role_exists = User.roles.any(and_(
+            Role.is_active.is_(True),
+            func.lower(Role.libelle) == UserRole.CHAUFFEUR,
+        ))
+        return list(self.db.scalars(
+            select(User)
+            .where(
+                User.is_active.is_(True),
+                or_(
+                    User.id == cooperative.responsable_id,
+                    member_exists,
+                    chauffeur_role_exists,
+                ),
+            )
+            .where(~driver_exists)
+            .order_by(User.name, User.first_name, User.id)
+        ))
+
+    def list_eligible_members(self, cooperative_id: int) -> list[User]:
+        """Return active users who can be added to this cooperative."""
+        cooperative = self.get_cooperative(cooperative_id)
+        if not cooperative.is_active:
+            raise HTTPException(422, "La coopÃ©rative sÃ©lectionnÃ©e est inactive.")
+
+        active_member_exists = exists(select(CooperativeMember.id_user).where(
+            CooperativeMember.id_cooperative == cooperative_id,
+            CooperativeMember.id_user == User.id,
+            CooperativeMember.is_active.is_(True),
+        ))
+        return list(self.db.scalars(
+            select(User)
+            .where(User.is_active.is_(True), ~active_member_exists)
+            .order_by(User.name, User.first_name, User.id)
+        ))
+
+    def list_eligible_responsables(self) -> list[User]:
+        """Return active users with the canonical cooperative manager role."""
+        return list(self.db.scalars(
+            select(User)
+            .join(User.roles)
+            .where(
+                User.is_active.is_(True),
+                Role.is_active.is_(True),
+                func.lower(Role.libelle) == UserRole.RESPONSABLE_COOPERATIVE,
+            )
+            .distinct()
+            .order_by(User.name, User.first_name, User.id)
+        ))
+
+    def list_available_gares(self, cooperative_id: int) -> list[Gare]:
+        """Return active stations not currently attached to the cooperative."""
+        cooperative = self.get_cooperative(cooperative_id)
+        if not cooperative.is_active:
+            raise HTTPException(422, "La coopÃ©rative sÃ©lectionnÃ©e est inactive.")
+        association_exists = exists(select(GareCooperative.id_gare).where(
+            GareCooperative.id_gare == Gare.id,
+            GareCooperative.id_cooperative == cooperative_id,
+            GareCooperative.is_active.is_(True),
+        ))
+        return list(self.db.scalars(
+            select(Gare)
+            .where(Gare.is_active.is_(True), ~association_exists)
+            .order_by(Gare.nom, Gare.ville, Gare.id)
+        ))
+
+    def _validate_responsable(self, user_id: int | None) -> User | None:
+        if user_id is None:
+            return None
+        user = self.db.get(User, user_id)
+        if not user:
+            raise HTTPException(404, "Responsable introuvable.")
+        if not user.is_active:
+            raise HTTPException(422, "Un utilisateur inactif ne peut pas être responsable.")
+        if not any(
+            role.is_active and normalize_role(role.libelle) == UserRole.RESPONSABLE_COOPERATIVE
+            for role in user.roles
+        ):
+            raise HTTPException(
+                422,
+                "Le responsable doit posséder le rôle responsable_cooperative.",
+            )
+        return user
+
+    def _ensure_responsable_membership(self, cooperative_id: int, user_id: int) -> None:
+        member = self.db.scalar(select(CooperativeMember).where(
+            CooperativeMember.id_cooperative == cooperative_id,
+            CooperativeMember.id_user == user_id,
+        ))
+        if member:
+            member.is_active = True
+            member.fonction = "RESPONSABLE"
+            if member.date_adhesion is None:
+                member.date_adhesion = date.today()
+            return
+        self.db.add(CooperativeMember(
+            id_cooperative=cooperative_id,
+            id_user=user_id,
+            fonction="RESPONSABLE",
+            date_adhesion=date.today(),
+            is_active=True,
+        ))
+
     def create_cooperative(
         self,
         *,
@@ -105,10 +236,10 @@ class CooperativeService:
         clean_name = nom.strip()
         if not clean_name:
             raise HTTPException(422, "Le nom de la coopérative est obligatoire.")
-        if self.db.scalar(select(Cooperative).where(Cooperative.nom == clean_name)):
+        if self.db.scalar(select(Cooperative).where(func.lower(Cooperative.nom) == clean_name.lower())):
             raise HTTPException(400, "Une coopérative portant ce nom existe déjà.")
-        if fields.get("responsable_id") is not None and not self.db.get(User, fields["responsable_id"]):
-            raise HTTPException(404, "Responsable introuvable.")
+        responsable_id = fields.get("responsable_id")
+        self._validate_responsable(responsable_id)
 
         values = {
             key: value.strip() if isinstance(value, str) else value
@@ -124,6 +255,9 @@ class CooperativeService:
         )
         try:
             self.db.add(item)
+            self.db.flush()
+            if responsable_id is not None:
+                self._ensure_responsable_membership(item.id, responsable_id)
             self.db.commit()
             self.db.refresh(item)
             return item
@@ -138,13 +272,25 @@ class CooperativeService:
 
     def update_cooperative(self, cooperative_id: int, **fields) -> Cooperative:
         item = self.get_cooperative(cooperative_id)
-        if fields.get("responsable_id") is not None and not self.db.get(User, fields["responsable_id"]):
-            raise HTTPException(404, "Responsable introuvable.")
+        if "responsable_id" in fields:
+            self._validate_responsable(fields["responsable_id"])
         if fields.get("nom") is not None and not fields["nom"].strip():
             raise HTTPException(422, "Le nom de la coopérative est obligatoire.")
 
+        if fields.get("nom") and fields["nom"].strip().lower() != item.nom.lower():
+            duplicate = self.db.scalar(select(Cooperative).where(
+                Cooperative.id != cooperative_id,
+                func.lower(Cooperative.nom) == fields["nom"].strip().lower(),
+            ))
+            if duplicate:
+                raise HTTPException(400, "Une cooperative portant ce nom existe deja.")
+
         for key, value in fields.items():
-            if value is not None and hasattr(Cooperative, key):
+            if key == "responsable_id":
+                item.responsable_id = value
+                if value is not None:
+                    self._ensure_responsable_membership(item.id, value)
+            elif hasattr(Cooperative, key):
                 if isinstance(value, str):
                     value = value.strip()
                     if key == "email":
@@ -180,6 +326,12 @@ class CooperativeService:
         try:
             self.db.delete(item)
             self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Impossible de supprimer une coopérative encore liée à des véhicules ou chauffeurs.",
+            )
         except Exception:
             self.db.rollback()
             logger.exception("Erreur interne suppression coopérative: id=%s", cooperative_id)
@@ -194,7 +346,9 @@ class CooperativeService:
     ) -> GareCooperative:
         if not self.db.get(Gare, gare_id):
             raise HTTPException(404, "Gare introuvable.")
-        self.get_cooperative(cooperative_id)
+        cooperative = self.get_cooperative(cooperative_id)
+        if not cooperative.is_active:
+            raise HTTPException(422, "Une coopérative inactive ne peut pas être rattachée à une gare.")
         self._validate_dates(date_debut, date_fin)
 
         statement = select(GareCooperative).where(
@@ -233,9 +387,14 @@ class CooperativeService:
         date_adhesion: date | None = None,
         date_fin: date | None = None,
     ) -> CooperativeMember:
-        self.get_cooperative(cooperative_id)
-        if not self.db.get(User, user_id):
+        cooperative = self.get_cooperative(cooperative_id)
+        if not cooperative.is_active:
+            raise HTTPException(422, "Une coopérative inactive ne peut pas recevoir de membre.")
+        user = self.db.get(User, user_id)
+        if not user:
             raise HTTPException(404, "Utilisateur introuvable.")
+        if not user.is_active:
+            raise HTTPException(422, "Un utilisateur inactif ne peut pas devenir membre.")
         self._validate_dates(date_adhesion, date_fin)
 
         statement = select(CooperativeMember).where(

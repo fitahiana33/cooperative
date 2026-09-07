@@ -11,7 +11,9 @@ class UserRemoteDataSource {
   Future<List<UserDto>> getUsers() async {
     try {
       final response = await _apiClient.dio.get('/users');
-      return (response.data as List)
+      final payload = response.data;
+      final items = payload is Map<String, dynamic> ? payload['items'] as List? ?? const [] : payload as List;
+      return items
           .map((item) => UserDto.fromJson(item as Map<String, dynamic>))
           .toList();
     } on DioException catch (error, stackTrace) {

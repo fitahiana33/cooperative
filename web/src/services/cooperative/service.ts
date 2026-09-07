@@ -21,9 +21,33 @@ export const cooperativeService = {
     await api.delete(`/cooperatives/${id}`)
   },
   async attachToGare(cooperativeId: number, gareId: number) {
-    return (await api.post(`/cooperatives/${cooperativeId}/attach-gare/${gareId}`)).data
+    return (await api.post(`/cooperatives/${cooperativeId}/attach-gare/${gareId}`, {})).data
   },
   async addMember(cooperativeId: number, data: { id_user: number; fonction?: string }) {
     return (await api.post(`/cooperatives/${cooperativeId}/members`, data)).data
+  },
+  async listGareAssociations(cooperativeId: number) {
+    return (await api.get(`/cooperatives/${cooperativeId}/gares`)).data
+  },
+  async listCooperativeMembers(cooperativeId: number) {
+    return (await api.get(`/cooperatives/${cooperativeId}/members`)).data
+  },
+  async listEligibleChauffeurUsers(cooperativeId: number) {
+    return (await api.get(`/cooperatives/${cooperativeId}/eligible-chauffeur-users`)).data
+  },
+  async listEligibleMembers(cooperativeId: number) {
+    return (await api.get(`/cooperatives/${cooperativeId}/eligible-members`)).data
+  },
+  async listEligibleResponsables() {
+    return (await api.get('/cooperatives/eligible-responsables')).data
+  },
+  async listAvailableGares(cooperativeId: number) {
+    return (await api.get(`/cooperatives/${cooperativeId}/available-gares`)).data
+  },
+  async removeFromGare(cooperativeId: number, gareId: number): Promise<void> {
+    await api.delete(`/cooperatives/${cooperativeId}/attach-gare/${gareId}`)
+  },
+  async removeMember(cooperativeId: number, userId: number): Promise<void> {
+    await api.delete(`/cooperatives/${cooperativeId}/members/${userId}`)
   },
 }

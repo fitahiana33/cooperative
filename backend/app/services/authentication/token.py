@@ -73,11 +73,18 @@ def decode_refresh_payload(token: str) -> dict | None:
 
 
 def decode_password_reset_token(token: str) -> str | None:
+    payload = decode_password_reset_payload(token)
+    email = payload.get("email") if payload else None
+    return str(email) if email else None
+
+
+def decode_password_reset_payload(token: str) -> dict | None:
     try:
         payload = jwt.decode(token, settings.secret_key, algorithms=[settings.jwt_algorithm])
         if payload.get("type") != "password_reset":
             return None
-        email = payload.get("email")
-        return str(email) if email else None
+        if not payload.get("email") or not payload.get("jti"):
+            return None
+        return payload
     except jwt.PyJWTError:
         return None
