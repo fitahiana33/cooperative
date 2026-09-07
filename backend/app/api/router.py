@@ -13,6 +13,7 @@ from app.api.controllers.chauffeur import router as chauffeur_router
 from app.api.controllers.destination import router as destination_router
 from app.api.controllers.itineraire import router as itineraire_router
 from app.api.controllers.tarif import router as tarif_router
+from app.api.controllers.depart import router as depart_router
 
 api_router = APIRouter()
 api_router.include_router(authentication_router)
@@ -28,3 +29,4 @@ api_router.include_router(chauffeur_router)
 api_router.include_router(destination_router)
 api_router.include_router(itineraire_router)
 api_router.include_router(tarif_router)
+api_router.include_router(depart_router)

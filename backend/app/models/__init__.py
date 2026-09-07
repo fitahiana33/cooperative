@@ -11,6 +11,7 @@ from app.models.authentication import RevokedToken
 from app.models.destination import Destination
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.tarif import Tarif
+from app.models.depart import Depart, DepartStatus
 
 __all__ = [
     "User",
@@ -34,4 +35,6 @@ __all__ = [
     "Itineraire",
     "ItineraireCooperative",
     "Tarif",
+    "Depart",
+    "DepartStatus",
 ]

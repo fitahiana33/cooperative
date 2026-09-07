@@ -274,6 +274,30 @@ const router = createRouter({
       component: () => import('../views/management/RouteFormView.vue'),
       meta: { requiresAuth: true, requiredRoles: ['admin'], layout: 'default' },
     },
+    {
+      path: '/departs',
+      name: 'departs',
+      component: () => import('../views/management/DepartListView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'chauffeur', 'passenger'], layout: 'default' },
+    },
+    {
+      path: '/departs/new',
+      name: 'depart-create',
+      component: () => import('../views/management/DepartFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
+    },
+    {
+      path: '/departs/:id',
+      name: 'depart-detail',
+      component: () => import('../views/management/DepartDetailView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'chauffeur', 'passenger'], layout: 'default' },
+    },
+    {
+      path: '/departs/:id/edit',
+      name: 'depart-edit',
+      component: () => import('../views/management/DepartFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
+    },
   ],
 })
 
@@ -293,6 +317,7 @@ router.beforeEach((to) => {
     destinations: 'DESTINATION_READ', 'destination-detail': 'DESTINATION_READ', 'destination-create': 'DESTINATION_CREATE', 'destination-edit': 'DESTINATION_UPDATE',
     itineraires: 'ITINERAIRE_READ', 'itineraire-detail': 'ITINERAIRE_READ', 'itineraire-create': 'ITINERAIRE_CREATE', 'itineraire-edit': 'ITINERAIRE_UPDATE',
     tarifs: 'TARIF_READ', 'tarif-detail': 'TARIF_READ', 'tarif-create': 'TARIF_CREATE', 'tarif-edit': 'TARIF_UPDATE',
+    departs: 'DEPART_READ', 'depart-detail': 'DEPART_READ', 'depart-create': 'DEPART_CREATE', 'depart-edit': 'DEPART_UPDATE',
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {

@@ -33,6 +33,7 @@ class Itineraire(Base):
     destination_arrivee = relationship("Destination", foreign_keys=[id_destination_arrivee], back_populates="itineraires_arrivee")
     cooperatives = relationship("ItineraireCooperative", back_populates="itineraire", passive_deletes=True)
     tarifs = relationship("Tarif", back_populates="itineraire", passive_deletes=True)
+    departs = relationship("Depart", back_populates="itineraire", passive_deletes=True)
 
 
 class ItineraireCooperative(Base):

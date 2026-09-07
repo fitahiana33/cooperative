@@ -33,6 +33,7 @@ class Vehicule(Base):
     cooperative = relationship("Cooperative", back_populates="vehicules")
     documents = relationship("VehiculeDocument", back_populates="vehicule", passive_deletes=True)
     chauffeurs_assignments = relationship("VehiculeChauffeur", back_populates="vehicule", passive_deletes=True)
+    departs = relationship("Depart", back_populates="vehicule", passive_deletes=True)
 
 
 class VehiculeDocument(Base):
