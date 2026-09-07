@@ -7,6 +7,7 @@ import '../management/vehicules_page.dart';
 import '../management/chauffeurs_page.dart';
 import '../management/catalog_page.dart';
 import '../management/administration_page.dart';
+import '../management/routes_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -21,9 +22,10 @@ class HomePage extends ConsumerWidget {
     final canCooperatives = can('COOPERATIVE_READ');
     final canVehicules = can('VEHICULE_READ');
     final canChauffeurs = can('CHAUFFEUR_READ');
+    final canRoutes = can('DESTINATION_READ') || can('ITINERAIRE_READ') || can('TARIF_READ');
     final isAdmin = role == 'admin';
     final canAdministration = isAdmin || can('USER_READ') || can('ROLE_MANAGE');
-    final isStaff = canGares || canCooperatives || canVehicules || canChauffeurs || canAdministration;
+    final isStaff = canGares || canCooperatives || canVehicules || canChauffeurs || canAdministration || canRoutes;
     final apiClient = ref.watch(authApiClientProvider);
     final permissions = user?.permissions.toSet() ?? <String>{};
 
@@ -223,6 +225,15 @@ class HomePage extends ConsumerWidget {
                     color: const Color(0xFF64748B),
                     onTap: () {
                       Navigator.push(context, MaterialPageRoute(builder: (_) => AdministrationPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
+                    },
+                  ),
+                  if (canRoutes) _buildActionCard(
+                    icon: Icons.route_rounded,
+                    title: 'Destinations & tarifs',
+                    subtitle: 'Itineraires, cooperatives autorisees et prix',
+                    color: const Color(0xFF14B8A6),
+                    onTap: () {
+                      Navigator.push(context, MaterialPageRoute(builder: (_) => RoutesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
                     },
                   ),
                 ],

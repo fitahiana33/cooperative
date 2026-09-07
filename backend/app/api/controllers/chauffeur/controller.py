@@ -1,3 +1,5 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 from app.db.session import get_db
@@ -6,6 +8,7 @@ from app.schemas.chauffeur import (
     ChauffeurCreate,
     ChauffeurUpdate,
     ChauffeurRead,
+    ChauffeurVehiculeRead,
     VehiculeChauffeurAssign,
     VehiculeChauffeurClose,
     VehiculeChauffeurRead,
@@ -135,6 +138,21 @@ def assign_to_vehicule(
 def list_assignments(chauffeur_id: int, current_user: User = Depends(require_permission("CHAUFFEUR_READ")), db: Session = Depends(get_db)):
     ensure_chauffeur_access(db, current_user, chauffeur_id)
     return ChauffeurService(db).list_assignments(chauffeur_id)
+
+@router.get("/{chauffeur_id}/vehicules-disponibles", response_model=list[ChauffeurVehiculeRead])
+def list_available_vehicles(
+    chauffeur_id: int,
+    date_debut: date | None = Query(None),
+    date_fin: date | None = Query(None),
+    current_user: User = Depends(require_permission("CHAUFFEUR_UPDATE")),
+    db: Session = Depends(get_db),
+):
+    ensure_chauffeur_access(db, current_user, chauffeur_id)
+    return ChauffeurService(db).list_available_vehicles(
+        chauffeur_id,
+        date_debut=date_debut,
+        date_fin=date_fin,
+    )
 
 @router.post("/{chauffeur_id}/vehicules/{vehicule_id}/close", status_code=status.HTTP_204_NO_CONTENT)
 def close_assignment(

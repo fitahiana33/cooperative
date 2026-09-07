@@ -1,7 +1,7 @@
 import logging
 from datetime import date
 from fastapi import HTTPException, status
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -303,6 +303,70 @@ class ChauffeurService:
             raise HTTPException(status_code=500, detail="Impossible de supprimer ce chauffeur.")
 
     # --- Affectations Véhicule ↔ Chauffeur ---
+    def list_available_vehicles(
+        self,
+        chauffeur_id: int,
+        *,
+        date_debut: date | None = None,
+        date_fin: date | None = None,
+    ) -> list[Vehicule]:
+        """Return vehicles available for this chauffeur and period."""
+        self._synchronize_expired_permits()
+        self._synchronize_scheduled_assignments()
+        chauffeur = self.get_chauffeur(chauffeur_id)
+
+        start = date_debut or date.today()
+        end = date_fin
+        if start < date.today():
+            raise HTTPException(
+                status_code=422,
+                detail="La date de début d'affectation ne peut pas être antérieure à aujourd'hui.",
+            )
+        if end is not None and end < start:
+            raise HTTPException(
+                status_code=422,
+                detail="La date de fin ne peut pas être antérieure à la date de début.",
+            )
+
+        if (
+            not chauffeur.is_active
+            or not chauffeur.disponibilite
+            or chauffeur.date_expiration_permis < start
+            or (end is not None and end > chauffeur.date_expiration_permis)
+        ):
+            return []
+
+        period_end = end or start
+        overlap = and_(
+            VehiculeChauffeur.date_debut <= period_end,
+            or_(
+                VehiculeChauffeur.date_fin.is_(None),
+                VehiculeChauffeur.date_fin >= start,
+            ),
+        )
+
+        # The driver cannot receive a second assignment on an overlapping period.
+        driver_has_overlap = self.db.scalar(
+            select(VehiculeChauffeur).where(
+                VehiculeChauffeur.id_chauffeur == chauffeur_id,
+                overlap,
+            )
+        )
+        if driver_has_overlap:
+            return []
+
+        statement = (
+            select(Vehicule)
+            .where(
+                Vehicule.id_cooperative == chauffeur.id_cooperative,
+                Vehicule.is_active.is_(True),
+                Vehicule.disponibilite.is_(True),
+                ~Vehicule.chauffeurs_assignments.any(overlap),
+            )
+            .order_by(Vehicule.immatriculation.asc())
+        )
+        return list(self.db.scalars(statement))
+
     def assign_to_vehicule(self, chauffeur_id: int, vehicule_id: int, date_debut: date, date_fin: date | None = None) -> VehiculeChauffeur:
         self._synchronize_expired_permits()
         self._synchronize_scheduled_assignments()

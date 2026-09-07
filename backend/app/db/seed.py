@@ -89,6 +89,20 @@ def seed_default_admin(db: Session) -> None:
         # PAIEMENT
         ("PAIEMENT_READ", "Consultation des paiements", "PAIEMENT"),
         ("PAIEMENT_PROCESS", "Traitement des paiements", "PAIEMENT"),
+        # SPRINT 6 - DESTINATIONS, ITINERAIRES ET TARIFS
+        ("DESTINATION_READ", "Consultation des destinations", "DESTINATION"),
+        ("DESTINATION_CREATE", "Création de destinations", "DESTINATION"),
+        ("DESTINATION_UPDATE", "Modification de destinations", "DESTINATION"),
+        ("DESTINATION_DELETE", "Suppression de destinations", "DESTINATION"),
+        ("ITINERAIRE_READ", "Consultation des itinéraires", "ITINERAIRE"),
+        ("ITINERAIRE_CREATE", "Création d'itinéraires", "ITINERAIRE"),
+        ("ITINERAIRE_UPDATE", "Modification d'itinéraires", "ITINERAIRE"),
+        ("ITINERAIRE_DELETE", "Suppression d'itinéraires", "ITINERAIRE"),
+        ("ITINERAIRE_COOPERATIVE_MANAGE", "Association des coopératives aux itinéraires", "ITINERAIRE"),
+        ("TARIF_READ", "Consultation des tarifs", "TARIF"),
+        ("TARIF_CREATE", "Création de tarifs", "TARIF"),
+        ("TARIF_UPDATE", "Modification de tarifs", "TARIF"),
+        ("TARIF_DELETE", "Suppression de tarifs", "TARIF"),
     ]
 
     permissions = {}
@@ -117,6 +131,7 @@ def seed_default_admin(db: Session) -> None:
             "COOPERATIVE_READ",
             "VEHICULE_READ", "CHAUFFEUR_READ",
             "DEPART_READ", "RESERVATION_READ", "PAIEMENT_READ",
+            "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ",
         },
         UserRole.RESPONSABLE_COOPERATIVE: {
             "COOPERATIVE_READ", "COOPERATIVE_UPDATE",
@@ -124,9 +139,12 @@ def seed_default_admin(db: Session) -> None:
             "CHAUFFEUR_READ", "CHAUFFEUR_CREATE", "CHAUFFEUR_UPDATE", "CHAUFFEUR_DELETE",
             "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL",
             "RESERVATION_READ", "RESERVATION_CANCEL", "PAIEMENT_READ",
+            "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ",
+            "ITINERAIRE_COOPERATIVE_MANAGE",
         },
-        UserRole.AGENT_GARE: {"GARE_READ", "DEPART_READ", "RESERVATION_READ"},
-        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ"},
+        UserRole.AGENT_GARE: {"GARE_READ", "DEPART_READ", "RESERVATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
+        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
+        UserRole.PASSAGER: {"DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
     }
     managed_permission_codes = {
         code for code, _, _ in permission_definitions

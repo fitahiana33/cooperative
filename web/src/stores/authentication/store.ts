@@ -9,6 +9,7 @@ import type {
 import type { User } from '../../models/user/model'
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from '../../services/authentication/constants'
 import { userError } from '../../utils/errors'
+import axios from 'axios'
 
 export const useAuthenticationStore = defineStore('authentication', {
   state: () => ({
@@ -111,8 +112,18 @@ export const useAuthenticationStore = defineStore('authentication', {
 
     async loadUser() {
       if (!this.token) { this.initialized = true; return }
-      try { this.user = await authenticationController.me() }
-      catch (error) { console.error('[LOAD_USER_ERROR]', error); await this.logout() }
+      try {
+        this.user = await authenticationController.me()
+      } catch (error: unknown) {
+        const status = axios.isAxiosError(error) ? error.response?.status : undefined
+        if (status === 401 || status === 403) {
+          await this.logout(false)
+        } else {
+          // Keep the local session during a temporary network/backend outage.
+          // The user can retry without being logged out unnecessarily.
+          this.error = userError(error, 'Le serveur est momentanément indisponible. Réessayez dans quelques instants.', 'LOAD_USER_ERROR')
+        }
+      }
       finally { this.initialized = true }
     },
 

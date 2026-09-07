@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
@@ -48,9 +48,11 @@ const documentIsValid = ref(true)
 const documentFile = ref<File | null>(null)
 const assignments = ref<Array<{ id_vehicule: number; id_chauffeur: number; date_debut: string; date_fin?: string; is_active: boolean }>>([])
 const assignmentVehicles = ref<Vehicule[]>([])
+const assignmentVehicleCatalog = ref<Vehicule[]>([])
 const assignmentForm = ref({ id_vehicule: 0, date_debut: new Date().toISOString().slice(0, 10), date_fin: '' })
 const assignmentSubmitting = ref(false)
 const canManageAssignment = computed(() => auth.hasPermission('CHAUFFEUR_UPDATE'))
+const hasActiveAssignment = computed(() => assignments.value.some(item => item.is_active))
 
 function displayCooperative(value?: number) { return cooperatives.value.find(item => item.id === value)?.nom || `Coopérative #${value || ''}` }
 function displayUser(value?: number) { return chauffeur.value?.user ? `${chauffeur.value.user.first_name || ''} ${chauffeur.value.user.name}`.trim() : `Utilisateur #${value || ''}` }
@@ -122,18 +124,39 @@ async function load() {
       chauffeur.value = await chauffeurService.getChauffeur(id.value)
       const results = await Promise.allSettled([
         chauffeurService.listAssignments(id.value),
+        chauffeurService.listAvailableVehicules(id.value, {
+          date_debut: assignmentForm.value.date_debut,
+        }),
         vehiculeService.listVehicules({ page: 1, page_size: 100, id_cooperative: chauffeur.value.id_cooperative, sort_by: 'immatriculation', sort_order: 'asc' }),
       ])
       if (results[0].status === 'fulfilled') assignments.value = results[0].value
-      if (results[1].status === 'fulfilled') assignmentVehicles.value = results[1].value.items || []
+      if (results[1].status === 'fulfilled') assignmentVehicles.value = results[1].value || []
+      if (results[2].status === 'fulfilled') assignmentVehicleCatalog.value = results[2].value.items || []
     }
     else if (section.value === 'marques') { marque.value = await marqueService.getMarque(id.value); marqueModeles.value = (await modeleService.listModeles({ page: 1, page_size: 100, id_marque: id.value, sort_by: 'nom', sort_order: 'asc' })).items }
     else modele.value = await modeleService.getModele(id.value)
   } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de charger les détails.', 'DETAIL_LOAD_ERROR') }
   finally { loading.value = false }
 }
+async function loadAvailableAssignmentVehicles() {
+  if (!chauffeur.value || hasActiveAssignment.value) {
+    assignmentVehicles.value = []
+    return
+  }
+  try {
+    assignmentVehicles.value = await chauffeurService.listAvailableVehicules(chauffeur.value.id, {
+      date_debut: assignmentForm.value.date_debut || undefined,
+      date_fin: assignmentForm.value.date_fin || undefined,
+    })
+    if (!assignmentVehicles.value.some(vehicle => vehicle.id === assignmentForm.value.id_vehicule)) {
+      assignmentForm.value.id_vehicule = 0
+    }
+  } catch (errorValue: unknown) {
+    error.value = userError(errorValue, 'Impossible de charger les véhicules disponibles.', 'ASSIGNMENT_VEHICLES_LOAD_ERROR')
+  }
+}
 async function assignVehicle() {
-  if (!chauffeur.value || !assignmentForm.value.id_vehicule || assignmentSubmitting.value) return
+  if (!chauffeur.value || !assignmentForm.value.id_vehicule || assignmentSubmitting.value || hasActiveAssignment.value) return
   assignmentSubmitting.value = true; error.value = ''
   try {
     const created = await chauffeurService.assignVehicule(chauffeur.value.id, {
@@ -144,6 +167,7 @@ async function assignVehicle() {
     assignments.value.unshift(created)
     success.value = 'Affectation enregistrée avec succès.'
     assignmentForm.value.id_vehicule = 0
+    await loadAvailableAssignmentVehicles()
   } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible d’enregistrer l’affectation.', 'ASSIGNMENT_ADD_ERROR') }
   finally { assignmentSubmitting.value = false }
 }
@@ -153,10 +177,17 @@ async function closeAssignment(assignment: { id_vehicule: number; date_debut: st
   try {
     await chauffeurService.closeAssignment(chauffeur.value.id, assignment.id_vehicule, assignment.date_debut)
     assignments.value = assignments.value.map(item => item.id_vehicule === assignment.id_vehicule && item.date_debut === assignment.date_debut ? { ...item, is_active: false, date_fin: new Date().toISOString().slice(0, 10) } : item)
+    await loadAvailableAssignmentVehicles()
     success.value = 'Affectation clôturée avec succès.'
   } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de clôturer l’affectation.', 'ASSIGNMENT_CLOSE_ERROR') }
   finally { assignmentSubmitting.value = false }
 }
+watch(
+  () => [assignmentForm.value.date_debut, assignmentForm.value.date_fin],
+  () => {
+    if (chauffeur.value && !hasActiveAssignment.value) void loadAvailableAssignmentVehicles()
+  },
+)
 onMounted(load)
 </script>
 
@@ -194,13 +225,14 @@ onMounted(load)
     <BaseCard v-else-if="section === 'modeles' && modele"><div class="card-heading"><div><h2>{{ modele.nom }}</h2><p><span :class="['status-badge', modele.is_active ? 'active' : 'inactive']">{{ modele.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Nom du modèle</span><strong>{{ modele.nom }}</strong></div><div class="detail-item"><span class="detail-label">Marque</span><strong>{{ displayBrand(modele.id_marque) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ modele.description || 'Aucune description.' }}</strong></div><div class="detail-item"><span class="detail-label">Créé le</span><strong>{{ formatDate(modele.created_at) }}</strong></div></div></BaseCard>
     <BaseCard v-if="section === 'chauffeurs' && chauffeur">
       <div class="card-heading"><div><h2>Affectations véhicule</h2><p>Historique et affectation actuelle du chauffeur.</p></div></div>
-      <form v-if="canManageAssignment" class="management-form" @submit.prevent="assignVehicle">
-        <div class="field-group"><label for="assignment-vehicle">Véhicule</label><select id="assignment-vehicle" v-model.number="assignmentForm.id_vehicule" required><option :value="0" disabled>Choisir un véhicule</option><option v-for="vehicle in assignmentVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.immatriculation }}</option></select></div>
+      <p v-if="canManageAssignment && hasActiveAssignment" class="status-msg">Ce chauffeur possède déjà une affectation active. Clôturez-la avant d'en créer une nouvelle.</p>
+      <form v-else-if="canManageAssignment" class="management-form" @submit.prevent="assignVehicle">
+        <div class="field-group"><label for="assignment-vehicle">Véhicule</label><select id="assignment-vehicle" v-model.number="assignmentForm.id_vehicule" required><option :value="0" disabled>{{ assignmentVehicles.length ? 'Choisir un véhicule' : 'Aucun véhicule disponible' }}</option><option v-for="vehicle in assignmentVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.immatriculation }}</option></select></div>
         <div class="field-group"><label for="assignment-start">Début</label><input id="assignment-start" v-model="assignmentForm.date_debut" type="date" required /></div>
         <div class="field-group"><label for="assignment-end">Fin</label><input id="assignment-end" v-model="assignmentForm.date_fin" type="date" /></div>
-        <div class="form-actions"><button class="primary-button compact-button" type="submit" :disabled="assignmentSubmitting">{{ assignmentSubmitting ? 'Enregistrement…' : 'Affecter le véhicule' }}</button></div>
+        <div class="form-actions"><button class="primary-button compact-button" type="submit" :disabled="assignmentSubmitting || !assignmentVehicles.length">{{ assignmentSubmitting ? 'Enregistrement…' : 'Affecter le véhicule' }}</button></div>
       </form>
-      <div v-if="assignments.length" class="table-scroll"><table class="data-table"><caption>Historique des affectations</caption><thead><tr><th>Véhicule</th><th>Début</th><th>Fin</th><th>Statut</th><th>Action</th></tr></thead><tbody><tr v-for="assignment in assignments" :key="`${assignment.id_vehicule}-${assignment.date_debut}`"><td>{{ assignmentVehicles.find(vehicle => vehicle.id === assignment.id_vehicule)?.immatriculation || `Véhicule #${assignment.id_vehicule}` }}</td><td>{{ formatDate(assignment.date_debut) }}</td><td>{{ formatDate(assignment.date_fin) }}</td><td><span :class="['status-badge', assignment.is_active ? 'active' : 'inactive']">{{ assignment.is_active ? 'Active' : 'Clôturée' }}</span></td><td><button v-if="assignment.is_active && canManageAssignment" class="table-action" type="button" :disabled="assignmentSubmitting" @click="closeAssignment(assignment)">Clôturer</button></td></tr></tbody></table></div>
+      <div v-if="assignments.length" class="table-scroll"><table class="data-table"><caption>Historique des affectations</caption><thead><tr><th>Véhicule</th><th>Début</th><th>Fin</th><th>Statut</th><th>Action</th></tr></thead><tbody><tr v-for="assignment in assignments" :key="`${assignment.id_vehicule}-${assignment.date_debut}`"><td>{{ assignmentVehicleCatalog.find(vehicle => vehicle.id === assignment.id_vehicule)?.immatriculation || `Véhicule #${assignment.id_vehicule}` }}</td><td>{{ formatDate(assignment.date_debut) }}</td><td>{{ formatDate(assignment.date_fin) }}</td><td><span :class="['status-badge', assignment.is_active ? 'active' : 'inactive']">{{ assignment.is_active ? 'Active' : 'Clôturée' }}</span></td><td class="assignment-actions"><RouterLink class="table-action table-link" :to="`/vehicules/${assignment.id_vehicule}`">Voir</RouterLink><button v-if="assignment.is_active && canManageAssignment" class="table-action" type="button" :disabled="assignmentSubmitting" @click="closeAssignment(assignment)">Clôturer</button><span v-else class="assignment-closed-action">Historique conservé</span></td></tr></tbody></table></div>
       <div v-else class="empty-state">Aucune affectation enregistrée.</div>
     </BaseCard>
   </AppLayout>

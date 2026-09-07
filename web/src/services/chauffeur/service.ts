@@ -26,6 +26,9 @@ export const chauffeurService = {
   async listAssignments(chauffeurId: number) {
     return (await api.get(`/chauffeurs/${chauffeurId}/vehicules`)).data
   },
+  async listAvailableVehicules(chauffeurId: number, params?: { date_debut?: string; date_fin?: string }) {
+    return (await api.get(`/chauffeurs/${chauffeurId}/vehicules-disponibles`, { params })).data
+  },
   async closeAssignment(chauffeurId: number, vehiculeId: number, dateDebut: string) {
     await api.post(`/chauffeurs/${chauffeurId}/vehicules/${vehiculeId}/close`, { date_debut: dateDebut })
   },
