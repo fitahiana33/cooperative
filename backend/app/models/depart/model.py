@@ -82,6 +82,8 @@ class Depart(Base):
     vehicule = relationship("Vehicule", back_populates="departs")
     chauffeur = relationship("Chauffeur", back_populates="departs")
     tarif = relationship("Tarif", back_populates="departs")
+    places = relationship("DepartPlace", back_populates="depart", cascade="all, delete-orphan", passive_deletes=True)
+    reservations = relationship("Reservation", back_populates="depart", passive_deletes=True)
 
     @property
     def places_disponibles(self) -> int:

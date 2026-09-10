@@ -14,6 +14,12 @@ from app.api.controllers.destination import router as destination_router
 from app.api.controllers.itineraire import router as itineraire_router
 from app.api.controllers.tarif import router as tarif_router
 from app.api.controllers.depart import router as depart_router
+from app.api.controllers.reservation import router as reservation_router
+from app.api.controllers.billet import router as billet_router
+from app.api.controllers.embarquement import router as embarquement_router
+from app.api.controllers.finance import router as finance_router
+from app.api.controllers.notification import router as notification_router
+from app.api.controllers.dashboard import router as dashboard_router
 
 api_router = APIRouter()
 api_router.include_router(authentication_router)
@@ -30,3 +36,9 @@ api_router.include_router(destination_router)
 api_router.include_router(itineraire_router)
 api_router.include_router(tarif_router)
 api_router.include_router(depart_router)
+api_router.include_router(reservation_router)
+api_router.include_router(billet_router)
+api_router.include_router(embarquement_router)
+api_router.include_router(finance_router)
+api_router.include_router(notification_router)
+api_router.include_router(dashboard_router)

@@ -12,6 +12,12 @@ from app.models.destination import Destination
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.tarif import Tarif
 from app.models.depart import Depart, DepartStatus
+from app.models.place import DepartPlace, DepartPlaceStatus
+from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
+from app.models.billet import Billet, BilletStatus
+from app.models.embarquement import Embarquement, EmbarquementStatus
+from app.models.finance import Caisse, CaisseStatus, OperationCaisse, OperationType, Paiement, PaiementMethode, PaiementStatus
+from app.models.notification import Notification, NotificationChannel, NotificationType
 
 __all__ = [
     "User",
@@ -37,4 +43,23 @@ __all__ = [
     "Tarif",
     "Depart",
     "DepartStatus",
+    "DepartPlace",
+    "DepartPlaceStatus",
+    "Reservation",
+    "ReservationPlace",
+    "ReservationStatus",
+    "Billet",
+    "BilletStatus",
+    "Embarquement",
+    "EmbarquementStatus",
+    "Caisse",
+    "CaisseStatus",
+    "OperationCaisse",
+    "OperationType",
+    "Paiement",
+    "PaiementMethode",
+    "PaiementStatus",
+    "Notification",
+    "NotificationChannel",
+    "NotificationType",
 ]

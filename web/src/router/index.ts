@@ -298,6 +298,38 @@ const router = createRouter({
       component: () => import('../views/management/DepartFormView.vue'),
       meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative'], layout: 'default' },
     },
+    {
+      path: '/reservations', name: 'reservations', component: () => import('../views/operations/ReservationsView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'passager', 'passenger'], layout: 'default' },
+    },
+    {
+      path: '/reservations/new', name: 'reservation-create', component: () => import('../views/operations/ReservationFormView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'passager', 'passenger'], layout: 'default' },
+    },
+    {
+      path: '/reservations/:id', name: 'reservation-detail', component: () => import('../views/operations/ReservationDetailView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'passager', 'passenger'], layout: 'default' },
+    },
+    {
+      path: '/billets', name: 'billets', component: () => import('../views/operations/BilletsView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'passager', 'passenger', 'chauffeur'], layout: 'default' },
+    },
+    {
+      path: '/embarquement', name: 'embarquement', component: () => import('../views/operations/BoardingView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'agent_gare'], layout: 'default' },
+    },
+    {
+      path: '/finance', name: 'finance', component: () => import('../views/operations/FinanceView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'agent_gare'], layout: 'default' },
+    },
+    {
+      path: '/notifications', name: 'notifications', component: () => import('../views/operations/NotificationsView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare', 'passager', 'passenger', 'chauffeur'], layout: 'default' },
+    },
+    {
+      path: '/statistiques', name: 'statistiques', component: () => import('../views/operations/StatisticsView.vue'),
+      meta: { requiresAuth: true, requiredRoles: ['admin', 'responsable_gare', 'responsable_cooperative', 'agent_gare'], layout: 'default' },
+    },
   ],
 })
 
@@ -318,6 +350,8 @@ router.beforeEach((to) => {
     itineraires: 'ITINERAIRE_READ', 'itineraire-detail': 'ITINERAIRE_READ', 'itineraire-create': 'ITINERAIRE_CREATE', 'itineraire-edit': 'ITINERAIRE_UPDATE',
     tarifs: 'TARIF_READ', 'tarif-detail': 'TARIF_READ', 'tarif-create': 'TARIF_CREATE', 'tarif-edit': 'TARIF_UPDATE',
     departs: 'DEPART_READ', 'depart-detail': 'DEPART_READ', 'depart-create': 'DEPART_CREATE', 'depart-edit': 'DEPART_UPDATE',
+    reservations: 'RESERVATION_READ', 'reservation-detail': 'RESERVATION_READ', 'reservation-create': 'RESERVATION_CREATE',
+    billets: 'BILLET_READ', embarquement: 'EMBARQUEMENT_MANAGE', finance: 'CAISSE_READ', notifications: 'NOTIFICATION_READ', statistiques: 'STATISTIQUE_READ',
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {

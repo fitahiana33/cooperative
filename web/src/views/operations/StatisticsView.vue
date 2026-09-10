@@ -1,0 +1,11 @@
+<script setup lang="ts">
+import { onMounted, ref } from 'vue'
+import AppLayout from '../../components/layout/AppLayout.vue'
+import BaseCard from '../../components/ui/BaseCard.vue'
+import { dashboardService } from '../../services/dashboard/service'
+import { userError } from '../../utils/errors'
+const data = ref<any>(null); const loading = ref(true); const error = ref('')
+async function load() { try { data.value = await dashboardService.statistics() } catch (value: unknown) { error.value = userError(value, 'Impossible de charger les statistiques.', 'STATISTICS_ERROR') } finally { loading.value = false } }
+onMounted(load)
+</script>
+<template><AppLayout><template #title>Statistiques</template><div class="page-intro"><div><p class="eyebrow">PILOTAGE</p><h2>Statistiques</h2><p>Indicateurs calculés à partir des départs et réservations réels.</p></div></div><p v-if="loading" class="status-msg">Chargement…</p><p v-else-if="error" class="error-banner">{{ error }}</p><template v-else><section class="content-grid"><BaseCard><div class="card-heading"><div><h2>Départs par jour</h2></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Départs</th><th>Places réservées</th><th>Capacité</th><th>Remplissage</th></tr></thead><tbody><tr v-for="row in data.departs" :key="row.date"><td>{{ row.date }}</td><td>{{ row.total }}</td><td>{{ row.places_reservees }}</td><td>{{ row.places_total }}</td><td>{{ row.places_total ? Math.round(row.places_reservees * 100 / row.places_total) : 0 }} %</td></tr></tbody></table></div></BaseCard><BaseCard><div class="card-heading"><div><h2>Réservations par jour</h2></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Total</th></tr></thead><tbody><tr v-for="row in data.reservations" :key="row.date"><td>{{ row.date }}</td><td>{{ row.total }}</td></tr></tbody></table></div></BaseCard></section><BaseCard><div class="card-heading"><div><h2>Destinations demandées</h2></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Itinéraire</th><th>Réservations</th></tr></thead><tbody><tr v-for="row in data.destinations" :key="row.id_itineraire"><td>#{{ row.id_itineraire }}</td><td>{{ row.reservations }}</td></tr></tbody></table></div></BaseCard></template></AppLayout></template>
