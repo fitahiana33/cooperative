@@ -212,7 +212,7 @@ class DepartService:
 
     def create_depart(self, **fields) -> Depart:
         capacity = self._validate_schedule(depart_id=None, **fields)
-        item = Depart(**fields, nombre_places=capacity, statut=DepartStatus.PROGRAMME, places_reservees=0)
+        item = Depart(**{**fields, "nombre_places": capacity}, statut=DepartStatus.PROGRAMME, places_reservees=0)
         try:
             self.db.add(item)
             self.db.commit()
@@ -277,3 +277,15 @@ class DepartService:
         item.statut = DepartStatus.ANNULE
         self.db.commit()
         return self._get(item.id)
+
+    def delete_depart(self, depart_id: int) -> None:
+        item = self._get(depart_id)
+        try:
+            self.db.delete(item)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                409,
+                "Impossible de supprimer ce départ car il est lié à des réservations ou des opérations. Désactivez-le plutôt.",
+            )

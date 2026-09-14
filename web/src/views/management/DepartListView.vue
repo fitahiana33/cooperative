@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import ListToolbar from '../../components/ui/ListToolbar.vue'
+import DateRangeFilter from '../../components/ui/DateRangeFilter.vue'
 import { departService } from '../../services/depart/service'
 import type { Depart, DepartStatus } from '../../models/depart/model'
 import { useAuthenticationStore } from '../../stores/authentication/store'
@@ -68,7 +69,8 @@ onMounted(load)
     <BaseCard>
       <div class="card-heading"><div><h2>Liste des départs ({{ total }})</h2><p>Les conflits de véhicule et de chauffeur sont contrôlés automatiquement.</p></div></div>
       <ListToolbar v-model="search" :loading="loading || busy !== null" placeholder="Rechercher un statut" :sort-label="sortOrder === 'asc' ? 'Plus anciens' : 'Plus récents'" @search="page = 1; load()" @sort="sort" />
-      <div class="filter-row"><select v-model="status" aria-label="Filtrer par statut" @change="page = 1; load()"><option value="">Tous les statuts</option><option v-for="(label, value) in statusLabels" :key="value" :value="value">{{ label }}</option></select><input v-model="dateFrom" type="date" aria-label="Date de début" @change="page = 1; load()" /><input v-model="dateTo" type="date" aria-label="Date de fin" @change="page = 1; load()" /></div>
+      <div class="filter-row"><select v-model="status" aria-label="Filtrer par statut" @change="page = 1; load()"><option value="">Tous les statuts</option><option v-for="(label, value) in statusLabels" :key="value" :value="value">{{ label }}</option></select></div>
+      <DateRangeFilter v-model:start="dateFrom" v-model:end="dateTo" @apply="page = 1; load()" @clear="dateFrom = ''; dateTo = ''; page = 1; load()" />
       <p v-if="loading" class="status-msg">Chargement des départs…</p><p v-else-if="error" class="error-banner" role="alert">{{ error }}</p><p v-if="success" class="success-banner" role="status">{{ success }}</p>
       <div v-if="!loading && !error" class="table-scroll"><table class="data-table"><caption>Planning des départs</caption><thead><tr><th>Date / heure</th><th>Itinéraire</th><th>Coopérative</th><th>Véhicule</th><th>Places</th><th>Remplissage</th><th>Statut</th><th>Actions</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td><strong>{{ formatDate(item.date_depart) }}</strong><br />{{ item.heure_depart.slice(0, 5) }}</td><td>{{ routeName(item) }}</td><td>{{ item.cooperative?.nom || `#${item.id_cooperative}` }}</td><td>{{ item.vehicule?.immatriculation || `#${item.id_vehicule}` }}</td><td>{{ item.places_disponibles }} / {{ item.nombre_places }} disponibles</td><td>{{ item.taux_remplissage }} %</td><td><span :class="['status-badge', item.statut === 'ANNULE' ? 'inactive' : 'active']">{{ statusLabels[item.statut] }}</span></td><td><RouterLink class="table-action table-link" :to="`/departs/${item.id}`">Détails</RouterLink><RouterLink v-if="canUpdate() && ['PROGRAMME', 'RETARDE'].includes(item.statut)" class="table-action table-link" :to="`/departs/${item.id}/edit`">Modifier</RouterLink><button v-if="canCancel() && !['ANNULE', 'PARTI', 'TERMINE'].includes(item.statut)" class="table-action danger-action" :disabled="busy !== null" @click="cancel(item)">Annuler</button></td></tr><tr v-if="!items.length"><td colspan="8" class="empty-state">Aucun départ enregistré.</td></tr></tbody></table></div>
     </BaseCard>

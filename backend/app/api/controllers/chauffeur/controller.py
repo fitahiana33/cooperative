@@ -11,6 +11,7 @@ from app.schemas.chauffeur import (
     ChauffeurVehiculeRead,
     VehiculeChauffeurAssign,
     VehiculeChauffeurClose,
+    VehiculeChauffeurUpdate,
     VehiculeChauffeurRead,
 )
 from app.schemas.common import PageResponse
@@ -165,3 +166,36 @@ def close_assignment(
     ensure_chauffeur_access(db, current_user, chauffeur_id)
     ensure_vehicule_access(db, current_user, vehicule_id)
     ChauffeurService(db).close_assignment(chauffeur_id, vehicule_id, data.date_debut)
+
+
+@router.put("/{chauffeur_id}/vehicules/{vehicule_id}", response_model=VehiculeChauffeurRead)
+def update_assignment(
+    chauffeur_id: int,
+    vehicule_id: int,
+    data: VehiculeChauffeurUpdate,
+    current_user: User = Depends(require_permission("CHAUFFEUR_UPDATE")),
+    db: Session = Depends(get_db),
+):
+    ensure_chauffeur_access(db, current_user, chauffeur_id)
+    ensure_vehicule_access(db, current_user, vehicule_id)
+    return ChauffeurService(db).update_assignment(
+        chauffeur_id,
+        vehicule_id,
+        data.date_debut,
+        new_date_debut=data.new_date_debut,
+        date_fin=data.date_fin,
+        is_active=data.is_active,
+    )
+
+
+@router.delete("/{chauffeur_id}/vehicules/{vehicule_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_assignment(
+    chauffeur_id: int,
+    vehicule_id: int,
+    date_debut: date = Query(...),
+    current_user: User = Depends(require_permission("CHAUFFEUR_DELETE")),
+    db: Session = Depends(get_db),
+):
+    ensure_chauffeur_access(db, current_user, chauffeur_id)
+    ensure_vehicule_access(db, current_user, vehicule_id)
+    ChauffeurService(db).delete_assignment(chauffeur_id, vehicule_id, date_debut)

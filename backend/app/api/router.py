@@ -20,6 +20,7 @@ from app.api.controllers.embarquement import router as embarquement_router
 from app.api.controllers.finance import router as finance_router
 from app.api.controllers.notification import router as notification_router
 from app.api.controllers.dashboard import router as dashboard_router
+from app.api.controllers.system import router as system_router
 
 api_router = APIRouter()
 api_router.include_router(authentication_router)
@@ -42,3 +43,4 @@ api_router.include_router(embarquement_router)
 api_router.include_router(finance_router)
 api_router.include_router(notification_router)
 api_router.include_router(dashboard_router)
+api_router.include_router(system_router)

@@ -188,6 +188,33 @@ class ItineraireService:
             self.db.rollback()
             raise HTTPException(409, "Cette coopérative est déjà associée à l'itinéraire.")
 
+    def update_cooperative_association(
+        self,
+        itineraire_id: int,
+        cooperative_id: int,
+        **fields,
+    ) -> ItineraireCooperative:
+        self.get_itineraire(itineraire_id)
+        statement = select(ItineraireCooperative).where(
+            ItineraireCooperative.id_itineraire == itineraire_id,
+            ItineraireCooperative.id_cooperative == cooperative_id,
+        )
+        item = self.db.scalar(statement)
+        if not item:
+            raise HTTPException(404, "Association itinéraire-coopérative introuvable.")
+
+        next_start = fields.get("date_debut", item.date_debut)
+        next_end = fields.get("date_fin", item.date_fin)
+        self._validate_dates(next_start, next_end)
+
+        for key, value in fields.items():
+            if value is not None and hasattr(ItineraireCooperative, key):
+                setattr(item, key, value)
+
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
     def remove_cooperative(self, itineraire_id: int, cooperative_id: int) -> None:
         item = self.db.scalar(select(ItineraireCooperative).where(
             ItineraireCooperative.id_itineraire == itineraire_id,

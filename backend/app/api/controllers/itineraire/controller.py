@@ -5,7 +5,7 @@ from app.api.controllers.authentication.dependencies import ensure_cooperative_a
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
-from app.schemas.itineraire import ItineraireCooperativeCreate, ItineraireCooperativeRead, ItineraireCreate, ItineraireRead, ItineraireUpdate
+from app.schemas.itineraire import ItineraireCooperativeCreate, ItineraireCooperativeRead, ItineraireCooperativeUpdate, ItineraireCreate, ItineraireRead, ItineraireUpdate
 from app.services.itineraire import ItineraireService
 
 router = APIRouter(prefix="/itineraires", tags=["itineraires"])
@@ -74,3 +74,19 @@ def remove_itineraire_cooperative(
     ensure_cooperative_access(db, current_user, cooperative_id)
     ItineraireService(db).remove_cooperative(itineraire_id, cooperative_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.put("/{itineraire_id}/cooperatives/{cooperative_id}", response_model=ItineraireCooperativeRead)
+def update_itineraire_cooperative(
+    itineraire_id: int,
+    cooperative_id: int,
+    data: ItineraireCooperativeUpdate,
+    current_user: User = Depends(require_permission("ITINERAIRE_COOPERATIVE_MANAGE")),
+    db: Session = Depends(get_db),
+):
+    ensure_cooperative_access(db, current_user, cooperative_id)
+    return ItineraireService(db).update_cooperative_association(
+        itineraire_id,
+        cooperative_id,
+        **data.model_dump(exclude_unset=True),
+    )

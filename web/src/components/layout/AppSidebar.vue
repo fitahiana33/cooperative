@@ -1,6 +1,6 @@
 <script setup lang="ts">
-import { computed, reactive } from 'vue'
-import { RouterLink } from 'vue-router'
+import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
+import { RouterLink, useRoute } from 'vue-router'
 import { useSidebarStore } from './sidebarStore'
 import { useAuthenticationStore } from '../../stores/authentication/store'
 
@@ -8,6 +8,9 @@ type SidebarSection = 'principal' | 'administration' | 'stations' | 'fleet' | 'n
 
 const sidebar = useSidebarStore()
 const auth = useAuthenticationStore()
+const route = useRoute()
+const navElement = ref<HTMLElement | null>(null)
+const sidebarScrollKey = 'cooperative-sidebar-scroll-top'
 
 const canSeeUsers = computed(() => auth.hasPermission('USER_READ'))
 const canSeeGares = computed(() => auth.hasPermission('GARE_READ'))
@@ -45,6 +48,22 @@ function toggleSection(section: SidebarSection) {
 function isSectionOpen(section: SidebarSection) {
   return openSections[section]
 }
+
+function rememberNavScroll() {
+  const value = navElement.value?.scrollTop || 0
+  sidebar.rememberNavScroll(value)
+  sessionStorage.setItem(sidebarScrollKey, String(value))
+}
+
+async function restoreNavScroll() {
+  await nextTick()
+  if (!navElement.value) return
+  const saved = Number(sessionStorage.getItem(sidebarScrollKey) || sidebar.navScrollTop || 0)
+  navElement.value.scrollTop = saved
+}
+
+onMounted(restoreNavScroll)
+watch(() => route.fullPath, restoreNavScroll)
 </script>
 
 <template>
@@ -66,7 +85,7 @@ function isSectionOpen(section: SidebarSection) {
       </div>
     </div>
 
-    <nav class="sidebar-nav">
+    <nav ref="navElement" class="sidebar-nav" @scroll="rememberNavScroll">
       <div class="sidebar-group">
         <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('principal')" @click="toggleSection('principal')">
           <span>PRINCIPAL</span><b>{{ isSectionOpen('principal') ? '⌃' : '⌄' }}</b>
@@ -83,6 +102,7 @@ function isSectionOpen(section: SidebarSection) {
         <div v-if="isSectionOpen('administration')" class="sidebar-submenu">
           <RouterLink v-if="canSeeUsers" to="/users" class="sidebar-link" @click="sidebar.closeMobile"><span>♙</span><b>Utilisateurs</b></RouterLink>
           <RouterLink v-if="canSeeRoles" to="/roles" class="sidebar-link" @click="sidebar.closeMobile"><span>⚿</span><b>Rôles & permissions</b></RouterLink>
+          <RouterLink v-if="auth.userRole?.toLowerCase() === 'admin'" to="/system/reset" class="sidebar-link" @click="sidebar.closeMobile"><span>!</span><b>Réinitialiser les données</b></RouterLink>
         </div>
       </div>
 

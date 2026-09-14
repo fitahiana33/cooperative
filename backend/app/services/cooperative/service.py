@@ -343,6 +343,7 @@ class CooperativeService:
         cooperative_id: int,
         date_debut: date | None = None,
         date_fin: date | None = None,
+        is_active: bool = True,
     ) -> GareCooperative:
         if not self.db.get(Gare, gare_id):
             raise HTTPException(404, "Gare introuvable.")
@@ -359,7 +360,7 @@ class CooperativeService:
         if existing:
             existing.date_debut = date_debut
             existing.date_fin = date_fin
-            existing.is_active = True
+            existing.is_active = is_active
             self.db.commit()
             self.db.refresh(existing)
             return existing
@@ -369,6 +370,7 @@ class CooperativeService:
             id_cooperative=cooperative_id,
             date_debut=date_debut,
             date_fin=date_fin,
+            is_active=is_active,
         )
         try:
             self.db.add(item)
@@ -378,6 +380,33 @@ class CooperativeService:
         except IntegrityError:
             self.db.rollback()
             raise HTTPException(400, "Cette coopérative est déjà associée à cette gare.")
+
+    def update_gare_association(
+        self,
+        cooperative_id: int,
+        gare_id: int,
+        **fields,
+    ) -> GareCooperative:
+        self.get_cooperative(cooperative_id)
+        statement = select(GareCooperative).where(
+            GareCooperative.id_gare == gare_id,
+            GareCooperative.id_cooperative == cooperative_id,
+        )
+        item = self.db.scalar(statement)
+        if not item:
+            raise HTTPException(404, "Association gare-coopérative introuvable.")
+
+        next_start = fields.get("date_debut", item.date_debut)
+        next_end = fields.get("date_fin", item.date_fin)
+        self._validate_dates(next_start, next_end)
+
+        for key, value in fields.items():
+            if value is not None and hasattr(GareCooperative, key):
+                setattr(item, key, value)
+
+        self.db.commit()
+        self.db.refresh(item)
+        return item
 
     def add_member(
         self,

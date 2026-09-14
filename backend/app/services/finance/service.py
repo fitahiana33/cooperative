@@ -38,7 +38,23 @@ class FinanceService:
         }
 
     def _caisse_read(self, caisse: Caisse) -> dict:
-        return {**{column.name: getattr(caisse, column.name) for column in Caisse.__table__.columns}, **self._summary(caisse)}
+        values = {attribute.key: getattr(caisse, attribute.key) for attribute in Caisse.__mapper__.column_attrs}
+        return {**values, **self._summary(caisse)}
+
+    def get_caisse(self, caisse_id: int) -> dict:
+        item = self.db.get(Caisse, caisse_id)
+        if not item:
+            raise HTTPException(404, "Caisse introuvable.")
+        return self._caisse_read(item)
+
+    def list_operations(self, caisse_id: int, *, page: int = 1, page_size: int = 100):
+        caisse = self.db.get(Caisse, caisse_id)
+        if not caisse:
+            raise HTTPException(404, "Caisse introuvable.")
+        statement = select(OperationCaisse).where(OperationCaisse.id_caisse == caisse_id)
+        total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+        items = list(self.db.scalars(statement.order_by(OperationCaisse.date_operation.desc(), OperationCaisse.id.desc()).offset((page - 1) * page_size).limit(page_size)))
+        return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
 
     def list_caisses(self, *, page: int = 1, page_size: int = 20, id_gare: int | None = None):
         statement = select(Caisse)
@@ -120,6 +136,7 @@ class FinanceService:
         item = Paiement(id_reservation=reservation_id, montant=amount, methode=PaiementMethode.ESPECES, reference_paiement=reference or f"CASH-{uuid4().hex[:12].upper()}", statut=PaiementStatus.VALIDE, id_agent=agent_id)
         self.db.add(item)
         self.db.flush()
+        reservation.statut = ReservationStatus.PAYEE
         self.db.add(OperationCaisse(id_caisse=caisse_id, type_operation=OperationType.RECETTE, montant=amount, id_paiement=item.id, id_cooperative=reservation.depart.id_cooperative, description=f"Paiement {item.reference_paiement}"))
         NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
         self.db.commit()

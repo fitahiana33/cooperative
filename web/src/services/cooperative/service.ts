@@ -20,8 +20,8 @@ export const cooperativeService = {
   async deleteCooperative(id: number): Promise<void> {
     await api.delete(`/cooperatives/${id}`)
   },
-  async attachToGare(cooperativeId: number, gareId: number) {
-    return (await api.post(`/cooperatives/${cooperativeId}/attach-gare/${gareId}`, {})).data
+  async attachToGare(cooperativeId: number, gareId: number, data: { date_debut?: string; date_fin?: string; is_active?: boolean }) {
+    return (await api.post(`/cooperatives/${cooperativeId}/attach-gare/${gareId}`, data)).data
   },
   async addMember(cooperativeId: number, data: { id_user: number; fonction?: string }) {
     return (await api.post(`/cooperatives/${cooperativeId}/members`, data)).data

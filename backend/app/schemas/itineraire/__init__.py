@@ -1,6 +1,7 @@
 from app.schemas.itineraire.schema import (
     ItineraireCooperativeCreate,
     ItineraireCooperativeRead,
+    ItineraireCooperativeUpdate,
     ItineraireCreate,
     ItineraireRead,
     ItineraireUpdate,
@@ -12,4 +13,5 @@ __all__ = [
     "ItineraireRead",
     "ItineraireCooperativeCreate",
     "ItineraireCooperativeRead",
+    "ItineraireCooperativeUpdate",
 ]

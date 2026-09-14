@@ -367,6 +367,65 @@ class ChauffeurService:
         )
         return list(self.db.scalars(statement))
 
+    def update_assignment(
+        self,
+        chauffeur_id: int,
+        vehicule_id: int,
+        date_debut: date,
+        *,
+        new_date_debut: date | None = None,
+        date_fin: date | None = None,
+        is_active: bool | None = None,
+    ) -> VehiculeChauffeur:
+        self.get_chauffeur(chauffeur_id)
+        item = self.db.get(VehiculeChauffeur, (vehicule_id, chauffeur_id, date_debut))
+        if not item:
+            raise HTTPException(status_code=404, detail="Affectation introuvable.")
+
+        next_start = new_date_debut or item.date_debut
+        next_end = date_fin if date_fin is not None else item.date_fin
+        if next_end is not None and next_end < next_start:
+            raise HTTPException(
+                status_code=422,
+                detail="La date de fin ne peut pas être antérieure à la date de début.",
+            )
+
+        chauffeur = self.db.get(Chauffeur, chauffeur_id)
+        if chauffeur and next_end is not None and next_end > chauffeur.date_expiration_permis:
+            raise HTTPException(
+                status_code=422,
+                detail="L'affectation ne peut pas dépasser l'expiration du permis.",
+            )
+
+        today = date.today()
+        if new_date_debut is not None:
+            item.date_debut = new_date_debut
+        if date_fin is not None:
+            item.date_fin = date_fin
+        if is_active is not None:
+            item.is_active = is_active
+        else:
+            item.is_active = next_start <= today and (next_end is None or next_end >= today)
+
+        self.db.commit()
+        self.db.refresh(item)
+        return item
+
+    def delete_assignment(self, chauffeur_id: int, vehicule_id: int, date_debut: date) -> None:
+        self.get_chauffeur(chauffeur_id)
+        item = self.db.get(VehiculeChauffeur, (vehicule_id, chauffeur_id, date_debut))
+        if not item:
+            raise HTTPException(status_code=404, detail="Affectation introuvable.")
+        try:
+            self.db.delete(item)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(
+                status_code=409,
+                detail="Impossible de supprimer cette affectation.",
+            )
+
     def assign_to_vehicule(self, chauffeur_id: int, vehicule_id: int, date_debut: date, date_fin: date | None = None) -> VehiculeChauffeur:
         self._synchronize_expired_permits()
         self._synchronize_scheduled_assignments()
@@ -405,9 +464,6 @@ class ChauffeurService:
         if active_vehicle_assignment:
             raise HTTPException(status_code=409, detail="Ce véhicule est déjà affecté à un chauffeur actif.")
 
-        # Reject overlapping scheduled or current periods, not only rows that
-        # are currently marked active. This prevents two future assignments
-        # from becoming active on the same day.
         def overlaps(existing: VehiculeChauffeur) -> bool:
             existing_end = existing.date_fin
             return (

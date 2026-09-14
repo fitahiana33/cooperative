@@ -42,6 +42,9 @@ const chauffeurs = ref<Chauffeur[]>([])
 const availableGares = ref<Gare[]>([])
 const eligibleMembers = ref<User[]>([])
 const selectedGare = ref<number | null>(null)
+const associationStart = ref('')
+const associationEnd = ref('')
+const associationActive = ref(true)
 const selectedMember = ref<number | null>(null)
 const memberFunction = ref('MEMBRE')
 const loading = ref(true)
@@ -121,12 +124,23 @@ async function loadRelations() {
 
 async function attachGare() {
   if (!selectedGare.value || relationSubmitting.value) return
+  if (associationStart.value && associationEnd.value && associationEnd.value < associationStart.value) {
+    relationError.value = 'La date de fin doit etre posterieure ou egale a la date de debut.'
+    return
+  }
   relationSubmitting.value = true
   relationError.value = ''
   success.value = ''
   try {
-    await managementService.attachToGare(id.value, selectedGare.value)
+    await managementService.attachToGare(id.value, selectedGare.value, {
+      date_debut: associationStart.value || undefined,
+      date_fin: associationEnd.value || undefined,
+      is_active: associationActive.value,
+    })
     selectedGare.value = null
+    associationStart.value = ''
+    associationEnd.value = ''
+    associationActive.value = true
     success.value = 'La gare a ete rattachee a la cooperative.'
     await loadRelations()
   } catch (errorValue: unknown) {
@@ -253,6 +267,9 @@ onMounted(async () => {
             <option :value="null">Selectionner une gare a rattacher</option>
             <option v-for="gare in availableGares" :key="gare.id" :value="gare.id">{{ gare.nom }} - {{ gare.ville }}</option>
           </select>
+          <label class="form-field compact-field"><span>Date debut</span><input v-model="associationStart" type="date" :disabled="relationSubmitting || relationLoading" /></label>
+          <label class="form-field compact-field"><span>Date fin</span><input v-model="associationEnd" type="date" :min="associationStart || undefined" :disabled="relationSubmitting || relationLoading" /></label>
+          <label class="checkbox-field"><input v-model="associationActive" type="checkbox" :disabled="relationSubmitting || relationLoading" /><span>Active</span></label>
           <button class="primary-button compact-button" type="button" :disabled="!selectedGare || relationSubmitting" @click="attachGare">{{ relationSubmitting ? 'Traitement...' : 'Rattacher' }}</button>
         </div>
         <div v-if="gares.length" class="table-scroll">

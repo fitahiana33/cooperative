@@ -108,3 +108,14 @@ def cancel_depart(
     service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
     return service.cancel_depart(depart_id)
 
+
+@router.delete("/{depart_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_depart(
+    depart_id: int,
+    current_user: User = Depends(require_permission("DEPART_DELETE")),
+    db: Session = Depends(get_db),
+):
+    service = DepartService(db)
+    service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
+    service.delete_depart(depart_id)
+

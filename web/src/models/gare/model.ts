@@ -15,6 +15,7 @@ export interface Emplacement {
   nom?: string
   type_emplacement?: string
   description?: string
+  description?: string
   is_available: boolean
   is_active: boolean
   created_at: string

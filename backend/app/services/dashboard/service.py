@@ -8,7 +8,7 @@ from app.models.billet import Billet
 from app.models.chauffeur import Chauffeur
 from app.models.cooperative import Cooperative
 from app.models.depart import Depart, DepartStatus
-from app.models.finance import OperationCaisse, OperationType
+from app.models.finance import Caisse, OperationCaisse, OperationType
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.notification import Notification
 from app.models.user import User
@@ -32,6 +32,8 @@ class DashboardService:
         reservation_statement = self._depart_scope(reservation_statement, cooperative_ids)
         places_statement = self._depart_scope(select(func.coalesce(func.sum(Depart.nombre_places - Depart.places_reservees), 0)).where(Depart.date_depart == today), cooperative_ids)
         revenue_statement = select(func.coalesce(func.sum(OperationCaisse.montant), 0)).where(func.date(OperationCaisse.date_operation) == today, OperationCaisse.type_operation == OperationType.RECETTE)
+        if cooperative_ids is not None:
+            revenue_statement = revenue_statement.where(OperationCaisse.id_cooperative.in_(cooperative_ids))
         revenue = self.db.scalar(revenue_statement) or Decimal("0")
         upcoming = self._depart_scope(
             select(Depart).where(Depart.date_depart >= today, Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE])).options(selectinload(Depart.itineraire)),
@@ -45,9 +47,9 @@ class DashboardService:
             "departs_du_jour": self.db.scalar(departures) or 0,
             "reservations_du_jour": self.db.scalar(reservation_statement) or 0,
             "places_disponibles": self.db.scalar(places_statement) or 0,
-            "cooperatives_actives": self.db.scalar(select(func.count()).select_from(Cooperative).where(Cooperative.is_active.is_(True))) or 0,
-            "vehicules_actifs": self.db.scalar(select(func.count()).select_from(Vehicule).where(Vehicule.is_active.is_(True))) or 0,
-            "chauffeurs_actifs": self.db.scalar(select(func.count()).select_from(Chauffeur).where(Chauffeur.is_active.is_(True))) or 0,
+            "cooperatives_actives": self.db.scalar(select(func.count()).select_from(Cooperative).where(Cooperative.is_active.is_(True), Cooperative.id.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,
+            "vehicules_actifs": self.db.scalar(select(func.count()).select_from(Vehicule).where(Vehicule.is_active.is_(True), Vehicule.id_cooperative.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,
+            "chauffeurs_actifs": self.db.scalar(select(func.count()).select_from(Chauffeur).where(Chauffeur.is_active.is_(True), Chauffeur.id_cooperative.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,
             "passagers_du_jour": self.db.scalar(passagers_statement) or 0,
             "recettes_du_jour": revenue,
             "departs_imminents": upcoming_items,
@@ -56,6 +58,10 @@ class DashboardService:
     def statistics(self, *, date_from: date | None = None, date_to: date | None = None, cooperative_ids: set[int] | None = None) -> dict:
         start = date_from or date.today() - timedelta(days=30)
         end = date_to or date.today()
+        if end < start:
+            raise ValueError("La date de fin ne peut pas être antérieure à la date de début.")
+        previous_start = start - (end - start) - timedelta(days=1)
+        previous_end = start - timedelta(days=1)
         departures = self._depart_scope(select(Depart.date_depart, func.count().label("total"), func.sum(Depart.places_reservees).label("places_reservees"), func.sum(Depart.nombre_places).label("places_total")).where(Depart.date_depart.between(start, end)).group_by(Depart.date_depart).order_by(Depart.date_depart), cooperative_ids)
         rows = self.db.execute(departures).all()
         reservations = select(Depart.date_depart, func.count(Reservation.id).label("total")).join(Reservation, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(start, end), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE])).group_by(Depart.date_depart).order_by(Depart.date_depart)
@@ -63,12 +69,34 @@ class DashboardService:
         reservation_rows = self.db.execute(reservations).all()
         destinations = select(Depart.id_itineraire, func.count(Reservation.id).label("reservations")).join(Reservation, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(start, end), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE])).group_by(Depart.id_itineraire).order_by(func.count(Reservation.id).desc()).limit(10)
         destinations = self._depart_scope(destinations, cooperative_ids)
+        departure_rows = {row.date_depart: {"date": row.date_depart, "total": row.total, "places_reservees": row.places_reservees or 0, "places_total": row.places_total or 0} for row in rows}
+        reservation_rows_by_date = {row.date_depart: row.total for row in self.db.execute(reservations).all()}
+        dates = [start + timedelta(days=offset) for offset in range((end - start).days + 1)]
+        daily_departs = [departure_rows.get(day, {"date": day, "total": 0, "places_reservees": 0, "places_total": 0}) for day in dates]
+        daily_reservations = [{"date": day, "total": reservation_rows_by_date.get(day, 0)} for day in dates]
+
+        previous_departures = self._depart_scope(select(func.coalesce(func.count(), 0)).select_from(Depart).where(Depart.date_depart.between(previous_start, previous_end)), cooperative_ids)
+        previous_reservations = select(func.coalesce(func.count(Reservation.id), 0)).select_from(Reservation).join(Depart, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(previous_start, previous_end), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]))
+        previous_reservations = self._depart_scope(previous_reservations, cooperative_ids)
+        previous_reserved = self._depart_scope(select(func.coalesce(func.sum(Depart.places_reservees), 0)).where(Depart.date_depart.between(previous_start, previous_end)), cooperative_ids)
+        previous_capacity = self._depart_scope(select(func.coalesce(func.sum(Depart.nombre_places), 0)).where(Depart.date_depart.between(previous_start, previous_end)), cooperative_ids)
+        current_departures = sum(row["total"] for row in daily_departs)
+        current_reservations = sum(row["total"] for row in daily_reservations)
+        current_reserved = sum(row["places_reservees"] for row in daily_departs)
+        current_capacity = sum(row["places_total"] for row in daily_departs)
         return {
             "date_from": start,
             "date_to": end,
-            "departs": [{"date": row.date_depart, "total": row.total, "places_reservees": row.places_reservees or 0, "places_total": row.places_total or 0} for row in rows],
-            "reservations": [{"date": row.date_depart, "total": row.total} for row in self.db.execute(reservations).all()],
+            "departs": daily_departs,
+            "reservations": daily_reservations,
             "destinations": [{"id_itineraire": row.id_itineraire, "reservations": row.reservations} for row in self.db.execute(destinations).all()],
+            "comparison": {
+                "previous_from": previous_start,
+                "previous_to": previous_end,
+                "departs": {"current": current_departures, "previous": self.db.scalar(previous_departures) or 0},
+                "reservations": {"current": current_reservations, "previous": self.db.scalar(previous_reservations) or 0},
+                "remplissage": {"current": round((current_reserved / current_capacity) * 100, 2) if current_capacity else 0, "previous": round(((self.db.scalar(previous_reserved) or 0) / (self.db.scalar(previous_capacity) or 1)) * 100, 2) if self.db.scalar(previous_capacity) else 0},
+            },
         }
 
     def generate_reminders(self, *, now: datetime | None = None) -> int:

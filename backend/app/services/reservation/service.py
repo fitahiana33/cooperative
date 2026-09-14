@@ -1,5 +1,6 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import logging
 from math import ceil
 from uuid import uuid4
 
@@ -15,6 +16,10 @@ from app.models.reservation import Reservation, ReservationPlace, ReservationSta
 from app.models.tarif import Tarif
 from app.models.user import User
 from app.services.notification import NotificationService
+from app.services.billet import BilletService
+
+
+logger = logging.getLogger("cooperative.reservation")
 
 
 class ReservationService:
@@ -97,6 +102,12 @@ class ReservationService:
             raise HTTPException(422, "Ce départ n'accepte plus de réservation.")
         return depart
 
+    def _sync_depart_place_status(self, place_id: int, statut: DepartPlaceStatus) -> None:
+        place = self.db.get(DepartPlace, place_id)
+        if place is None:
+            return
+        place.statut = statut
+
     def create_reservation(self, *, user: User, depart_id: int, places: list[dict], date_expiration: datetime | None = None) -> Reservation:
         depart = self._get_open_depart(depart_id)
         if not places:
@@ -108,7 +119,7 @@ class ReservationService:
 
         place_ids = sorted({int(item["id_depart_place"]) for item in places})
         locked_places = list(self.db.scalars(
-            select(DepartPlace).where(DepartPlace.id_depart_place.in_(place_ids)).order_by(DepartPlace.id_depart_place).with_for_update()
+            select(DepartPlace).where(DepartPlace.id.in_(place_ids)).order_by(DepartPlace.id).with_for_update()
         ))
         if len(locked_places) != len(place_ids) or any(place.id_depart != depart_id for place in locked_places):
             raise HTTPException(422, "Une place sélectionnée ne correspond pas à ce départ.")
@@ -142,6 +153,7 @@ class ReservationService:
             return self._get(reservation.id)
         except (IntegrityError, SQLAlchemyError) as exc:
             self.db.rollback()
+            logger.exception("Erreur création réservation", exc_info=exc)
             if isinstance(exc, IntegrityError):
                 raise HTTPException(409, "Une des places sélectionnées a été réservée entre-temps.")
             raise HTTPException(500, "La réservation n'a pas pu être enregistrée.")
@@ -156,12 +168,17 @@ class ReservationService:
             raise HTTPException(409, "Le délai de confirmation de cette réservation est dépassé.")
         item.statut = ReservationStatus.CONFIRMEE
         for place in item.places:
+            if place.depart_place is not None:
+                place.depart_place.statut = DepartPlaceStatus.RESERVEE
             if not place.billet:
-                self.db.add(Billet(
+                billet = Billet(
                     numero_billet=f"TKT-{uuid4().hex[:30].upper()}",
                     id_reservation_place=place.id,
                     statut=BilletStatus.VALIDE,
-                ))
+                )
+                self.db.add(billet)
+                self.db.flush()
+                BilletService.generate_qr(billet)
         NotificationService.add(
             self.db,
             user_id=item.id_user,
@@ -180,6 +197,8 @@ class ReservationService:
             raise HTTPException(409, "Cette réservation ne peut plus être annulée.")
         item.statut = ReservationStatus.ANNULEE
         for place in item.places:
+            if place.depart_place is not None:
+                place.depart_place.statut = DepartPlaceStatus.DISPONIBLE
             if place.billet:
                 place.billet.statut = BilletStatus.ANNULE
         NotificationService.add(

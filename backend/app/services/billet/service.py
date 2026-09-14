@@ -1,5 +1,8 @@
 from math import ceil
+from pathlib import Path
 from uuid import UUID
+
+import qrcode
 
 from fastapi import HTTPException
 from sqlalchemy import func, or_, select
@@ -13,6 +16,14 @@ from app.models.reservation import Reservation, ReservationPlace
 class BilletService:
     def __init__(self, db: Session):
         self.db = db
+
+    @staticmethod
+    def generate_qr(billet: Billet) -> None:
+        output_dir = Path(__file__).resolve().parents[3] / "uploads" / "qr_codes"
+        output_dir.mkdir(parents=True, exist_ok=True)
+        filename = f"{billet.numero_billet}.png"
+        qrcode.make(str(billet.qr_code_uuid)).save(output_dir / filename)
+        billet.qr_code_path = f"/uploads/qr_codes/{filename}"
 
     @staticmethod
     def _options():

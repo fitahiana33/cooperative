@@ -19,6 +19,23 @@ def list_caisses(
     return FinanceService(db).list_caisses(page=page, page_size=page_size, id_gare=id_gare)
 
 
+@router.get("/caisses/{caisse_id}", response_model=CaisseRead)
+def get_caisse(
+    caisse_id: int,
+    _: User = Depends(require_permission("CAISSE_READ")), db: Session = Depends(get_db),
+):
+    return FinanceService(db).get_caisse(caisse_id)
+
+
+@router.get("/caisses/{caisse_id}/operations", response_model=PageResponse[OperationRead])
+def list_caisse_operations(
+    caisse_id: int,
+    page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=500),
+    _: User = Depends(require_permission("CAISSE_READ")), db: Session = Depends(get_db),
+):
+    return FinanceService(db).list_operations(caisse_id, page=page, page_size=page_size)
+
+
 @router.post("/caisses", response_model=CaisseRead, status_code=status.HTTP_201_CREATED)
 def open_caisse(data: CaisseOpen, current_user: User = Depends(require_permission("CAISSE_OPEN")), db: Session = Depends(get_db)):
     return FinanceService(db).open_caisse(gare_id=data.id_gare, agent_id=current_user.id, montant_ouverture=data.montant_ouverture)

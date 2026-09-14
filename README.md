@@ -35,3 +35,18 @@ Backend : `cd backend; python -m venv .venv; .\\.venv\\Scripts\\Activate.ps1; pi
 Web : `cd web; npm install; npm run dev`
 
 Mobile : `cd mobile; flutter pub get; flutter run`
+
+## Parcours de validation rapide
+
+1. Créer ou sélectionner un véhicule avec sa capacité.
+2. Créer un départ : le nombre de places est limité par la capacité du véhicule.
+3. Dans `Réservations > Nouvelle réservation`, choisir le départ puis les places disponibles.
+4. Confirmer la réservation pour générer les billets QR.
+5. Ouvrir une caisse et enregistrer le paiement.
+6. Vérifier le tableau de bord et les statistiques sur la même période.
+
+Les statistiques distinguent les indicateurs instantanés des tendances : la page Statistiques compare la période choisie à la période précédente et affiche les jours sans activité avec une valeur nulle.
+
+## Réinitialisation des données de développement
+
+Le menu `Administration > Réinitialiser les données` est réservé aux administrateurs. Il supprime les données métier et les utilisateurs non administrateurs, remet les séquences PostgreSQL à zéro et conserve les comptes administrateurs, les rôles, les permissions et leurs associations. L'action exige de saisir `RESET` et ne doit jamais être utilisée sur une base de production.

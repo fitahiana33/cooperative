@@ -43,6 +43,10 @@ class EmbarquementService:
             self.db.commit()
             self.db.refresh(result)
             return result
+        billet.statut = BilletStatus.UTILISE
+        billet.date_utilisation = moment
+        billet.reservation_place.depart_place.statut = DepartPlaceStatus.OCCUPEE
+        billet.reservation_place.reservation.statut = ReservationStatus.EMBARQUEE
         result = Embarquement(id_billet=billet.id, id_agent=agent.id, date_heure_embarquement=moment, statut=EmbarquementStatus.VALIDE)
         self.db.add(result)
         try:

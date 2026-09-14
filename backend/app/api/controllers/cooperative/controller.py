@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.cooperative import (
-    CooperativeCreate, CooperativeUpdate, CooperativeRead, AssociationCreate,
+    CooperativeCreate, CooperativeUpdate, CooperativeRead, AssociationCreate, AssociationUpdate,
     MemberCreate, MemberUpdate, GareCooperativeRead, CooperativeMemberRead,
 )
 from app.schemas.common import PageResponse
@@ -149,6 +149,7 @@ def attach_to_gare(
         gare_id, cooperative_id,
         date_debut=data.date_debut if data else None,
         date_fin=data.date_fin if data else None,
+        is_active=data.is_active if data else True,
     )
 
 @router.post("/{cooperative_id}/members", response_model=CooperativeMemberRead, status_code=status.HTTP_201_CREATED)
@@ -173,6 +174,22 @@ def list_gare_associations(cooperative_id: int, current_user: User = Depends(req
 def remove_from_gare(cooperative_id: int, gare_id: int, current_user: User = Depends(require_permission("COOPERATIVE_UPDATE")), db: Session = Depends(get_db)):
     ensure_cooperative_access(db, current_user, cooperative_id)
     CooperativeService(db).remove_from_gare(gare_id, cooperative_id)
+
+
+@router.put("/{cooperative_id}/attach-gare/{gare_id}", response_model=GareCooperativeRead)
+def update_gare_association(
+    cooperative_id: int,
+    gare_id: int,
+    data: AssociationUpdate,
+    current_user: User = Depends(require_permission("COOPERATIVE_UPDATE")),
+    db: Session = Depends(get_db),
+):
+    ensure_cooperative_access(db, current_user, cooperative_id)
+    return CooperativeService(db).update_gare_association(
+        cooperative_id,
+        gare_id,
+        **data.model_dump(exclude_unset=True),
+    )
 
 @router.get("/{cooperative_id}/members", response_model=list[CooperativeMemberRead])
 def list_members(cooperative_id: int, current_user: User = Depends(require_permission("COOPERATIVE_READ")), db: Session = Depends(get_db)):

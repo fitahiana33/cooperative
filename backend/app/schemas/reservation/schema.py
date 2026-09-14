@@ -1,5 +1,6 @@
 from datetime import date, datetime, time
 from decimal import Decimal
+from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -63,7 +64,7 @@ class ReservationPlaceRead(BaseModel):
 class ReservationTicketRead(BaseModel):
     id: int
     numero_billet: str
-    qr_code_uuid: str
+    qr_code_uuid: UUID
     statut: str
     model_config = ConfigDict(from_attributes=True)
 
