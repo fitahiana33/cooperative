@@ -280,7 +280,7 @@ def upgrade() -> None:
             v_depart := COALESCE(NEW.id_depart, OLD.id_depart);
             UPDATE departs SET places_reservees = (
                 SELECT COUNT(*) FROM depart_places
-                WHERE id_depart = v_depart AND statut <> 'DISPONIBLE'
+                WHERE id_depart = v_depart AND statut IN ('RESERVEE', 'OCCUPEE')
             ), updated_at = CURRENT_TIMESTAMP WHERE id_depart = v_depart;
             RETURN NEW;
         END;

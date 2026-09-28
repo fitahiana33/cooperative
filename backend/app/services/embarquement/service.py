@@ -72,6 +72,8 @@ class EmbarquementService:
             return "Ce billet est déjà utilisé, annulé ou expiré."
         if not reservation or reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
             return "La réservation associée n'est pas valide."
+        if reservation.statut != ReservationStatus.PAYEE:
+            return "Le paiement de la réservation doit être validé avant l'embarquement."
         if not depart or depart.date_depart != moment.date():
             return "La date du billet ne correspond pas à la date du contrôle."
         if depart.statut not in {DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE}:

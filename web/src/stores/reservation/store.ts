@@ -64,10 +64,10 @@ export const useReservationStore = defineStore('reservation', () => {
     }
   }
 
-  async function cancelReservation(id: number) {
+  async function cancelReservation(id: number, idCaisse?: number) {
     error.value = null
     try {
-      const updated = await reservationService.cancel(id)
+      const updated = await reservationService.cancel(id, idCaisse)
       const idx = items.value.findIndex((i) => i.id === id)
       if (idx !== -1) items.value[idx] = updated
       if (current.value?.id === id) current.value = updated

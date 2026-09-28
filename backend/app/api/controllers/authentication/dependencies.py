@@ -10,7 +10,7 @@ from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.authentication import RevokedToken
 from app.models.chauffeur import Chauffeur
-from app.models.cooperative import Cooperative, CooperativeMember
+from app.models.cooperative import Cooperative, CooperativeMember, GareCooperative
 from app.models.vehicule import Vehicule, VehiculeDocument
 from app.repositories.user import UserRepository
 from app.services.authentication.token import decode_access_token
@@ -131,6 +131,34 @@ def get_user_cooperative_ids(db: Session, user: User) -> set[int]:
         select(Cooperative.id).where(Cooperative.responsable_id == user.id)
     )
     return set(member_ids).union(responsible_ids)
+
+
+def get_user_gare_ids(db: Session, user: User) -> set[int] | None:
+    """Return the active stations reachable through the user's cooperatives."""
+    if has_global_cooperative_access(user):
+        return None
+    cooperative_ids = get_user_cooperative_ids(db, user)
+    if not cooperative_ids:
+        return set()
+    today = date.today()
+    gare_ids = db.scalars(
+        select(GareCooperative.id_gare).where(
+            GareCooperative.id_cooperative.in_(cooperative_ids),
+            GareCooperative.is_active.is_(True),
+            or_(GareCooperative.date_debut.is_(None), GareCooperative.date_debut <= today),
+            or_(GareCooperative.date_fin.is_(None), GareCooperative.date_fin >= today),
+        )
+    )
+    return set(gare_ids)
+
+
+def ensure_gare_access(db: Session, user: User, gare_id: int) -> None:
+    gare_ids = get_user_gare_ids(db, user)
+    if gare_ids is not None and gare_id not in gare_ids:
+        raise HTTPException(
+            status_code=status.HTTP_403_FORBIDDEN,
+            detail="Vous n'êtes pas autorisé à accéder à cette gare.",
+        )
 
 
 def ensure_cooperative_access(db: Session, user: User, cooperative_id: int) -> None:

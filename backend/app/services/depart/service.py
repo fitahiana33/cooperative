@@ -1,4 +1,4 @@
-from datetime import date, time
+from datetime import date, datetime, time, timezone
 import logging
 from math import ceil
 
@@ -8,11 +8,17 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.chauffeur import Chauffeur
+from app.models.billet import BilletStatus
 from app.models.cooperative import Cooperative
 from app.models.depart import Depart, DepartStatus
+from app.models.finance import Paiement, PaiementStatus
 from app.models.itineraire import Itineraire, ItineraireCooperative
+from app.models.place import DepartPlaceStatus
+from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.tarif import Tarif
 from app.models.vehicule import Vehicule, VehiculeChauffeur
+from app.services.finance import FinanceService
+from app.services.notification import NotificationService
 
 logger = logging.getLogger("cooperative.depart")
 
@@ -54,6 +60,7 @@ class DepartService:
         id_cooperative=None,
         date_from: date | None = None,
         date_to: date | None = None,
+        id_chauffeur: int | None = None,
         cooperative_ids: set[int] | None = None,
     ):
         if date_from and date_to and date_to < date_from:
@@ -62,6 +69,8 @@ class DepartService:
         statement = select(Depart).options(*self._options())
         if id_cooperative is not None:
             statement = statement.where(Depart.id_cooperative == id_cooperative)
+        if id_chauffeur is not None:
+            statement = statement.where(Depart.id_chauffeur == id_chauffeur)
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
         if statut:
@@ -267,13 +276,84 @@ class DepartService:
         if target != current and target not in transitions[current]:
             raise HTTPException(409, "Cette transition de statut n'est pas autorisée.")
         item.statut = target
+        now = datetime.now(timezone.utc)
+        if target == DepartStatus.PARTI and item.date_heure_depart is None:
+            item.date_heure_depart = now
+        if target == DepartStatus.TERMINE and item.date_heure_arrivee is None:
+            item.date_heure_arrivee = now
         self.db.commit()
         return self._get(item.id)
 
-    def cancel_depart(self, depart_id: int) -> Depart:
+    def list_driver_departs(self, user_id: int, **kwargs):
+        chauffeur = self.db.scalar(select(Chauffeur).where(Chauffeur.id_user == user_id))
+        if not chauffeur:
+            raise HTTPException(404, "Profil chauffeur introuvable.")
+        return self.list_departs(id_chauffeur=chauffeur.id, **kwargs)
+
+    def pointage(self, depart_id: int, *, user_id: int, pointage_type: str) -> Depart:
+        chauffeur = self.db.scalar(select(Chauffeur).where(Chauffeur.id_user == user_id))
+        if not chauffeur:
+            raise HTTPException(404, "Profil chauffeur introuvable.")
+        item = self._get(depart_id)
+        if item.id_chauffeur != chauffeur.id:
+            raise HTTPException(403, "Vous n'êtes pas le chauffeur affecté à ce départ.")
+        now = datetime.now(timezone.utc)
+        if pointage_type == "DEPART":
+            if item.statut not in {DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE}:
+                raise HTTPException(409, "Ce départ ne peut plus être pointé au départ.")
+            item.statut = DepartStatus.PARTI
+            item.date_heure_depart = item.date_heure_depart or now
+        elif pointage_type == "ARRIVEE":
+            if item.statut != DepartStatus.PARTI:
+                raise HTTPException(409, "Le départ doit être pointé avant de pointer l'arrivée.")
+            item.statut = DepartStatus.TERMINE
+            item.date_heure_arrivee = item.date_heure_arrivee or now
+        else:
+            raise HTTPException(422, "Le type de pointage est invalide.")
+        self.db.commit()
+        return self._get(item.id)
+
+    def cancel_depart(self, depart_id: int, *, caisse_id: int | None = None, agent_id: int | None = None, gare_ids: set[int] | None = None) -> Depart:
         item = self._get(depart_id)
         if item.statut in {DepartStatus.ANNULE, DepartStatus.PARTI, DepartStatus.TERMINE}:
             raise HTTPException(409, "Ce départ ne peut plus être annulé.")
+        reservations = list(self.db.scalars(
+            select(Reservation)
+            .where(Reservation.id_depart == item.id)
+            .options(selectinload(Reservation.places).selectinload(ReservationPlace.depart_place), selectinload(Reservation.places).selectinload(ReservationPlace.billet))
+        ))
+        payments = list(self.db.scalars(
+            select(Paiement)
+            .join(Reservation, Reservation.id == Paiement.id_reservation)
+            .where(Reservation.id_depart == item.id, Paiement.statut == PaiementStatus.VALIDE)
+        ))
+        if payments and not caisse_id:
+            raise HTTPException(409, "Ce départ comporte des réservations payées. Indiquez une caisse ouverte pour effectuer les remboursements.")
+        for payment in payments:
+            FinanceService(self.db).refund(
+                payment.id,
+                caisse_id=caisse_id,
+                agent_id=agent_id or item.id_chauffeur,
+                gare_ids=gare_ids,
+                commit=False,
+            )
+        for reservation in reservations:
+            if reservation.statut not in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE}:
+                reservation.statut = ReservationStatus.ANNULEE
+                for reservation_place in reservation.places:
+                    if reservation_place.depart_place and reservation_place.depart_place.statut == DepartPlaceStatus.RESERVEE:
+                        reservation_place.depart_place.statut = DepartPlaceStatus.DISPONIBLE
+                    if reservation_place.billet and reservation_place.billet.statut == BilletStatus.VALIDE:
+                        reservation_place.billet.statut = BilletStatus.ANNULE
+                NotificationService.add(
+                    self.db,
+                    user_id=reservation.id_user,
+                    type_notification="ANNULATION",
+                    titre="Départ annulé",
+                    message=f"Le départ {item.id} et la réservation {reservation.numero_reservation} ont été annulés.",
+                    reservation_id=reservation.id,
+                    depart_id=item.id,
+                )
         item.statut = DepartStatus.ANNULE
         self.db.commit()
         return self._get(item.id)

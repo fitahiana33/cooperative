@@ -19,6 +19,10 @@ export interface DashboardSummary {
   departs_du_jour: number
   reservations_du_jour: number
   places_disponibles: number
+  departs_annules: number
+  departs_retardes: number
+  departs_complets: number
+  reservations_annulees: number
   cooperatives_actives: number
   vehicules_actifs: number
   chauffeurs_actifs: number

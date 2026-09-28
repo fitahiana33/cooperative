@@ -35,6 +35,9 @@ const selectedPlaces = computed(() => places.value.filter((place) => selected.va
 const pricePerPlace = computed(() => Number(selectedDepart.value?.tarif?.prix || 0))
 const totalAmount = computed(() => selected.value.length * pricePerPlace.value)
 const seatColumns = computed(() => {
+  const capacity = places.value.length
+  if (capacity <= 8) return 2
+  if (capacity <= 12) return 3
   return 4
 })
 const frontPlaces = computed(() => {
@@ -181,7 +184,7 @@ onMounted(load)
         </div>
         <div class="form-actions">
           <button v-if="reservation.statut === 'EN_ATTENTE'" class="primary-button" :disabled="busy" @click="change('confirm')">{{ busy ? 'Confirmation…' : 'Confirmer' }}</button>
-          <button v-if="!['ANNULEE', 'TERMINEE', 'EMBARQUEE'].includes(reservation.statut)" class="secondary-button danger-action" :disabled="busy" @click="change('cancel')">Annuler la réservation</button>
+          <RouterLink v-if="!['ANNULEE', 'TERMINEE', 'EMBARQUEE'].includes(reservation.statut)" class="secondary-button danger-action" :to="{ name: 'reservation-detail', params: { id: reservation.id } }">Gérer l’annulation</RouterLink>
           <RouterLink class="secondary-button" :to="{ name: 'places-depart', params: { id: reservation.id_depart } }">Gérer les places du départ</RouterLink>
         </div>
       </BaseCard>

@@ -43,6 +43,10 @@ class DepartStatusUpdate(BaseModel):
     statut: DepartStatusValue
 
 
+class DepartPointage(BaseModel):
+    type: Literal["DEPART", "ARRIVEE"]
+
+
 class DepartDestinationRead(BaseModel):
     id: int
     nom: str
@@ -100,6 +104,8 @@ class DepartRead(BaseModel):
     id_tarif: int
     date_depart: date
     heure_depart: time
+    date_heure_depart: datetime | None = None
+    date_heure_arrivee: datetime | None = None
     nombre_places: int
     places_reservees: int
     places_disponibles: int
@@ -114,4 +120,3 @@ class DepartRead(BaseModel):
     tarif: DepartTarifRead | None = None
 
     model_config = ConfigDict(from_attributes=True)
-

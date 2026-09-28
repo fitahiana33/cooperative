@@ -71,6 +71,8 @@ class Depart(Base):
     )
     date_depart: Mapped[date] = mapped_column(Date, nullable=False)
     heure_depart: Mapped[time] = mapped_column(Time, nullable=False)
+    date_heure_depart: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    date_heure_arrivee: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     nombre_places: Mapped[int] = mapped_column(Integer, nullable=False)
     places_reservees: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default=DepartStatus.PROGRAMME, server_default=DepartStatus.PROGRAMME, nullable=False)

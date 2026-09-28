@@ -125,7 +125,7 @@ class AuthRemoteDataSource {
       return Exception('Délai d\'attente de connexion dépassé. Vérifiez votre réseau.');
     }
     if (e.type == DioExceptionType.connectionError) {
-      return Exception('Impossible de se connecter au serveur backend. Vérifiez que le serveur est démarré sur 127.0.0.1:8000.');
+      return Exception('Impossible de se connecter au serveur backend. Vérifiez que le backend est démarré et que le téléphone est connecté au même réseau que le PC.');
     }
     return Exception('Une erreur est survenue lors de la communication avec le serveur.');
   }

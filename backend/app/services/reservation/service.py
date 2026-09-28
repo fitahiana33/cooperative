@@ -11,12 +11,15 @@ from sqlalchemy.orm import Session, selectinload
 
 from app.models.billet import Billet, BilletStatus
 from app.models.depart import Depart, DepartStatus
+from app.models.embarquement import Embarquement
+from app.models.finance import Paiement, PaiementStatus
 from app.models.place import DepartPlace, DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.tarif import Tarif
 from app.models.user import User
 from app.services.notification import NotificationService
 from app.services.billet import BilletService
+from app.services.finance import FinanceService
 
 
 logger = logging.getLogger("cooperative.reservation")
@@ -50,6 +53,11 @@ class ReservationService:
         now = datetime.now(timezone.utc)
         if item.statut == ReservationStatus.EN_ATTENTE and item.date_expiration and item.date_expiration <= now:
             item.statut = ReservationStatus.EXPIREE
+            for place in item.places:
+                if place.depart_place and place.depart_place.statut == DepartPlaceStatus.RESERVEE:
+                    place.depart_place.statut = DepartPlaceStatus.DISPONIBLE
+                if place.billet:
+                    place.billet.statut = BilletStatus.ANNULE
             self.db.commit()
 
     def list_reservations(
@@ -61,6 +69,8 @@ class ReservationService:
         statut: str | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
+        sort_by: str = "created_at",
+        sort_order: str = "desc",
         owner_id: int | None = None,
         cooperative_ids: set[int] | None = None,
     ):
@@ -78,7 +88,16 @@ class ReservationService:
         if date_to:
             statement = statement.where(Depart.date_depart <= date_to)
         total = self.db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0
-        items = list(self.db.scalars(statement.order_by(Reservation.created_at.desc(), Reservation.id.desc()).offset((page - 1) * page_size).limit(page_size)).unique())
+        sort_columns = {
+            "created_at": Reservation.created_at,
+            "date_expiration": Reservation.date_expiration,
+            "montant_total": Reservation.montant_total,
+            "statut": Reservation.statut,
+            "date_depart": Depart.date_depart,
+        }
+        sort_column = sort_columns.get(sort_by, Reservation.created_at)
+        ordering = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+        items = list(self.db.scalars(statement.order_by(ordering, Reservation.id.desc()).offset((page - 1) * page_size).limit(page_size)).unique())
         for item in items:
             self._expire_if_needed(item)
         return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
@@ -91,6 +110,43 @@ class ReservationService:
         if not include_unavailable:
             statement = statement.where(DepartPlace.statut == DepartPlaceStatus.DISPONIBLE)
         return list(self.db.scalars(statement))
+
+    def manifest_rows(self, depart_id: int) -> list[dict]:
+        depart = self.db.get(Depart, depart_id)
+        if not depart:
+            raise HTTPException(404, "Départ introuvable.")
+        statement = (
+            select(Reservation)
+            .where(
+                Reservation.id_depart == depart_id,
+                Reservation.statut.notin_([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]),
+            )
+            .options(*self._options())
+            .order_by(Reservation.id)
+        )
+        rows: list[dict] = []
+        for reservation in self.db.scalars(statement).unique():
+            for reservation_place in sorted(reservation.places, key=lambda item: item.depart_place.numero_place if item.depart_place else 0):
+                billet = reservation_place.billet
+                boarding = None
+                if billet:
+                    boarding = self.db.scalar(
+                        select(Embarquement)
+                        .where(Embarquement.id_billet == billet.id)
+                        .order_by(Embarquement.date_heure_embarquement.desc(), Embarquement.id.desc())
+                    )
+                rows.append({
+                    "reservation": reservation.numero_reservation,
+                    "passager": reservation_place.nom_passager,
+                    "telephone": reservation_place.telephone_passager or "",
+                    "place": reservation_place.depart_place.numero_place if reservation_place.depart_place else "",
+                    "billet": billet.numero_billet if billet else "",
+                    "reservation_statut": reservation.statut,
+                    "billet_statut": billet.statut if billet else "",
+                    "pointage": boarding.statut if boarding else "NON_POINTÉ",
+                    "date_pointage": boarding.date_heure_embarquement.isoformat() if boarding else "",
+                })
+        return rows
 
     def _get_open_depart(self, depart_id: int) -> Depart:
         depart = self.db.get(Depart, depart_id)
@@ -191,10 +247,21 @@ class ReservationService:
         self.db.commit()
         return self._get(item.id, owner_id=owner_id, cooperative_ids=cooperative_ids)
 
-    def cancel(self, reservation_id: int, *, owner_id: int | None = None, cooperative_ids: set[int] | None = None) -> Reservation:
+    def cancel(self, reservation_id: int, *, owner_id: int | None = None, cooperative_ids: set[int] | None = None, caisse_id: int | None = None, agent_id: int | None = None, gare_ids: set[int] | None = None) -> Reservation:
         item = self._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
         if item.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.EMBARQUEE, ReservationStatus.TERMINEE}:
             raise HTTPException(409, "Cette réservation ne peut plus être annulée.")
+        payments = list(self.db.scalars(select(Paiement).where(Paiement.id_reservation == item.id, Paiement.statut == PaiementStatus.VALIDE)))
+        if payments and not caisse_id:
+            raise HTTPException(409, "Cette reservation est payee. Indiquez une caisse ouverte pour effectuer le remboursement.")
+        for payment in payments:
+            FinanceService(self.db).refund(
+                payment.id,
+                caisse_id=caisse_id,
+                agent_id=agent_id or item.id_user,
+                gare_ids=gare_ids,
+                commit=False,
+            )
         item.statut = ReservationStatus.ANNULEE
         for place in item.places:
             if place.depart_place is not None:
@@ -225,4 +292,3 @@ class ReservationService:
         self.db.commit()
         self.db.refresh(item)
         return item
-

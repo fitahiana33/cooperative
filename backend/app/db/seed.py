@@ -81,6 +81,7 @@ def seed_default_admin(db: Session) -> None:
         ("DEPART_CREATE", "Création de départs", "DEPART"),
         ("DEPART_READ", "Consultation des départs", "DEPART"),
         ("DEPART_UPDATE", "Mise à jour des départs", "DEPART"),
+        ("DEPART_POINTAGE", "Pointage départ et arrivée des chauffeurs", "DEPART"),
         ("DEPART_CANCEL", "Annulation de départs", "DEPART"),
         # RESERVATION
         ("RESERVATION_CREATE", "Prise de réservations", "RESERVATION"),
@@ -167,7 +168,7 @@ def seed_default_admin(db: Session) -> None:
             "CAISSE_READ", "CAISSE_OPEN", "CAISSE_CLOSE", "CAISSE_MANAGE", "DASHBOARD_READ",
             "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ", "NOTIFICATION_READ",
         },
-        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DEPART_READ", "RESERVATION_READ", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
+        UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DEPART_READ", "DEPART_POINTAGE", "RESERVATION_READ", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
         UserRole.PASSAGER: {"DEPART_READ", "RESERVATION_CREATE", "RESERVATION_READ", "RESERVATION_UPDATE", "RESERVATION_CANCEL", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
     }
     managed_permission_codes = {

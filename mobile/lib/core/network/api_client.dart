@@ -34,8 +34,8 @@ class ApiClient {
 
     dio.interceptors.add(
       InterceptorsWrapper(
-        onRequest: (options, handler) {
-          final token = tokenStorage.getAccessToken();
+        onRequest: (options, handler) async {
+          final token = await tokenStorage.getAccessToken();
           if (token != null && token.isNotEmpty) {
             options.headers['Authorization'] = 'Bearer $token';
           }
@@ -50,7 +50,7 @@ class ApiClient {
               !error.requestOptions.path.contains('/auth/logout')) {
             final refreshed = await _attemptRefreshToken();
             if (refreshed) {
-              final newAccessToken = tokenStorage.getAccessToken();
+              final newAccessToken = await tokenStorage.getAccessToken();
               final opts = error.requestOptions;
               opts.extra['authRetry'] = true;
               opts.headers['Authorization'] = 'Bearer $newAccessToken';
@@ -121,7 +121,7 @@ class ApiClient {
   }
 
   Future<bool> _refreshTokenOnce() async {
-    final refreshToken = tokenStorage.getRefreshToken();
+    final refreshToken = await tokenStorage.getRefreshToken();
     if (refreshToken == null || refreshToken.isEmpty) {
       return false;
     }

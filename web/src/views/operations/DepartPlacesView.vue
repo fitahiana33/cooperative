@@ -22,7 +22,11 @@ const newStatut = ref<PlaceStatus>('DISPONIBLE')
 
 const labels: Record<DepartStatus, string> = { PROGRAMME: 'Programmé', EMBARQUEMENT: 'Embarquement', RETARDE: 'Retardé', PARTI: 'Parti', TERMINE: 'Terminé', ANNULE: 'Annulé' }
 const placeLabels: Record<PlaceStatus, string> = { DISPONIBLE: 'Disponible', RESERVEE: 'Réservée', BLOQUEE: 'Bloquée', OCCUPEE: 'Occupée' }
-const seatColumns = computed(() => 4)
+const seatColumns = computed(() => {
+  if (places.value.length <= 8) return 2
+  if (places.value.length <= 12) return 3
+  return 4
+})
 const frontPlaces = computed(() => {
   const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
   return items.slice(0, 2)
@@ -137,32 +141,41 @@ onMounted(load)
                 <span class="driver-icon">CH</span>
                 <span>Chauffeur</span>
               </div>
-              <button
-                v-for="place in frontPlaces"
-                :key="place.id"
-                type="button"
-                class="seat-button real-seat front-seat"
-                :class="{
-                  available: place.statut === 'DISPONIBLE',
-                  reserved: place.statut === 'RESERVEE',
-                  occupied: place.statut === 'OCCUPEE',
-                  blocked: place.statut === 'BLOQUEE'
-                }"
-                :disabled="place.statut === 'BLOQUEE' || busy"
-                :title="placeLabels[place.statut]"
-                @click="startEdit(place)"
-              >
-                {{ place.numero_place }}
-              </button>
+              <template v-for="place in frontPlaces" :key="place.id">
+                <div v-if="editingPlaceId === place.id" class="seat-edit">
+                  <select v-model="newStatut" :disabled="busy">
+                    <option value="DISPONIBLE">Disponible</option>
+                    <option value="BLOQUEE">Bloquée</option>
+                  </select>
+                  <div class="seat-edit-actions">
+                    <button class="primary-button compact-button" :disabled="busy" @click="confirmEdit(place)">OK</button>
+                    <button class="secondary-button compact-button" :disabled="busy" @click="cancelEdit">×</button>
+                  </div>
+                </div>
+                <button
+                  v-else
+                  type="button"
+                  class="seat-button real-seat front-seat"
+                  :class="{
+                    available: place.statut === 'DISPONIBLE',
+                    reserved: place.statut === 'RESERVEE',
+                    occupied: place.statut === 'OCCUPEE',
+                    blocked: place.statut === 'BLOQUEE'
+                  }"
+                  :disabled="['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy"
+                  :title="placeLabels[place.statut]"
+                  @click="startEdit(place)"
+                >
+                  {{ place.numero_place }}
+                </button>
+              </template>
             </div>
             <div v-for="(row, rowIndex) in seatRows" :key="row[0]?.id || rowIndex" class="seat-row" :style="{ '--seat-columns': seatColumns }">
               <template v-for="place in row" :key="place.id">
                 <div v-if="editingPlaceId === place.id" class="seat-edit">
                   <select v-model="newStatut" :disabled="busy">
                     <option value="DISPONIBLE">Disponible</option>
-                    <option value="RESERVEE">Réservée</option>
                     <option value="BLOQUEE">Bloquée</option>
-                    <option value="OCCUPEE">Occupée</option>
                   </select>
                   <div class="seat-edit-actions">
                     <button class="primary-button compact-button" :disabled="busy" @click="confirmEdit(place)">OK</button>
@@ -179,7 +192,7 @@ onMounted(load)
                     occupied: place.statut === 'OCCUPEE',
                     blocked: place.statut === 'BLOQUEE'
                   }"
-                  :disabled="place.statut === 'BLOQUEE' || busy"
+                  :disabled="['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy"
                   :title="placeLabels[place.statut]"
                   @click="startEdit(place)"
                 >

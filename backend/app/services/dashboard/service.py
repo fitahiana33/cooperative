@@ -11,6 +11,7 @@ from app.models.depart import Depart, DepartStatus
 from app.models.finance import Caisse, OperationCaisse, OperationType
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.notification import Notification
+from app.models.place import DepartPlace, DepartPlaceStatus
 from app.models.user import User
 from app.models.vehicule import Vehicule
 from app.services.notification import NotificationService
@@ -30,7 +31,18 @@ class DashboardService:
         departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today), cooperative_ids)
         reservation_statement = select(func.count()).select_from(Reservation).join(Depart).where(Depart.date_depart == today, Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]))
         reservation_statement = self._depart_scope(reservation_statement, cooperative_ids)
-        places_statement = self._depart_scope(select(func.coalesce(func.sum(Depart.nombre_places - Depart.places_reservees), 0)).where(Depart.date_depart == today), cooperative_ids)
+        places_statement = self._depart_scope(
+            select(func.count(DepartPlace.id)).join(Depart, Depart.id == DepartPlace.id_depart).where(
+                Depart.date_depart == today,
+                DepartPlace.statut == DepartPlaceStatus.DISPONIBLE,
+            ),
+            cooperative_ids,
+        )
+        cancelled_departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today, Depart.statut == DepartStatus.ANNULE), cooperative_ids)
+        delayed_departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today, Depart.statut == DepartStatus.RETARDE), cooperative_ids)
+        full_departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today, Depart.places_reservees >= Depart.nombre_places), cooperative_ids)
+        cancelled_reservations = select(func.count()).select_from(Reservation).join(Depart).where(Depart.date_depart == today, Reservation.statut == ReservationStatus.ANNULEE)
+        cancelled_reservations = self._depart_scope(cancelled_reservations, cooperative_ids)
         revenue_statement = select(func.coalesce(func.sum(OperationCaisse.montant), 0)).where(func.date(OperationCaisse.date_operation) == today, OperationCaisse.type_operation == OperationType.RECETTE)
         if cooperative_ids is not None:
             revenue_statement = revenue_statement.where(OperationCaisse.id_cooperative.in_(cooperative_ids))
@@ -47,6 +59,10 @@ class DashboardService:
             "departs_du_jour": self.db.scalar(departures) or 0,
             "reservations_du_jour": self.db.scalar(reservation_statement) or 0,
             "places_disponibles": self.db.scalar(places_statement) or 0,
+            "departs_annules": self.db.scalar(cancelled_departures) or 0,
+            "departs_retardes": self.db.scalar(delayed_departures) or 0,
+            "departs_complets": self.db.scalar(full_departures) or 0,
+            "reservations_annulees": self.db.scalar(cancelled_reservations) or 0,
             "cooperatives_actives": self.db.scalar(select(func.count()).select_from(Cooperative).where(Cooperative.is_active.is_(True), Cooperative.id.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,
             "vehicules_actifs": self.db.scalar(select(func.count()).select_from(Vehicule).where(Vehicule.is_active.is_(True), Vehicule.id_cooperative.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,
             "chauffeurs_actifs": self.db.scalar(select(func.count()).select_from(Chauffeur).where(Chauffeur.is_active.is_(True), Chauffeur.id_cooperative.in_(cooperative_ids) if cooperative_ids is not None else True)) or 0,

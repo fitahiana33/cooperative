@@ -78,10 +78,10 @@ export const useDepartStore = defineStore('depart', () => {
     }
   }
 
-  async function cancelDepart(id: number) {
+  async function cancelDepart(id: number, idCaisse?: number) {
     error.value = null
     try {
-      const updated = await departService.cancel(id)
+      const updated = await departService.cancel(id, idCaisse)
       const idx = items.value.findIndex((i) => i.id === id)
       if (idx !== -1) items.value[idx] = updated
       if (current.value?.id === id) current.value = updated
