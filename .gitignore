@@ -1,6 +1,8 @@
 .env
 .env.*
 !.env.example
+env.txt
+.env.txt
 
 # Documentation and local/generated project files
 docs/
