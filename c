@@ -1,12 +1,106 @@
+//config.py
+from functools import lru_cache
+from pathlib import Path
+
+from pydantic_settings import BaseSettings, SettingsConfigDict
+
+
+BACKEND_DIR = Path(__file__).resolve().parents[2]
+ENV_FILE = BACKEND_DIR / ".env"
+if not ENV_FILE.exists():
+    ENV_FILE = BACKEND_DIR.parent / ".env"
+
+
+class Settings(BaseSettings):
+    app_name: str
+    environment: str
+    database_url: str
+    secret_key: str
+    api_v1_prefix: str
+    allowed_origins: list[str]
+    jwt_algorithm: str
+    access_token_expire_minutes: int = 60
+    refresh_token_expire_minutes: int = 10080  # 7 days
+    reset_token_expire_minutes: int = 30       # 30 minutes
+    default_admin_email: str
+    default_admin_password: str
+    frontend_url: str = "http://localhost:5173"
+    smtp_host: str | None = None
+    smtp_port: int = 587
+    smtp_username: str | None = None
+    smtp_password: str | None = None
+    smtp_from: str | None = None
+    smtp_use_tls: bool = True
+    smtp_use_ssl: bool = False
+    uploads_dir: Path = BACKEND_DIR / "uploads"
+
+    model_config = SettingsConfigDict(
+        env_file=ENV_FILE,
+        env_file_encoding="utf-8",
+        extra="ignore",
+    )
+
+
+@lru_cache
+def get_settings() -> Settings:
+    return Settings()
+
+
+settings = get_settings()
+
+//session.py
+from sqlalchemy import create_engine
+from sqlalchemy.orm import sessionmaker
+
+from app.core.config import settings
+
+if not settings.database_url.startswith("postgresql+psycopg://"):
+    raise RuntimeError("DATABASE_URL doit utiliser PostgreSQL avec le driver psycopg.")
+engine = create_engine(settings.database_url, pool_pre_ping=True)
+
+SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+
+def get_db():
+    db = SessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+//requirements.txt
+fastapi==0.115.6
+python-multipart==0.0.20
+uvicorn[standard]==0.34.0
+sqlalchemy==2.0.36
+psycopg[binary]==3.2.3
+pydantic-settings==2.7.1
+alembic==1.14.0
+email-validator==2.2.0
+PyJWT==2.10.1
+slowapi==0.1.9
+qrcode[pil]==8.0
+
+//dockerfile
+FROM python:3.12-slim
+WORKDIR /app
+ENV PYTHONDONTWRITEBYTECODE=1 PYTHONUNBUFFERED=1
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+COPY . .
+EXPOSE 8000
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+
+
+
+++front
+api.ts
 import axios from 'axios'
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from './authentication/constants'
 
-const defaultApiBaseUrl = import.meta.env.DEV
-  ? 'http://127.0.0.1:8000/api/v1'
-  : 'https://cooperative-api-3yuz.onrender.com/api/v1'
-
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl,
+  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
@@ -112,3 +206,15 @@ api.interceptors.response.use(
     return Promise.reject(error)
   }
 )
+
+
+package.json
+{
+  "name": "cooperative-web",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": { "dev": "vite", "build": "vue-tsc --noEmit && vite build", "preview": "vite preview" },
+  "dependencies": { "axios": "1.7.9", "pinia": "2.3.0", "vue": "3.5.13", "vue-router": "4.5.0" },
+  "devDependencies": { "@vitejs/plugin-vue": "5.2.1", "typescript": "5.7.2", "vite": "6.0.7", "vue-tsc": "2.2.0" }
+}
