@@ -299,8 +299,7 @@ class _VehiculesPageState extends State<VehiculesPage> {
               onPressed: submitting
                   ? null
                   : () async {
-                      final result = await FilePicker.platform.pickFiles(
-                        withData: true,
+                      final result = await FilePicker.pickFiles(
                         type: FileType.custom,
                         allowedExtensions: [
                           'pdf',
@@ -315,8 +314,8 @@ class _VehiculesPageState extends State<VehiculesPage> {
                           'xlsx',
                         ],
                       );
-                      if (result != null && result.files.isNotEmpty) {
-                        setDialogState(() => draft.file = result.files.single);
+                      if (result.isNotEmpty) {
+                        setDialogState(() => draft.file = result.first);
                       }
                     },
               icon: const Icon(Icons.attach_file),
@@ -339,20 +338,10 @@ class _VehiculesPageState extends State<VehiculesPage> {
   Future<void> _uploadDocumentDraft(int vehicleId, _DocumentDraft draft) async {
     final selectedFile = draft.file;
     if (selectedFile == null) return;
-    final MultipartFile multipart;
-    if (selectedFile.bytes != null) {
-      multipart = MultipartFile.fromBytes(
-        selectedFile.bytes!,
-        filename: selectedFile.name,
-      );
-    } else if (selectedFile.path != null) {
-      multipart = await MultipartFile.fromFile(
-        selectedFile.path!,
-        filename: selectedFile.name,
-      );
-    } else {
-      throw StateError('Le fichier selectionne est inaccessible.');
-    }
+    final multipart = MultipartFile.fromBytes(
+      await selectedFile.readAsBytes(),
+      filename: selectedFile.name,
+    );
     final delivery = draft.delivery.text.trim();
     final expiration = draft.expiration.text.trim();
     await widget.apiClient.post(
@@ -829,9 +818,7 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                         ? null
                                         : () async {
                                             final result = await FilePicker
-                                                .platform
-                                                .pickFiles(
-                                                    withData: true,
+                                              .pickFiles(
                                                     type: FileType.custom,
                                                     allowedExtensions: [
                                                   'pdf',
@@ -843,11 +830,10 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                                   'xls',
                                                   'xlsx'
                                                 ]);
-                                            if (result != null &&
-                                                result.files.isNotEmpty)
+                                            if (result.isNotEmpty)
                                               setDialogState(() =>
                                                   selectedFile =
-                                                      result.files.single);
+                                                  result.first);
                                           },
                                     icon: const Icon(Icons.attach_file),
                                     label: Text(selectedFile?.name ??
@@ -886,7 +872,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                   formError = null;
                                 });
                                 try {
-                                  if (selectedFile?.bytes != null) {
+                                  final file = selectedFile;
+                                  if (file != null) {
+                                    final fileBytes = await file.readAsBytes();
                                     final data = FormData.fromMap({
                                       'type_document': type,
                                       'numero_document':
@@ -897,8 +885,8 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                       'date_expiration': expirationDate,
                                       'is_valid': true,
                                       'file': MultipartFile.fromBytes(
-                                          selectedFile!.bytes!,
-                                          filename: selectedFile!.name)
+                                          fileBytes,
+                                          filename: file.name)
                                     });
                                     await widget.apiClient.post(
                                         '/vehicules/$vehicleId/documents/upload',
