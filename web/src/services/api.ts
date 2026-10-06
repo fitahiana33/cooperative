@@ -1,8 +1,12 @@
 import axios from 'axios'
 import { REFRESH_TOKEN_KEY, TOKEN_KEY } from './authentication/constants'
 
+const defaultApiBaseUrl = import.meta.env.DEV
+  ? 'http://127.0.0.1:8000/api/v1'
+  : 'https://cooperative-api-3yuz.onrender.com/api/v1'
+
 export const api = axios.create({
-  baseURL: import.meta.env.VITE_API_BASE_URL || 'http://127.0.0.1:8000/api/v1',
+  baseURL: import.meta.env.VITE_API_BASE_URL || defaultApiBaseUrl,
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json',
