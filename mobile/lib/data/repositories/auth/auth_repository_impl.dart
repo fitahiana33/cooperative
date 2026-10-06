@@ -82,7 +82,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<UserEntity?> fetchCurrentUser() async {
-    final token = _tokenStorage.getAccessToken();
+    final token = await _tokenStorage.getAccessToken();
     if (token == null || token.isEmpty) return null;
 
     try {
@@ -96,7 +96,7 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  String? getRefreshTokenForLogout() => _tokenStorage.getRefreshToken();
+  Future<String?> getRefreshTokenForLogout() => _tokenStorage.getRefreshToken();
 
   @override
   Future<void> logout({String? refreshToken}) async {

@@ -18,7 +18,7 @@ abstract class AuthRepository {
 
   Future<UserEntity?> fetchCurrentUser();
 
-  String? getRefreshTokenForLogout();
+  Future<String?> getRefreshTokenForLogout();
 
   Future<void> logout({String? refreshToken});
 }

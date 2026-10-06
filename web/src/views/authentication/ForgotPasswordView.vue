@@ -1,10 +1,11 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { onMounted, ref } from 'vue'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
 document.title = 'Mot de passe oublié | Gestion'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthenticationStore()
 
 const email = ref('')
@@ -18,6 +19,10 @@ async function requestToken() {
   try {
     const res = await auth.forgotPassword({ email: email.value })
     successMessage.value = res.message || 'Jeton de réinitialisation généré avec succès.'
+    if (res.reset_url) {
+      const resetToken = new URL(res.reset_url).searchParams.get('token')
+      if (resetToken) token.value = resetToken
+    }
     isResetStep.value = true
   } catch (error) {
     console.error('[FORGOT_PASSWORD_ERROR]', error)
@@ -38,6 +43,14 @@ async function submitReset() {
     console.error('[RESET_PASSWORD_ERROR]', error)
   }
 }
+
+onMounted(() => {
+  const queryToken = typeof route.query.token === 'string' ? route.query.token : ''
+  if (queryToken) {
+    token.value = queryToken
+    isResetStep.value = true
+  }
+})
 </script>
 
 <template>

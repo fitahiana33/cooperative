@@ -1,14 +1,13 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+
 import '../../controllers/auth/auth_controller.dart';
-import '../management/cooperatives_page.dart';
-import '../management/gares_page.dart';
-import '../management/vehicules_page.dart';
-import '../management/chauffeurs_page.dart';
-import '../management/catalog_page.dart';
-import '../management/administration_page.dart';
-import '../management/routes_page.dart';
-import '../management/departs_page.dart';
+import '../../../data/repositories/driver_pointage/driver_pointage_repository_impl.dart';
+import '../../../data/repositories/reservation/reservation_repository_impl.dart';
+import '../../../domain/services/driver_pointage/driver_pointage_service.dart';
+import '../../../domain/services/reservation/reservation_service.dart';
+import '../operations/driver_pointage_page.dart';
+import '../operations/reservations_page.dart';
 
 class HomePage extends ConsumerWidget {
   const HomePage({super.key});
@@ -18,56 +17,22 @@ class HomePage extends ConsumerWidget {
     final authState = ref.watch(authControllerProvider);
     final user = authState.user;
     final role = (user?.role ?? 'passenger').toLowerCase();
-    bool can(String permission) => role == 'admin' || user?.permissions.contains(permission) == true;
-    final canGares = can('GARE_READ');
-    final canCooperatives = can('COOPERATIVE_READ');
-    final canVehicules = can('VEHICULE_READ');
-    final canChauffeurs = can('CHAUFFEUR_READ');
-    final canRoutes = can('DESTINATION_READ') || can('ITINERAIRE_READ') || can('TARIF_READ');
-    final canDeparts = can('DEPART_READ');
-    final isAdmin = role == 'admin';
-    final canAdministration = isAdmin || can('USER_READ') || can('ROLE_MANAGE');
-    final isStaff = canGares || canCooperatives || canVehicules || canChauffeurs || canAdministration || canRoutes;
+    final isDriver = role == 'chauffeur' || role == 'driver';
+    final isPassenger = role == 'passager' || role == 'passenger';
     final apiClient = ref.watch(authApiClientProvider);
-    final permissions = user?.permissions.toSet() ?? <String>{};
+    final reservationService = ReservationService(ReservationRepositoryImpl(apiClient));
+    final pointageService = DriverPointageService(DriverPointageRepositoryImpl(apiClient));
 
     return Scaffold(
       backgroundColor: const Color(0xFF0F172A),
       appBar: AppBar(
         backgroundColor: const Color(0xFF1E293B),
-        elevation: 0,
-        title: Row(
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: const Color(0xFF3B82F6).withValues(alpha: 0.2),
-                shape: BoxShape.circle,
-              ),
-              child: const Icon(
-                Icons.directions_bus_rounded,
-                color: Color(0xFF60A5FA),
-                size: 22,
-              ),
-            ),
-            const SizedBox(width: 10),
-            const Text(
-              'Coopérative',
-              style: TextStyle(
-                fontWeight: FontWeight.bold,
-                color: Colors.white,
-                fontSize: 20,
-              ),
-            ),
-          ],
-        ),
+        title: const Text('Cooperative'),
         actions: [
           IconButton(
             icon: const Icon(Icons.logout_rounded, color: Color(0xFFF87171)),
-            tooltip: 'Déconnexion',
-            onPressed: () {
-              _confirmLogout(context, ref);
-            },
+            tooltip: 'Deconnexion',
+            onPressed: () => _confirmLogout(context, ref),
           ),
         ],
       ),
@@ -76,298 +41,81 @@ class HomePage extends ConsumerWidget {
         child: Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(20),
-              decoration: BoxDecoration(
-                gradient: const LinearGradient(
-                  colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)],
-                  begin: Alignment.topLeft,
-                  end: Alignment.bottomRight,
-                ),
-                borderRadius: BorderRadius.circular(20),
-                boxShadow: [
-                  BoxShadow(
-                    color: const Color(0xFF2563EB).withValues(alpha: 0.35),
-                    blurRadius: 20,
-                    offset: const Offset(0, 8),
-                  ),
-                ],
-              ),
-              child: Row(
-                children: [
-                  CircleAvatar(
-                    radius: 32,
-                    backgroundColor: Colors.white.withValues(alpha: 0.2),
-                    child: Text(
-                      user != null && user.firstName.isNotEmpty
-                          ? user.firstName[0].toUpperCase()
-                          : 'U',
-                      style: const TextStyle(
-                        fontSize: 26,
-                        fontWeight: FontWeight.bold,
-                        color: Colors.white,
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 16),
-                  Expanded(
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          user?.fullName ?? 'Utilisateur',
-                          style: const TextStyle(
-                            color: Colors.white,
-                            fontSize: 18,
-                            fontWeight: FontWeight.bold,
-                          ),
-                        ),
-                        const SizedBox(height: 4),
-                        Text(
-                          user?.email ?? '',
-                          style: TextStyle(
-                            color: Colors.white.withValues(alpha: 0.8),
-                            fontSize: 13,
-                          ),
-                        ),
-                        const SizedBox(height: 8),
-                        Container(
-                          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                          decoration: BoxDecoration(
-                            color: Colors.black.withValues(alpha: 0.25),
-                            borderRadius: BorderRadius.circular(12),
-                            border: Border.all(color: Colors.white.withValues(alpha: 0.2)),
-                          ),
-                          child: Text(
-                            'Rôle: ${(user?.role ?? "passenger").toUpperCase()}',
-                            style: const TextStyle(
-                              color: Color(0xFF93C5FD),
-                              fontSize: 11,
-                              fontWeight: FontWeight.w600,
-                              letterSpacing: 0.5,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-              ),
-            ),
+            _welcomeCard(user?.fullName ?? 'Utilisateur', user?.email ?? '', role),
             const SizedBox(height: 28),
-
-            if (isStaff) ...[
-              const Text(
-                'Administration & Gestion Flotte',
-                style: TextStyle(
-                  color: Colors.white,
-                  fontSize: 18,
-                  fontWeight: FontWeight.bold,
-                ),
-              ),
-              const SizedBox(height: 14),
-              GridView.count(
-                crossAxisCount: 2,
-                shrinkWrap: true,
-                physics: const NeverScrollableScrollPhysics(),
-                crossAxisSpacing: 14,
-                mainAxisSpacing: 14,
-                childAspectRatio: 1.3,
-                children: [
-                  if (canGares) _buildActionCard(
-                    icon: Icons.location_city_rounded,
-                    title: 'Gérer les Gares',
-                    subtitle: 'Créer & consulter gares',
-                    color: const Color(0xFF3B82F6),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => GaresPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canCooperatives) _buildActionCard(
-                    icon: Icons.business_rounded,
-                    title: 'Coopératives',
-                    subtitle: 'Partenaires & agréments',
-                    color: const Color(0xFF10B981),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => CooperativesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canVehicules) _buildActionCard(
-                    icon: Icons.directions_bus_filled_rounded,
-                    title: 'Véhicules',
-                    subtitle: 'Parc & disponibilites',
-                    color: const Color(0xFF8B5CF6),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => VehiculesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canVehicules) _buildActionCard(
-                    icon: Icons.category_rounded,
-                    title: 'Marques & modèles',
-                    subtitle: 'Référentiel des véhicules',
-                    color: const Color(0xFFEC4899),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => CatalogPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canChauffeurs) _buildActionCard(
-                    icon: Icons.badge_rounded,
-                    title: 'Chauffeurs',
-                    subtitle: 'Conducteurs & permis',
-                    color: const Color(0xFFF59E0B),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => ChauffeursPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canAdministration) _buildActionCard(
-                    icon: Icons.admin_panel_settings_rounded,
-                    title: 'Administration',
-                    subtitle: 'Utilisateurs, rôles et permissions',
-                    color: const Color(0xFF64748B),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => AdministrationPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                  if (canRoutes) _buildActionCard(
-                    icon: Icons.route_rounded,
-                    title: 'Destinations & tarifs',
-                    subtitle: 'Itineraires, cooperatives autorisees et prix',
-                    color: const Color(0xFF14B8A6),
-                    onTap: () {
-                      Navigator.push(context, MaterialPageRoute(builder: (_) => RoutesPage(apiClient: apiClient, permissions: permissions, isAdmin: isAdmin)));
-                    },
-                  ),
-                ],
-              ),
-              const SizedBox(height: 28),
-            ],
-
-            const Text(
-              'Services & Réservations',
-              style: TextStyle(
-                color: Colors.white,
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-              ),
+            Text(
+              isDriver ? 'Espace chauffeur' : 'Espace client',
+              style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold),
             ),
             const SizedBox(height: 14),
-
-            GridView.count(
-              crossAxisCount: 2,
-              shrinkWrap: true,
-              physics: const NeverScrollableScrollPhysics(),
-              crossAxisSpacing: 14,
-              mainAxisSpacing: 14,
-              childAspectRatio: 1.3,
-              children: [
-                _buildActionCard(
-                  icon: Icons.search_rounded,
-                  title: 'Rechercher Voyage',
-                  subtitle: 'Trouvez vos lignes de taxi-brousse',
-                  color: const Color(0xFF3B82F6),
-                ),
-                _buildActionCard(
-                  icon: Icons.confirmation_number_outlined,
-                  title: 'Mes Réservations',
-                  subtitle: 'Consultez vos billets validés',
-                  color: const Color(0xFF10B981),
-                ),
-                if (canDeparts) _buildActionCard(
-                  icon: Icons.departure_board_rounded,
-                  title: 'Départs',
-                  subtitle: 'Consultez le planning et les places',
-                  color: const Color(0xFF14B8A6),
-                  onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DepartsPage(apiClient: apiClient))),
-                ),
-              ],
-            ),
-            const SizedBox(height: 28),
+            if (isDriver)
+              _actionCard(
+                icon: Icons.fact_check_rounded,
+                title: 'Pointage des trajets',
+                subtitle: 'Pointez votre depart puis votre arrivee.',
+                color: const Color(0xFF14B8A6),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => DriverPointagePage(pointageService: pointageService))),
+              )
+            else if (isPassenger)
+              _actionCard(
+                icon: Icons.confirmation_number_outlined,
+                title: 'Reserver un voyage',
+                subtitle: 'Recherchez un depart et gerez vos billets.',
+                color: const Color(0xFF3B82F6),
+                onTap: () => Navigator.push(context, MaterialPageRoute(builder: (_) => ReservationsPage(reservationService: reservationService))),
+              )
+            else
+              const Text('Cette application mobile est reservee aux clients et aux chauffeurs.', style: TextStyle(color: Colors.white70)),
           ],
         ),
       ),
     );
   }
 
-  Widget _buildActionCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required Color color,
-    VoidCallback? onTap,
-  }) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        padding: const EdgeInsets.all(16),
+  Widget _welcomeCard(String name, String email, String role) => Container(
+        width: double.infinity,
+        padding: const EdgeInsets.all(20),
         decoration: BoxDecoration(
-          color: Colors.white.withValues(alpha: 0.06),
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(color: Colors.white.withValues(alpha: 0.1)),
+          gradient: const LinearGradient(colors: [Color(0xFF2563EB), Color(0xFF1D4ED8)]),
+          borderRadius: BorderRadius.circular(20),
         ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            Container(
-              padding: const EdgeInsets.all(8),
-              decoration: BoxDecoration(
-                color: color.withValues(alpha: 0.15),
-                borderRadius: BorderRadius.circular(10),
-              ),
-              child: Icon(icon, color: color, size: 24),
-            ),
-            const SizedBox(height: 10),
-            Text(
-              title,
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
-                fontSize: 14,
-              ),
-            ),
-            const SizedBox(height: 2),
-            Text(
-              subtitle,
-              maxLines: 2,
-              overflow: TextOverflow.ellipsis,
-              style: TextStyle(
-                color: Colors.grey.shade400,
-                fontSize: 11,
-              ),
-            ),
-          ],
+        child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+          Text(name, style: const TextStyle(color: Colors.white, fontSize: 20, fontWeight: FontWeight.bold)),
+          const SizedBox(height: 4),
+          Text(email, style: const TextStyle(color: Colors.white70)),
+          const SizedBox(height: 12),
+          Text('Role : ${role.toUpperCase()}', style: const TextStyle(color: Color(0xFFBFDBFE))),
+        ]),
+      );
+
+  Widget _actionCard({required IconData icon, required String title, required String subtitle, required Color color, required VoidCallback onTap}) => GestureDetector(
+        onTap: onTap,
+        child: Container(
+          width: double.infinity,
+          padding: const EdgeInsets.all(18),
+          decoration: BoxDecoration(color: Colors.white.withValues(alpha: 0.06), borderRadius: BorderRadius.circular(18), border: Border.all(color: Colors.white.withValues(alpha: 0.1))),
+          child: Row(children: [
+            Icon(icon, color: color, size: 32),
+            const SizedBox(width: 16),
+            Expanded(child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+              Text(title, style: const TextStyle(color: Colors.white, fontWeight: FontWeight.bold, fontSize: 16)),
+              const SizedBox(height: 4),
+              Text(subtitle, style: TextStyle(color: Colors.grey.shade400, fontSize: 12)),
+            ])),
+            const Icon(Icons.chevron_right, color: Colors.white54),
+          ]),
         ),
-      ),
-    );
-  }
+      );
 
   void _confirmLogout(BuildContext context, WidgetRef ref) {
-    showDialog(
+    showDialog<void>(
       context: context,
-      builder: (context) => AlertDialog(
-        backgroundColor: const Color(0xFF1E293B),
-        title: const Text('Déconnexion', style: TextStyle(color: Colors.white)),
-        content: const Text(
-          'Voulez-vous vraiment vous déconnecter de l\'application ?',
-          style: TextStyle(color: Colors.white70),
-        ),
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Deconnexion'),
+        content: const Text('Voulez-vous vous deconnecter ?'),
         actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(context),
-            child: const Text('Annuler', style: TextStyle(color: Colors.grey)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(
-              backgroundColor: const Color(0xFFEF4444),
-              foregroundColor: Colors.white,
-            ),
-            onPressed: () {
-              Navigator.pop(context);
-              ref.read(authControllerProvider.notifier).logout();
-            },
-            child: const Text('Déconnexion'),
-          ),
+          TextButton(onPressed: () => Navigator.pop(dialogContext), child: const Text('Annuler')),
+          ElevatedButton(onPressed: () { Navigator.pop(dialogContext); ref.read(authControllerProvider.notifier).logout(); }, child: const Text('Deconnexion')),
         ],
       ),
     );

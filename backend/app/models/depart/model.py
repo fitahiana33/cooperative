@@ -71,6 +71,8 @@ class Depart(Base):
     )
     date_depart: Mapped[date] = mapped_column(Date, nullable=False)
     heure_depart: Mapped[time] = mapped_column(Time, nullable=False)
+    date_heure_depart: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    date_heure_arrivee: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     nombre_places: Mapped[int] = mapped_column(Integer, nullable=False)
     places_reservees: Mapped[int] = mapped_column(Integer, default=0, server_default="0", nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default=DepartStatus.PROGRAMME, server_default=DepartStatus.PROGRAMME, nullable=False)
@@ -82,6 +84,8 @@ class Depart(Base):
     vehicule = relationship("Vehicule", back_populates="departs")
     chauffeur = relationship("Chauffeur", back_populates="departs")
     tarif = relationship("Tarif", back_populates="departs")
+    places = relationship("DepartPlace", back_populates="depart", cascade="all, delete-orphan", passive_deletes=True)
+    reservations = relationship("Reservation", back_populates="depart", passive_deletes=True)
 
     @property
     def places_disponibles(self) -> int:

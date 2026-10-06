@@ -73,6 +73,21 @@ class VehiculeChauffeurAssign(BaseModel):
 class VehiculeChauffeurClose(BaseModel):
     date_debut: date
 
+
+class VehiculeChauffeurUpdate(BaseModel):
+    date_debut: date
+    new_date_debut: date | None = None
+    date_fin: date | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        start = self.new_date_debut or self.date_debut
+        if self.date_fin is not None and self.date_fin < start:
+            raise ValueError("La date de fin ne peut pas être antérieure à la date de début.")
+        return self
+
+
 class VehiculeChauffeurRead(BaseModel):
     id_vehicule: int
     id_chauffeur: int

@@ -39,3 +39,4 @@ class TokenResponse(BaseModel):
 
 class MessageResponse(BaseModel):
     message: str
+    reset_url: str | None = None

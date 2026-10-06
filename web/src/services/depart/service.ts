@@ -17,7 +17,9 @@ export const departService = {
   async updateStatus(id: number, statut: DepartStatus): Promise<Depart> {
     return (await api.patch<Depart>(`/departs/${id}/status`, { statut })).data
   },
-  async cancel(id: number): Promise<Depart> {
-    return (await api.post<Depart>(`/departs/${id}/cancel`)).data
+  async cancel(id: number, idCaisse?: number): Promise<Depart> {
+    return (await api.post<Depart>(`/departs/${id}/cancel`, null, {
+      params: idCaisse ? { id_caisse: idCaisse } : undefined,
+    })).data
   },
 }

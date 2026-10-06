@@ -126,7 +126,7 @@ class AuthRemoteDataSource {
     }
     if (e.type == DioExceptionType.connectionError) {
       return Exception(
-        'Impossible de joindre ${e.requestOptions.uri.host}. Vérifiez votre connexion puis réessayez.',
+        'Impossible de joindre ${e.requestOptions.uri.host}. Vérifiez que le backend est démarré et, en local, que le téléphone est sur le même réseau que le PC.',
       );
     }
     return Exception('Une erreur est survenue lors de la communication avec le serveur.');

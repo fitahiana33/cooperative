@@ -1,4 +1,7 @@
 import logging
+import smtplib
+from email.message import EmailMessage
+from urllib.parse import quote
 from fastapi import HTTPException, status
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -6,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.models.user import User, UserRole
 from app.models.role import Role
 from app.models.authentication import RevokedToken
+from app.core.config import settings
 from datetime import datetime, timezone
 from app.repositories.user import UserRepository
 from app.schemas.authentication import (
@@ -164,8 +168,11 @@ class AuthenticationService:
     def forgot_password(self, data: ForgotPasswordRequest) -> MessageResponse:
         email_clean = str(data.email).lower().strip()
         user = self.users.find_by_email(email_clean)
+        reset_url = None
         if user and user.is_active:
-            create_password_reset_token(email_clean)
+            token = create_password_reset_token(email_clean)
+            reset_url = f"{settings.frontend_url.rstrip('/')}/forgot-password?token={quote(token)}"
+            self._send_password_reset_email(email_clean, reset_url)
             # In a production environment, send an email with the reset token / link.
             logger.info(
                 "[PASSWORD_RESET] Reset token generated for email=%s at=%s",
@@ -174,8 +181,35 @@ class AuthenticationService:
             )
 
         return MessageResponse(
+            reset_url=reset_url if settings.environment.lower() in {"development", "dev", "test"} and not settings.smtp_host else None,
             message="Si cet email existe dans notre système, des instructions de réinitialisation ont été envoyées."
         )
+
+    @staticmethod
+    def _send_password_reset_email(recipient: str, reset_url: str) -> None:
+        subject = "Réinitialisation de votre mot de passe"
+        body = (
+            "Bonjour,\n\n"
+            "Cliquez sur le lien suivant pour choisir un nouveau mot de passe :\n"
+            f"{reset_url}\n\n"
+            f"Ce lien expire dans {settings.reset_token_expire_minutes} minutes.\n"
+            "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
+        )
+        if not settings.smtp_host:
+            logger.warning("SMTP non configuré; lien de réinitialisation (développement uniquement): %s", reset_url)
+            return
+        message = EmailMessage()
+        message["Subject"] = subject
+        message["From"] = settings.smtp_from or settings.smtp_username or "no-reply@cooperative.local"
+        message["To"] = recipient
+        message.set_content(body)
+        smtp_class = smtplib.SMTP_SSL if settings.smtp_use_ssl else smtplib.SMTP
+        with smtp_class(settings.smtp_host, settings.smtp_port, timeout=10) as smtp:
+            if settings.smtp_use_tls and not settings.smtp_use_ssl:
+                smtp.starttls()
+            if settings.smtp_username:
+                smtp.login(settings.smtp_username, settings.smtp_password or "")
+            smtp.send_message(message)
 
     def reset_password(self, data: ResetPasswordRequest) -> MessageResponse:
         payload = decode_password_reset_payload(data.token)

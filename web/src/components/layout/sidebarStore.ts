@@ -1,2 +1,11 @@
 import { defineStore } from 'pinia'
-export const useSidebarStore = defineStore('sidebar', { state: () => ({ collapsed: false, mobileOpen: false }), actions: { toggle() { this.collapsed = !this.collapsed }, openMobile() { this.mobileOpen = true }, closeMobile() { this.mobileOpen = false } } })
+
+export const useSidebarStore = defineStore('sidebar', {
+	state: () => ({ collapsed: false, mobileOpen: false, navScrollTop: 0 }),
+	actions: {
+		toggle() { this.collapsed = !this.collapsed },
+		openMobile() { this.mobileOpen = true },
+		closeMobile() { this.mobileOpen = false },
+		rememberNavScroll(value: number) { this.navScrollTop = value },
+	},
+})

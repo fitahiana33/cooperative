@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, model_validator
 
 
 class CooperativeUserRead(BaseModel):
@@ -58,6 +58,20 @@ class AssociationCreate(BaseModel):
     id_cooperative: int | None = None
     date_debut: date | None = None
     date_fin: date | None = None
+    is_active: bool = True
+
+
+class AssociationUpdate(BaseModel):
+    date_debut: date | None = None
+    date_fin: date | None = None
+    is_active: bool | None = None
+
+    @model_validator(mode="after")
+    def validate_dates(self):
+        if self.date_debut and self.date_fin and self.date_fin < self.date_debut:
+            raise ValueError("La date de fin doit être postérieure ou égale à la date de début.")
+        return self
+
 
 class GareCooperativeRead(BaseModel):
     id_gare: int

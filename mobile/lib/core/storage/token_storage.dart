@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:shared_preferences/shared_preferences.dart';
 
 final tokenStorageProvider = Provider<TokenStorage>((ref) {
@@ -12,23 +13,25 @@ class TokenStorage {
   static const String _userKey = 'auth_user_data';
 
   final SharedPreferences _prefs;
+  final FlutterSecureStorage _secureStorage;
 
-  TokenStorage(this._prefs);
+  TokenStorage(this._prefs, {FlutterSecureStorage? secureStorage})
+      : _secureStorage = secureStorage ?? const FlutterSecureStorage();
 
   Future<void> saveTokens({
     required String accessToken,
     required String refreshToken,
   }) async {
-    await _prefs.setString(_accessTokenKey, accessToken);
-    await _prefs.setString(_refreshTokenKey, refreshToken);
+    await _secureStorage.write(key: _accessTokenKey, value: accessToken);
+    await _secureStorage.write(key: _refreshTokenKey, value: refreshToken);
   }
 
-  String? getAccessToken() {
-    return _prefs.getString(_accessTokenKey);
+  Future<String?> getAccessToken() {
+    return _secureStorage.read(key: _accessTokenKey);
   }
 
-  String? getRefreshToken() {
-    return _prefs.getString(_refreshTokenKey);
+  Future<String?> getRefreshToken() {
+    return _secureStorage.read(key: _refreshTokenKey);
   }
 
   Future<void> saveUser(Map<String, dynamic> userMap) async {
@@ -46,8 +49,8 @@ class TokenStorage {
   }
 
   Future<void> clear() async {
-    await _prefs.remove(_accessTokenKey);
-    await _prefs.remove(_refreshTokenKey);
+    await _secureStorage.delete(key: _accessTokenKey);
+    await _secureStorage.delete(key: _refreshTokenKey);
     await _prefs.remove(_userKey);
   }
 }

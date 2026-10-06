@@ -1,8 +1,11 @@
 from .schema import (
+    CooperativeUserRead,
+    CooperativeGareRead,
     CooperativeCreate,
     CooperativeUpdate,
     CooperativeRead,
     AssociationCreate,
+    AssociationUpdate,
     GareCooperativeRead,
     MemberCreate,
     MemberUpdate,
@@ -10,10 +13,13 @@ from .schema import (
 )
 
 __all__ = [
+    "CooperativeUserRead",
+    "CooperativeGareRead",
     "CooperativeCreate",
     "CooperativeUpdate",
     "CooperativeRead",
     "AssociationCreate",
+    "AssociationUpdate",
     "GareCooperativeRead",
     "MemberCreate",
     "MemberUpdate",
