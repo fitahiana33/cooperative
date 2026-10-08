@@ -50,3 +50,36 @@ Les statistiques distinguent les indicateurs instantanés des tendances : la pag
 ## Réinitialisation des données de développement
 
 Le menu `Administration > Réinitialiser les données` est réservé aux administrateurs. Il supprime les données métier et les utilisateurs non administrateurs, remet les séquences PostgreSQL à zéro et conserve les comptes administrateurs, les rôles, les permissions et leurs associations. L'action exige de saisir `RESET` et ne doit jamais être utilisée sur une base de production.
+
+## Données de démonstration (seed)
+
+Le script `backend/app/db/seed_dev.py` remplit **toutes les tables** avec un jeu de données cohérent : gares (quais, zones, emplacements), coopératives et membres, destinations, itinéraires et tarifs, marques, modèles, véhicules, documents et chauffeurs, puis environ 200 départs répartis de J-10 à J+7 avec réservations, billets (QR codes générés), paiements, caisses, embarquements et notifications. Les dates sont calculées à partir du jour de lancement : le tableau de bord affiche donc toujours des départs terminés, en cours et à venir.
+
+Les migrations doivent être appliquées (`alembic upgrade head`) avant le premier lancement.
+
+Avec Docker :
+
+```powershell
+# Remplir une base vide (refusé si la base contient déjà des données)
+docker compose exec backend python -m app.db.seed_dev
+
+# Réinitialiser : vider toutes les tables puis les remplir à nouveau
+docker compose exec backend python -m app.db.seed_dev --reset
+
+# Réinitialiser sans données de démonstration (rôles, permissions et admin uniquement)
+docker compose exec backend python -m app.db.seed_dev --reset --empty
+```
+
+En local, lancer les mêmes commandes depuis `backend` avec l'environnement virtuel activé : `python -m app.db.seed_dev --reset`.
+
+`--reset` vide **toutes** les tables (comptes administrateurs compris), remet les séquences à zéro et supprime les QR codes générés dans `uploads/qr_codes`. Le compte admin est ensuite recréé à partir de `DEFAULT_ADMIN_EMAIL` / `DEFAULT_ADMIN_PASSWORD`. Le script demande de taper `RESET` ; l'option `--yes` supprime cette confirmation (utile en CI). Il refuse de s'exécuter quand `ENVIRONMENT=production`. L'option `--seed <nombre>` change la graine aléatoire.
+
+Comptes créés, tous avec le mot de passe `Demo123!` :
+
+| Rôle | Identifiants |
+| --- | --- |
+| Responsable de gare | `responsable.gare1@cooperative.com`, `responsable.gare2@cooperative.com` |
+| Agent de gare | `agent.<gare>@cooperative.com` : `ampasampito`, `fasankarana`, `ambodivona`, `toamasina`, `moramanga`, `antsirabe`, `ambositra`, `fianarantsoa`, `mahajanga`, `toliara` |
+| Responsable de coopérative | `responsable.fte@`, `responsable.mdt@`, `responsable.smr@`, `responsable.zav@cooperative.com` |
+| Chauffeur | `chauffeur01@cooperative.com` à `chauffeur14@cooperative.com` |
+| Passager | `passager01@cooperative.com` à `passager25@cooperative.com` |
