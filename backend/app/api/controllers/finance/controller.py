@@ -39,7 +39,7 @@ def get_caisse(
 @router.get("/caisses/{caisse_id}/operations", response_model=PageResponse[OperationRead])
 def list_caisse_operations(
     caisse_id: int,
-    page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=500),
+    page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=100),
     current_user: User = Depends(require_permission("CAISSE_READ")), db: Session = Depends(get_db),
 ):
     return FinanceService(db).list_operations(caisse_id, page=page, page_size=page_size, gare_ids=get_user_gare_ids(db, current_user))
@@ -53,7 +53,10 @@ def open_caisse(data: CaisseOpen, current_user: User = Depends(require_permissio
 
 @router.post("/caisses/{caisse_id}/cloturer", response_model=CaisseRead)
 def close_caisse(caisse_id: int, data: CaisseClose, current_user: User = Depends(require_permission("CAISSE_CLOSE")), db: Session = Depends(get_db)):
-    return FinanceService(db).close_caisse(caisse_id, montant_cloture=data.montant_cloture, gare_ids=get_user_gare_ids(db, current_user))
+    return FinanceService(db).close_caisse(
+        caisse_id, montant_cloture=data.montant_cloture, gare_ids=get_user_gare_ids(db, current_user),
+        user_id=current_user.id, is_manager=has_global_cooperative_access(current_user),
+    )
 
 
 @router.post("/caisses/{caisse_id}/operations", response_model=OperationRead, status_code=status.HTTP_201_CREATED)
@@ -64,10 +67,11 @@ def create_operation(caisse_id: int, data: OperationCreate, current_user: User =
 @router.get("/paiements", response_model=PageResponse[PaiementRead])
 def list_payments(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), id_reservation: int | None = None,
+    a_rembourser: bool = Query(False, description="Seulement les paiements à rembourser par un caissier."),
     current_user: User = Depends(require_permission("PAIEMENT_READ")), db: Session = Depends(get_db),
 ):
     cooperative_ids = None if has_global_cooperative_access(current_user) else get_user_cooperative_ids(db, current_user)
-    return FinanceService(db).list_payments(page=page, page_size=page_size, reservation_id=id_reservation, cooperative_ids=cooperative_ids)
+    return FinanceService(db).list_payments(page=page, page_size=page_size, reservation_id=id_reservation, cooperative_ids=cooperative_ids, to_refund=a_rembourser)
 
 
 @router.post("/paiements", response_model=PaiementRead, status_code=status.HTTP_201_CREATED)

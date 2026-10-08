@@ -1,6 +1,6 @@
+from io import BytesIO
 from math import ceil
-from pathlib import Path
-from uuid import UUID
+from uuid import UUID, uuid4
 
 import qrcode
 
@@ -8,7 +8,8 @@ from fastapi import HTTPException
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
-from app.models.billet import Billet
+from app.core.config import settings
+from app.models.billet import Billet, BilletStatus
 from app.models.depart import Depart
 from app.models.reservation import Reservation, ReservationPlace
 
@@ -18,8 +19,33 @@ class BilletService:
         self.db = db
 
     @staticmethod
+    def issue_for_reservation(db: Session, reservation: Reservation) -> list[Billet]:
+        """Create the missing tickets of a reservation, one per reserved seat."""
+        created = []
+        for place in reservation.places:
+            if place.billet is not None:
+                continue
+            billet = Billet(
+                numero_billet=f"TKT-{uuid4().hex[:30].upper()}",
+                id_reservation_place=place.id,
+                qr_code_uuid=uuid4(),
+                statut=BilletStatus.VALIDE,
+            )
+            BilletService.generate_qr(billet)
+            db.add(billet)
+            created.append(billet)
+        db.flush()
+        return created
+
+    @staticmethod
+    def qr_png(qr_code_uuid: UUID | str) -> bytes:
+        buffer = BytesIO()
+        qrcode.make(str(qr_code_uuid)).save(buffer, format="PNG")
+        return buffer.getvalue()
+
+    @staticmethod
     def generate_qr(billet: Billet) -> None:
-        output_dir = Path(__file__).resolve().parents[3] / "uploads" / "qr_codes"
+        output_dir = settings.uploads_dir / "qr_codes"
         output_dir.mkdir(parents=True, exist_ok=True)
         filename = f"{billet.numero_billet}.png"
         qrcode.make(str(billet.qr_code_uuid)).save(output_dir / filename)

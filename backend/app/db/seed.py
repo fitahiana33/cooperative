@@ -10,6 +10,13 @@ from app.core.roles import normalize_role
 
 
 def seed_default_admin(db: Session) -> None:
+    """Create the roles, permissions and admin account that are missing.
+
+    Existing rows are never modified, so changes made by an administrator
+    (deactivated role, removed permission) survive restarts. A permission
+    added to the code is granted to its default roles when it is created.
+    To change the defaults of an existing database, write a migration.
+    """
     role_names = {
         UserRole.ADMIN,
         UserRole.RESPONSABLE_GARE,
@@ -19,14 +26,15 @@ def seed_default_admin(db: Session) -> None:
         UserRole.PASSAGER,
     }
     roles = {}
+    new_roles = set()
     for name in role_names:
         role = db.query(Role).filter(func.lower(Role.libelle) == normalize_role(name)).first()
         if not role:
-            role = Role(libelle=name, description=f"Rôle {name}")
+            role = Role(libelle=name, description=f"Rôle {name}", is_active=True)
             db.add(role)
-        if role and role.libelle != name:
+            new_roles.add(name)
+        if role.libelle != name:
             role.libelle = name
-        role.is_active = True
         roles[name] = role
     db.commit()
 
@@ -83,6 +91,7 @@ def seed_default_admin(db: Session) -> None:
         ("DEPART_UPDATE", "Mise à jour des départs", "DEPART"),
         ("DEPART_POINTAGE", "Pointage départ et arrivée des chauffeurs", "DEPART"),
         ("DEPART_CANCEL", "Annulation de départs", "DEPART"),
+        ("DEPART_DELETE", "Suppression de départs", "DEPART"),
         # RESERVATION
         ("RESERVATION_CREATE", "Prise de réservations", "RESERVATION"),
         ("RESERVATION_READ", "Consultation des réservations", "RESERVATION"),
@@ -121,22 +130,20 @@ def seed_default_admin(db: Session) -> None:
     ]
 
     permissions = {}
+    new_permissions = set()
     for code, libelle, module in permission_definitions:
         permission = db.query(Permission).filter(Permission.code == code).first()
         if not permission:
-            permission = Permission(code=code, libelle=libelle, module=module)
+            permission = Permission(code=code, libelle=libelle, module=module, is_active=True)
             db.add(permission)
-        else:
-            permission.libelle = libelle
-            permission.module = module
-            permission.is_active = True
+            new_permissions.add(code)
         permissions[code] = permission
     db.commit()
 
-    # Assign all permissions to ADMIN role
+    # The admin role receives every permission when the role or the permission is new.
     admin_role = roles[UserRole.ADMIN]
-    for perm in permissions.values():
-        if perm not in admin_role.permissions:
+    for code, perm in permissions.items():
+        if (UserRole.ADMIN in new_roles or code in new_permissions) and perm not in admin_role.permissions:
             admin_role.permissions.append(perm)
     db.commit()
 
@@ -145,8 +152,8 @@ def seed_default_admin(db: Session) -> None:
             "GARE_READ", "GARE_CREATE", "GARE_UPDATE", "GARE_DELETE",
             "COOPERATIVE_READ",
             "VEHICULE_READ", "CHAUFFEUR_READ",
-            "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL",
-            "RESERVATION_READ", "RESERVATION_UPDATE", "PLACE_MANAGE", "BILLET_READ",
+            "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL", "DEPART_DELETE",
+            "RESERVATION_READ", "RESERVATION_CREATE", "RESERVATION_UPDATE", "RESERVATION_CANCEL", "PLACE_MANAGE", "BILLET_READ",
             "EMBARQUEMENT_READ", "EMBARQUEMENT_MANAGE", "PAIEMENT_READ", "PAIEMENT_PROCESS", "PAIEMENT_REFUND",
             "CAISSE_READ", "CAISSE_OPEN", "CAISSE_CLOSE", "CAISSE_MANAGE",
             "DASHBOARD_READ", "STATISTIQUE_READ", "NOTIFICATION_READ", "NOTIFICATION_MANAGE",
@@ -163,26 +170,18 @@ def seed_default_admin(db: Session) -> None:
             "ITINERAIRE_COOPERATIVE_MANAGE",
         },
         UserRole.AGENT_GARE: {
-            "GARE_READ", "DEPART_READ", "RESERVATION_READ", "RESERVATION_UPDATE", "BILLET_READ",
-            "EMBARQUEMENT_READ", "EMBARQUEMENT_MANAGE", "PAIEMENT_READ", "PAIEMENT_PROCESS",
+            "GARE_READ", "DEPART_READ", "RESERVATION_READ", "RESERVATION_CREATE", "RESERVATION_UPDATE", "RESERVATION_CANCEL", "BILLET_READ",
+            "EMBARQUEMENT_READ", "EMBARQUEMENT_MANAGE", "PAIEMENT_READ", "PAIEMENT_PROCESS", "PAIEMENT_REFUND",
             "CAISSE_READ", "CAISSE_OPEN", "CAISSE_CLOSE", "CAISSE_MANAGE", "DASHBOARD_READ",
             "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ", "NOTIFICATION_READ",
         },
         UserRole.CHAUFFEUR: {"CHAUFFEUR_READ", "VEHICULE_READ", "DEPART_READ", "DEPART_POINTAGE", "RESERVATION_READ", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
-        UserRole.PASSAGER: {"DEPART_READ", "RESERVATION_CREATE", "RESERVATION_READ", "RESERVATION_UPDATE", "RESERVATION_CANCEL", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
-    }
-    managed_permission_codes = {
-        code for code, _, _ in permission_definitions
+        UserRole.PASSAGER: {"DEPART_READ", "RESERVATION_CREATE", "RESERVATION_READ", "RESERVATION_CANCEL", "BILLET_READ", "NOTIFICATION_READ", "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ"},
     }
     for role_name, codes in role_permissions.items():
         role = roles[role_name]
-        # The seed is declarative: permissions removed from the contract are
-        # also removed from the role. Custom permissions remain untouched.
-        for permission in list(role.permissions):
-            if permission.code in managed_permission_codes and permission.code not in codes:
-                role.permissions.remove(permission)
         for code in codes:
-            if permissions[code] not in role.permissions:
+            if (role_name in new_roles or code in new_permissions) and permissions[code] not in role.permissions:
                 role.permissions.append(permissions[code])
     db.commit()
 
@@ -209,3 +208,11 @@ def seed_default_admin(db: Session) -> None:
     ))
     admin.roles.append(admin_role)
     db.commit()
+
+
+if __name__ == "__main__":
+    from app.db.session import SessionLocal
+
+    with SessionLocal() as session:
+        seed_default_admin(session)
+    print("Rôles, permissions et compte administrateur à jour.")

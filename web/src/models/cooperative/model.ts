@@ -8,7 +8,7 @@ export interface Cooperative {
   telephone?: string
   email?: string
   description?: string
-  responsable_id?: number
+  responsable_id?: number | null
   is_active: boolean
   created_at: string
   updated_at?: string
@@ -24,5 +24,5 @@ export interface CooperativeCreate {
   telephone?: string
   email?: string
   description?: string
-  responsable_id?: number
+  responsable_id?: number | null
 }

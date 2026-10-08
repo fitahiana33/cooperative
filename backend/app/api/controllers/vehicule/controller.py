@@ -6,6 +6,7 @@ from uuid import uuid4
 from fastapi import APIRouter, Depends, File, Form, HTTPException, Query, UploadFile, status
 from fastapi.responses import FileResponse
 from sqlalchemy.orm import Session
+from app.core.config import settings
 from app.db.session import get_db
 from app.models.user import User
 from app.models.vehicule import VehiculeDocument
@@ -31,12 +32,31 @@ from app.api.controllers.authentication.dependencies import (
 
 router = APIRouter(prefix="/vehicules", tags=["vehicules"])
 
-DOCUMENT_UPLOAD_DIR = Path(__file__).resolve().parents[4] / "uploads" / "vehicules"
+DOCUMENT_UPLOAD_DIR = settings.uploads_dir / "vehicules"
 MAX_DOCUMENT_SIZE = 10 * 1024 * 1024
-ALLOWED_DOCUMENT_EXTENSIONS = {
-    ".pdf", ".png", ".jpg", ".jpeg", ".gif", ".webp",
-    ".doc", ".docx", ".xls", ".xlsx",
+_OFFICE_ZIP = (b"PK\x03\x04",)
+_OFFICE_LEGACY = (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1",)
+# Accepted extensions and the leading bytes their content must start with,
+# so a script renamed to .pdf is refused.
+DOCUMENT_SIGNATURES = {
+    ".pdf": (b"%PDF",),
+    ".png": (b"\x89PNG\r\n\x1a\n",),
+    ".jpg": (b"\xff\xd8\xff",),
+    ".jpeg": (b"\xff\xd8\xff",),
+    ".gif": (b"GIF87a", b"GIF89a"),
+    ".webp": (b"RIFF",),
+    ".docx": _OFFICE_ZIP,
+    ".xlsx": _OFFICE_ZIP,
+    ".doc": _OFFICE_LEGACY,
+    ".xls": _OFFICE_LEGACY,
 }
+ALLOWED_DOCUMENT_EXTENSIONS = set(DOCUMENT_SIGNATURES)
+
+
+def _content_matches_extension(content: bytes, extension: str) -> bool:
+    if not content.startswith(DOCUMENT_SIGNATURES[extension]):
+        return False
+    return extension != ".webp" or content[8:12] == b"WEBP"
 
 
 def _remove_uploaded_file(file_path: str | None) -> None:
@@ -133,7 +153,7 @@ def delete_vehicule(
 
 # --- Documents du véhicule ---
 @router.post("/{vehicule_id}/documents/upload", response_model=VehiculeDocumentRead, status_code=status.HTTP_201_CREATED)
-async def upload_document(
+def upload_document(
     vehicule_id: int,
     type_document: DocumentType = Form(...),
     numero_document: str | None = Form(None),
@@ -158,9 +178,11 @@ async def upload_document(
             detail="Format de fichier non accepté. Utilisez PDF, image, Word ou Excel.",
         )
 
-    content = await file.read(MAX_DOCUMENT_SIZE + 1)
+    content = file.file.read(MAX_DOCUMENT_SIZE + 1)
     if len(content) > MAX_DOCUMENT_SIZE:
         raise HTTPException(status_code=413, detail="Le fichier ne doit pas dépasser 10 Mo.")
+    if not _content_matches_extension(content, extension):
+        raise HTTPException(status_code=400, detail="Le contenu du fichier ne correspond pas à son extension.")
 
     DOCUMENT_UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
     stored_name = f"{uuid4().hex}{extension}"

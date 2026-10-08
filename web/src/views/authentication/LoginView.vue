@@ -1,14 +1,15 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
 document.title = 'Connexion | Gestion'
 
 const router = useRouter()
+const sessionExpired = useRoute().query.expired === '1'
 const auth = useAuthenticationStore()
 
-const email = ref(import.meta.env.VITE_DEFAULT_ADMIN_EMAIL || '')
-const password = ref(import.meta.env.VITE_DEFAULT_ADMIN_PASSWORD || '')
+const email = ref('')
+const password = ref('')
 const showPassword = ref(false)
 
 async function submit() {
@@ -74,6 +75,7 @@ async function submit() {
             </button>
           </div>
 
+          <p v-if="sessionExpired && !auth.error" class="form-error" role="status">Votre session a expiré. Reconnectez-vous.</p>
           <p v-if="auth.error" class="form-error">{{ auth.error }}</p>
 
           <button class="primary-button" type="submit" :disabled="auth.loading">

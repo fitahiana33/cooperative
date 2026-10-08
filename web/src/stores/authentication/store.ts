@@ -129,7 +129,10 @@ export const useAuthenticationStore = defineStore('authentication', {
 
     async logout(callApi = true) {
       if (callApi && this.token) {
-        try { await authenticationController.logout({ refresh_token: this.refreshToken }) } catch (error) { console.error('[LOGOUT_ERROR]', error) }
+        // The API interceptor rotates the refresh token in storage; send the
+        // current one so it is really revoked.
+        const refreshToken = localStorage.getItem(REFRESH_TOKEN_KEY) || this.refreshToken
+        try { await authenticationController.logout({ refresh_token: refreshToken }) } catch (error) { console.error('[LOGOUT_ERROR]', error) }
       }
       this.token = ''
       this.refreshToken = ''

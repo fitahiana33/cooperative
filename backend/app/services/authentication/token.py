@@ -13,7 +13,7 @@ def create_access_token(subject: str, role: str = "passenger") -> str:
         "sub": str(subject),
         "role": role,
         "type": "access",
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "jti": str(uuid.uuid4()),
         "exp": expires_at,
     }
@@ -26,7 +26,7 @@ def create_refresh_token(subject: str) -> str:
     payload = {
         "sub": str(subject),
         "type": "refresh",
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "jti": str(uuid.uuid4()),
         "exp": expires_at,
     }
@@ -39,7 +39,7 @@ def create_password_reset_token(email: str) -> str:
     payload = {
         "email": str(email),
         "type": "password_reset",
-        "iat": int(now.timestamp()),
+        "iat": now.timestamp(),
         "jti": str(uuid.uuid4()),
         "exp": expires_at,
     }

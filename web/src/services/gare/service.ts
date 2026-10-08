@@ -1,7 +1,19 @@
 import { api } from '../api'
-import type { Gare, GareCreate } from '../../models/gare/model'
+import type { Gare, GareCreate, GareAgent } from '../../models/gare/model'
 
 export const gareService = {
+  async listAgents(gareId: number): Promise<GareAgent[]> {
+    return (await api.get(`/gares/${gareId}/agents`)).data
+  },
+  async listEligibleAgents(gareId: number): Promise<GareAgent[]> {
+    return (await api.get(`/gares/${gareId}/eligible-agents`)).data
+  },
+  async addAgent(gareId: number, userId: number): Promise<GareAgent[]> {
+    return (await api.post(`/gares/${gareId}/agents/${userId}`)).data
+  },
+  async removeAgent(gareId: number, userId: number): Promise<void> {
+    await api.delete(`/gares/${gareId}/agents/${userId}`)
+  },
   async listGares(params?: Record<string, any>) {
     return (await api.get('/gares', { params })).data
   },

@@ -8,5 +8,5 @@ class ReservationService {
   Future<List<Map<String, dynamic>>> listDepartures() => _repository.listDepartures();
   Future<List<Map<String, dynamic>>> listTickets() => _repository.listTickets();
   Future<List<Map<String, dynamic>>> listAvailablePlaces(int departId) => _repository.listAvailablePlaces(departId);
-  Future<void> createAndConfirm(int departId, List<Map<String, dynamic>> places) => _repository.createAndConfirm(departId, places);
+  Future<Map<String, dynamic>> createReservation(int departId, List<Map<String, dynamic>> places) => _repository.createReservation(departId, places);
 }

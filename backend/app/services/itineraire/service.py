@@ -10,6 +10,7 @@ from sqlalchemy.orm.attributes import set_committed_value
 from app.models.cooperative import Cooperative
 from app.models.destination import Destination
 from app.models.itineraire import Itineraire, ItineraireCooperative
+from app.core.clock import local_today
 
 logger = logging.getLogger("cooperative.itineraire")
 
@@ -164,7 +165,7 @@ class ItineraireService:
             raise HTTPException(404, "Coopérative introuvable.")
         if not cooperative.is_active:
             raise HTTPException(422, "La coopérative sélectionnée est inactive.")
-        effective_start = date_debut or date.today()
+        effective_start = date_debut or local_today()
         self._validate_dates(effective_start, date_fin)
         item = self.db.scalar(select(ItineraireCooperative).where(
             ItineraireCooperative.id_itineraire == itineraire_id,
@@ -223,5 +224,5 @@ class ItineraireService:
         if not item:
             raise HTTPException(404, "Association itinéraire-coopérative introuvable.")
         item.is_active = False
-        item.date_fin = max(date.today(), item.date_debut)
+        item.date_fin = max(local_today(), item.date_debut)
         self.db.commit()

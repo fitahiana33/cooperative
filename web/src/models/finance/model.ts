@@ -6,6 +6,7 @@ export interface Caisse {
   montant_ouverture: number
   date_cloture?: string | null
   montant_cloture?: number | null
+  ecart_cloture?: number | null
   statut: string
   total_recettes: number
   total_depenses: number
@@ -22,4 +23,5 @@ export interface Paiement {
   statut: string
   date_paiement: string
   id_agent?: number | null
+  remboursement_demande_le?: string | null
 }

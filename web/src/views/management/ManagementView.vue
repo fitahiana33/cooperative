@@ -7,6 +7,7 @@ import ListToolbar from '../../components/ui/ListToolbar.vue'
 import { managementService } from '../../services/management/service'
 import type { Gare } from '../../models/gare/model'
 import type { Cooperative } from '../../models/cooperative/model'
+import { useAuthenticationStore } from '../../stores/authentication/store'
 import { userError } from '../../utils/errors'
 
 type Section = 'gares' | 'cooperatives'
@@ -18,6 +19,11 @@ const description = computed(() => section.value === 'gares'
   ? 'Consultez et gérez les gares routières enregistrées.'
   : 'Consultez et gérez les coopératives partenaires.')
 const createPath = computed(() => `/${section.value}/new`)
+const auth = useAuthenticationStore()
+const permissionPrefix = computed(() => section.value === 'gares' ? 'GARE' : 'COOPERATIVE')
+const canCreate = computed(() => auth.hasPermission(`${permissionPrefix.value}_CREATE`))
+const canUpdate = computed(() => auth.hasPermission(`${permissionPrefix.value}_UPDATE`))
+const canDelete = computed(() => auth.hasPermission(`${permissionPrefix.value}_DELETE`))
 const gares = ref<Gare[]>([])
 const cooperatives = ref<Cooperative[]>([])
 const total = ref(0)
@@ -143,7 +149,7 @@ onMounted(async () => {
         <h2>{{ title }}</h2>
         <p>{{ description }}</p>
       </div>
-      <RouterLink class="primary-button compact-button" :to="createPath">+ Ajouter</RouterLink>
+      <RouterLink v-if="canCreate" class="primary-button compact-button" :to="createPath">+ Ajouter</RouterLink>
     </div>
 
     <div class="section-links">
@@ -187,9 +193,9 @@ onMounted(async () => {
                 <td><span :class="['status-badge', item.is_active ? 'active' : 'inactive']">{{ item.is_active ? 'Active' : 'Inactive' }}</span></td>
                 <td>
                   <RouterLink class="table-action table-link" :to="`/gares/${item.id}`">Détails</RouterLink>
-                  <RouterLink class="table-action table-link" :to="`/gares/${item.id}/edit`">Modifier</RouterLink>
-                  <button class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button>
-                  <button class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button>
+                  <RouterLink v-if="canUpdate" class="table-action table-link" :to="`/gares/${item.id}/edit`">Modifier</RouterLink>
+                  <button v-if="canUpdate" class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button>
+                  <button v-if="canDelete" class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button>
                 </td>
               </tr>
               <tr v-if="!gares.length"><td colspan="5"><div class="empty-state">Aucune gare trouvée.</div></td></tr>
@@ -203,9 +209,9 @@ onMounted(async () => {
                 <td><span :class="['status-badge', item.is_active ? 'active' : 'inactive']">{{ item.is_active ? 'Active' : 'Inactive' }}</span></td>
                 <td>
                   <RouterLink class="table-action table-link" :to="`/cooperatives/${item.id}`">Détails</RouterLink>
-                  <RouterLink class="table-action table-link" :to="`/cooperatives/${item.id}/edit`">Modifier</RouterLink>
-                  <button class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button>
-                  <button class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button>
+                  <RouterLink v-if="canUpdate" class="table-action table-link" :to="`/cooperatives/${item.id}/edit`">Modifier</RouterLink>
+                  <button v-if="canUpdate" class="table-action" :disabled="busyAction !== null" @click="toggle(item)">{{ busyAction === `toggle-${item.id}` ? 'Traitement…' : (item.is_active ? 'Désactiver' : 'Activer') }}</button>
+                  <button v-if="canDelete" class="table-action danger-action" :disabled="busyAction !== null" @click="remove(item)">{{ busyAction === `delete-${item.id}` ? 'Suppression…' : 'Supprimer' }}</button>
                 </td>
               </tr>
               <tr v-if="!cooperatives.length"><td colspan="6"><div class="empty-state">Aucune coopérative trouvée.</div></td></tr>

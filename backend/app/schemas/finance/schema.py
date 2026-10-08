@@ -20,6 +20,7 @@ class PaiementRead(BaseModel):
     statut: str
     date_paiement: datetime
     id_agent: int | None = None
+    remboursement_demande_le: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -40,6 +41,7 @@ class CaisseRead(BaseModel):
     montant_ouverture: Decimal
     date_cloture: datetime | None = None
     montant_cloture: Decimal | None = None
+    ecart_cloture: Decimal | None = None
     statut: str
     total_recettes: Decimal = Decimal("0")
     total_depenses: Decimal = Decimal("0")

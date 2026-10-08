@@ -35,9 +35,8 @@ class ReservationRepositoryImpl implements ReservationRepository {
   }
 
   @override
-  Future<void> createAndConfirm(int departId, List<Map<String, dynamic>> places) async {
+  Future<Map<String, dynamic>> createReservation(int departId, List<Map<String, dynamic>> places) async {
     final response = await _apiClient.post('/reservations', data: {'id_depart': departId, 'places': places});
-    final reservation = Map<String, dynamic>.from(response.data as Map);
-    await _apiClient.post('/reservations/${reservation['id']}/confirm');
+    return Map<String, dynamic>.from(response.data as Map);
   }
 }

@@ -48,6 +48,7 @@ from app.models import (
     EmbarquementStatus,
     Emplacement,
     Gare,
+    GareAgent,
     GareCooperative,
     Itineraire,
     ItineraireCooperative,
@@ -218,9 +219,10 @@ class DepartContext:
 
 
 class DemoSeeder:
-    def __init__(self, db: Session, rng: random.Random):
+    def __init__(self, db: Session, rng: random.Random, *, write_qr: bool = True):
         self.db = db
         self.rng = rng
+        self.write_qr = write_qr
         self.now = datetime.now(LOCAL_TZ).replace(microsecond=0)
         self.today = self.now.date()
         self.password_hash = hash_password(DEMO_PASSWORD)
@@ -229,6 +231,7 @@ class DemoSeeder:
         self.roles = {role.libelle: role for role in db.scalars(select(Role))}
         self.caisses: dict[tuple[int, date], Caisse] = {}
         self.pending_expiry_alerts: list[tuple[Cooperative, str]] = []
+        self.pending_by_user: dict[int, int] = {}
 
     # ------------------------------------------------------------------ helpers
 
@@ -402,7 +405,9 @@ class DemoSeeder:
                 linked.add((sigle, self.origin_gare_slug(b, a)))
         for sigle, slug in sorted(linked):
             db.add(GareCooperative(id_gare=self.gares[slug].id, id_cooperative=self.cooperatives[sigle].id, date_debut=joined))
-            db.add(CooperativeMember(id_cooperative=self.cooperatives[sigle].id, id_user=self.agents[slug].id, fonction="Agent de gare", date_adhesion=joined))
+        # Each agent works at one station and sees the cooperatives operating there.
+        for slug, agent in self.agents.items():
+            db.add(GareAgent(id_gare=self.gares[slug].id, id_user=agent.id))
         # A former partnership kept for history.
         db.add(GareCooperative(id_gare=self.gares["toliara"].id, id_cooperative=self.cooperatives["FTE"].id,
                                date_debut=joined - timedelta(days=365), date_fin=joined, is_active=False))
@@ -626,6 +631,12 @@ class DemoSeeder:
         db, rng = self.db, self.rng
         by_passenger = rng.random() < 0.75
         owner = rng.choice(self.active_passengers) if by_passenger else ctx.agent
+        if outcome == "EN_ATTENTE" and by_passenger:
+            # Respect the per-passenger limit so demo accounts can still book.
+            if self.pending_by_user.get(owner.id, 0) >= settings.passenger_max_pending_reservations - 1:
+                outcome = "CONFIRMEE"
+            else:
+                self.pending_by_user[owner.id] = self.pending_by_user.get(owner.id, 0) + 1
 
         latest = min(ctx.dep_at - timedelta(hours=2), self.now - timedelta(hours=1))
         if outcome == "EN_ATTENTE":
@@ -652,7 +663,7 @@ class DemoSeeder:
             id_user=owner.id,
             montant_total=ctx.prix * len(place_ids),
             statut=ReservationStatus.EN_ATTENTE,
-            date_expiration=self.now + timedelta(hours=2) if outcome == "EN_ATTENTE" else booked_at + timedelta(minutes=15),
+            date_expiration=(self.now if outcome == "EN_ATTENTE" else booked_at) + timedelta(minutes=settings.reservation_hold_minutes),
             created_at=booked_at,
         )
         db.add(reservation)
@@ -674,7 +685,7 @@ class DemoSeeder:
         if outcome == "EN_ATTENTE":
             return
         if outcome == "EXPIREE":
-            self.set_reservation_status(reservation, ReservationStatus.EXPIREE, booked_at + timedelta(minutes=15))
+            self.set_reservation_status(reservation, ReservationStatus.EXPIREE, booked_at + timedelta(minutes=settings.reservation_hold_minutes))
             return
 
         self.set_reservation_status(reservation, ReservationStatus.CONFIRMEE, confirmed_at)
@@ -683,7 +694,8 @@ class DemoSeeder:
             billet = Billet(numero_billet=f"TKT-{uuid4().hex[:30].upper()}", id_reservation_place=row.id, qr_code_uuid=uuid4(),
                             statut=BilletStatus.VALIDE, date_emission=confirmed_at, created_at=confirmed_at)
             filename = f"{billet.numero_billet}.png"
-            qrcode.make(str(billet.qr_code_uuid)).save(self.qr_dir / filename)
+            if self.write_qr:
+                qrcode.make(str(billet.qr_code_uuid)).save(self.qr_dir / filename)
             billet.qr_code_path = f"/uploads/qr_codes/{filename}"
             billets.append(billet)
         db.add_all(billets)
@@ -905,6 +917,7 @@ def main(argv: list[str] | None = None) -> int:
     parser.add_argument("--empty", action="store_true", help="avec --reset : ne recrée que les rôles, les permissions et le compte admin")
     parser.add_argument("-y", "--yes", action="store_true", help="ne pas demander de confirmation avant --reset")
     parser.add_argument("--seed", type=int, default=2026, help="graine aléatoire (défaut : 2026)")
+    parser.add_argument("--no-qr", action="store_true", help="ne pas écrire les images QR (elles sont générées à la demande par l'API)")
     args = parser.parse_args(argv)
 
     if args.empty and not args.reset:
@@ -932,7 +945,7 @@ def main(argv: list[str] | None = None) -> int:
             print_summary(db)
             return 0
 
-        seeder = DemoSeeder(db, random.Random(args.seed))
+        seeder = DemoSeeder(db, random.Random(args.seed), write_qr=not args.no_qr)
         try:
             seeder.run()
             db.commit()

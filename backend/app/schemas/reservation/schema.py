@@ -37,7 +37,6 @@ class ReservationPlaceCreate(BaseModel):
 class ReservationCreate(BaseModel):
     id_depart: int
     places: list[ReservationPlaceCreate] = Field(min_length=1, max_length=20)
-    date_expiration: datetime | None = None
 
     @model_validator(mode="after")
     def unique_places(self):
@@ -45,6 +44,12 @@ class ReservationCreate(BaseModel):
         if len(ids) != len(set(ids)):
             raise ValueError("Une même place ne peut pas être sélectionnée deux fois.")
         return self
+
+
+class CounterSaleCreate(ReservationCreate):
+    """Counter sale: book, confirm and optionally take cash in one request."""
+    id_caisse: int | None = None
+    reference_paiement: str | None = Field(default=None, max_length=100)
 
 
 class ReservationStatusUpdate(BaseModel):
@@ -69,6 +74,19 @@ class ReservationTicketRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class _NamedRead(BaseModel):
+    id: int
+    nom: str
+    model_config = ConfigDict(from_attributes=True)
+
+
+class _RouteRead(BaseModel):
+    id: int
+    destination_depart: _NamedRead | None = None
+    destination_arrivee: _NamedRead | None = None
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ReservationDepartRead(BaseModel):
     id: int
     id_itineraire: int
@@ -80,6 +98,8 @@ class ReservationDepartRead(BaseModel):
     places_reservees: int
     places_disponibles: int
     statut: str
+    itineraire: _RouteRead | None = None
+    cooperative: _NamedRead | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

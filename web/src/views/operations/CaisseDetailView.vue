@@ -9,6 +9,7 @@ import type { Caisse } from "../../models/finance/model";
 import type { Cooperative } from "../../models/cooperative/model";
 import type { OperationCaisse } from "../../services/finance/service";
 import { userError } from "../../utils/errors";
+import { askCountedAmount, discrepancyMessage } from "../../utils/cash";
 const route = useRoute();
 const caisse = ref<Caisse | null>(null);
 const operations = ref<OperationCaisse[]>([]);
@@ -28,19 +29,17 @@ async function load() {
   loading.value = true;
   try {
     const id = Number(route.params.id);
-    const [cash, ops, cooperativePage] = await Promise.all([
+    const [cash, ops] = await Promise.all([
       financeService.getCaisse(id),
       financeService.listOperations(id, { page: 1, page_size: 100 }),
-      cooperativeService.listCooperatives({
-        page: 1,
-        page_size: 100,
-        sort_by: "nom",
-        sort_order: "asc",
-      }),
     ]);
     caisse.value = cash;
     operations.value = ops.items || ops;
-    cooperatives.value = cooperativePage.items || [];
+    // Cooperative names only label the operations; agents may not be allowed to list them.
+    cooperatives.value = await cooperativeService
+      .listCooperatives({ page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" })
+      .then((page) => page.items || [])
+      .catch(() => []);
   } catch (value: unknown) {
     showError(value, "Impossible de charger la caisse.");
   } finally {
@@ -48,11 +47,14 @@ async function load() {
   }
 }
 async function close() {
-  if (!caisse.value || !window.confirm("Clôturer cette caisse ?")) return;
+  if (!caisse.value) return;
+  const counted = askCountedAmount(caisse.value.solde);
+  if (counted === null) return;
   busy.value = true;
+  error.value = "";
   try {
-    await financeService.close(caisse.value.id);
-    success.value = "Caisse clôturée.";
+    const closed = await financeService.close(caisse.value.id, counted);
+    success.value = discrepancyMessage(closed.ecart_cloture);
     await load();
   } catch (value: unknown) {
     showError(value);
@@ -63,6 +65,7 @@ async function close() {
 async function addDepense() {
   if (!caisse.value) return;
   busy.value = true;
+  error.value = "";
   error.value = "";
   try {
     const data: Record<string, unknown> = {

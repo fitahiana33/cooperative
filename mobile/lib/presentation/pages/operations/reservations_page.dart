@@ -67,6 +67,26 @@ class _ReservationsPageState extends State<ReservationsPage> with SingleTickerPr
     }
   }
 
+  Future<void> _showPaymentInstructions(Map<String, dynamic> reservation) {
+    final expiration = DateTime.tryParse('${reservation['date_expiration'] ?? ''}')?.toLocal();
+    final deadline = expiration == null
+        ? 'le délai indiqué'
+        : '${expiration.hour.toString().padLeft(2, '0')}:${expiration.minute.toString().padLeft(2, '0')}';
+    return showDialog<void>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Réservation enregistrée'),
+        content: Text(
+          'Réservation ${reservation['numero_reservation']}\n'
+          'Montant : ${reservation['montant_total']} Ar\n\n'
+          'Vos places sont retenues jusqu’à $deadline. Payez au guichet de la gare avant cette heure pour recevoir vos billets ; '
+          'passé ce délai, les places seront libérées.',
+        ),
+        actions: [TextButton(onPressed: () => Navigator.of(dialogContext).pop(), child: const Text('Compris'))],
+      ),
+    );
+  }
+
   Future<void> _selectDepart(Map<String, dynamic> item) async {
     setState(() { _selectedDepart = item; _selectedPlaces.clear(); _places = []; _loadingPlaces = true; _error = null; });
     try {
@@ -86,7 +106,7 @@ class _ReservationsPageState extends State<ReservationsPage> with SingleTickerPr
     }
     setState(() { _submitting = true; _error = null; });
     try {
-      await widget.reservationService.createAndConfirm(
+      final reservation = await widget.reservationService.createReservation(
         _selectedDepart!['id'] as int,
         _selectedPlaces.map((id) => {
           'id_depart_place': id,
@@ -95,12 +115,12 @@ class _ReservationsPageState extends State<ReservationsPage> with SingleTickerPr
         }).toList(),
       );
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(const SnackBar(content: Text('Réservation confirmée. Vos billets sont disponibles.')));
       _selectedPlaces.clear();
-      await _loadTickets();
-      _tabs.animateTo(1);
+      await _showPaymentInstructions(reservation);
+      // Refresh the seat map so the seats just booked show as reserved.
+      await _selectDepart(_selectedDepart!);
     } catch (exception) {
-      if (mounted) setState(() => _error = userError(exception, 'La réservation n’a pas pu être confirmée.', 'MOBILE_RESERVATION_CREATE_ERROR'));
+      if (mounted) setState(() => _error = userError(exception, 'La réservation n’a pas pu être enregistrée.', 'MOBILE_RESERVATION_CREATE_ERROR'));
     } finally {
       if (mounted) setState(() => _submitting = false);
     }

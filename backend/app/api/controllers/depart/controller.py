@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import (
+    has_permission,
+    is_staff,
     ensure_cooperative_access,
     get_user_gare_ids,
     get_user_cooperative_ids,
@@ -22,9 +24,14 @@ router = APIRouter(prefix="/departs", tags=["departs"])
 
 
 def _scope(db: Session, user: User) -> set[int] | None:
+    if has_global_cooperative_access(user):
+        return None
+    if is_staff(user):
+        return get_user_cooperative_ids(db, user)
+    # Passengers browse every departure to book one.
     if has_active_role(user, UserRole.PASSAGER):
         return None
-    return None if has_global_cooperative_access(user) else get_user_cooperative_ids(db, user)
+    return set()
 
 
 @router.get("", response_model=PageResponse[DepartRead])
@@ -41,7 +48,10 @@ def list_departs(
     current_user: User = Depends(require_permission("DEPART_READ")),
     db: Session = Depends(get_db),
 ):
-    if id_cooperative is not None:
+    scope = _scope(db, current_user)
+    # Filtering only narrows what the user may already see; it needs a check
+    # only for scoped staff (passengers browse every departure).
+    if id_cooperative is not None and scope is not None:
         ensure_cooperative_access(db, current_user, id_cooperative)
     return DepartService(db).list_departs(
         page=page,
@@ -53,7 +63,7 @@ def list_departs(
         id_cooperative=id_cooperative,
         date_from=date_from,
         date_to=date_to,
-        cooperative_ids=_scope(db, current_user),
+        cooperative_ids=scope,
     )
 
 
@@ -134,7 +144,8 @@ def cancel_depart(
 ):
     service = DepartService(db)
     service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
-    return service.cancel_depart(depart_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user))
+    can_refund_now = has_permission(current_user, "PAIEMENT_REFUND") and has_permission(current_user, "CAISSE_MANAGE")
+    return service.cancel_depart(depart_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
 
 
 @router.delete("/{depart_id}", status_code=status.HTTP_204_NO_CONTENT)

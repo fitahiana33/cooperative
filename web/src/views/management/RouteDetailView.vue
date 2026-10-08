@@ -52,16 +52,15 @@ async function load() {
           ? await itineraireService.get(id)
           : await tarifService.get(id);
     if (section.value === "itineraires") {
-      associations.value = await itineraireService.listCooperatives(id);
-      fares.value = await tarifService.history(id);
-      cooperatives.value = (
-        await cooperativeService.listCooperatives({
-          page: 1,
-          page_size: 100,
-          sort_by: "nom",
-          sort_order: "asc",
-        })
-      ).items;
+      // Secondary lists: a missing permission on one of them must not hide the itinerary.
+      const [links, history, cooperativePage] = await Promise.allSettled([
+        itineraireService.listCooperatives(id),
+        tarifService.history(id),
+        cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" }),
+      ]);
+      associations.value = links.status === "fulfilled" ? links.value : [];
+      fares.value = history.status === "fulfilled" ? history.value : [];
+      cooperatives.value = cooperativePage.status === "fulfilled" ? cooperativePage.value.items : [];
     }
   } catch (value: unknown) {
     showError(value, "Impossible de charger le detail.");

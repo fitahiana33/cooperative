@@ -43,6 +43,19 @@ class User(Base):
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     last_login_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    # Tokens issued before this moment are refused (password changed or reset).
+    password_changed_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+
+    def set_password(self, password_hash: str) -> None:
+        from datetime import timezone as _tz
+        self.password_hash = password_hash
+        self.password_changed_at = datetime.now(_tz.utc)
+
+    def token_is_stale(self, issued_at: float | None) -> bool:
+        """True when the token predates the last password change (sub-second precision)."""
+        if self.password_changed_at is None:
+            return False
+        return issued_at is None or float(issued_at) < self.password_changed_at.timestamp()
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     roles = relationship("Role", secondary=users_roles, back_populates="users")
     cooperatives = relationship("CooperativeMember", back_populates="user")

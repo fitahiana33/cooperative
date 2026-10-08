@@ -28,6 +28,8 @@ class Tarif(Base):
     date_debut: Mapped[date] = mapped_column(Date, server_default=func.current_date(), nullable=False)
     date_fin: Mapped[date | None] = mapped_column(Date)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
+    # A version starting in the future: inactive until its start date, then activated by the scheduler.
+    activation_programmee: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

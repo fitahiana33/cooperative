@@ -36,4 +36,5 @@ export interface TokenResponse {
 
 export interface MessageResponse {
   message: string
+  reset_url?: string | null
 }

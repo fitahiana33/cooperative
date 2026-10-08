@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from 'vue'
+import { localIsoDate, daysAgo } from '../../utils/date'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import type { DashboardStatistics } from '../../models/dashboard/model'
@@ -9,8 +10,8 @@ import { userError } from '../../utils/errors'
 const data = ref<DashboardStatistics | null>(null)
 const loading = ref(true)
 const error = ref('')
-const today = new Date().toISOString().slice(0, 10)
-const defaultFrom = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10)
+const today = localIsoDate()
+const defaultFrom = localIsoDate(daysAgo(29))
 const dateFrom = ref(defaultFrom)
 const dateTo = ref(today)
 const viewMode = ref<'trends' | 'details'>('trends')
@@ -79,7 +80,7 @@ onMounted(load)
 
 
 				<BaseCard><div class="card-heading"><div><h2>Détail des départs</h2><p>Capacité et remplissage par date.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Départs</th><th>Réservées</th><th>Capacité</th><th>Remplissage</th></tr></thead><tbody><tr v-for="row in data.departs" :key="`detail-${row.date}`"><td>{{ formatDate(row.date) }}</td><td>{{ row.total }}</td><td>{{ row.places_reservees }}</td><td>{{ row.places_total }}</td><td>{{ row.places_total ? Math.round(row.places_reservees * 100 / row.places_total) : 0 }}%</td></tr><tr v-if="!data.departs.length"><td colspan="5" class="empty-state">Aucune donnée.</td></tr></tbody></table></div></BaseCard>
-				<BaseCard><div class="card-heading"><div><h2>Itinéraires demandés</h2><p>Classement par réservations.</p></div></div><div class="route-ranking"><div v-for="(row, index) in data.destinations" :key="row.id_itineraire" class="route-row"><span class="rank">{{ Number(index) + 1 }}</span><span>Itinéraire #{{ row.id_itineraire }}</span><strong>{{ row.reservations }}</strong></div><p v-if="!data.destinations.length" class="empty-state">Aucun itinéraire réservé.</p></div></BaseCard>
+				<BaseCard><div class="card-heading"><div><h2>Itinéraires demandés</h2><p>Classement par réservations.</p></div></div><div class="route-ranking"><div v-for="(row, index) in data.destinations" :key="row.id_itineraire" class="route-row"><span class="rank">{{ Number(index) + 1 }}</span><span>{{ row.libelle || 'Itinéraire #' + row.id_itineraire }}</span><strong>{{ row.reservations }}</strong></div><p v-if="!data.destinations.length" class="empty-state">Aucun itinéraire réservé.</p></div></BaseCard>
 			</section>
 		</template>
 	</AppLayout>

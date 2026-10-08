@@ -6,7 +6,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.pagination import paginate
-from app.models import Emplacement, Gare, Quai, Zone
+from app.core.roles import normalize_role
+from app.models import Emplacement, Gare, GareAgent, Quai, User, Zone
+from app.models.user import UserRole
 
 logger = logging.getLogger("cooperative.gare")
 
@@ -231,3 +233,49 @@ class GareService:
     def toggle_emplacement(self, gare_id: int, zone_id: int, emplacement_id: int) -> Emplacement:
         item = self.update_emplacement(gare_id, zone_id, emplacement_id)
         return self.update_emplacement(gare_id, zone_id, emplacement_id, is_active=not item.is_active)
+
+    # --- Station agents -------------------------------------------------
+
+    def list_agents(self, gare_id: int) -> list[User]:
+        self.get_gare(gare_id)
+        return list(self.db.scalars(
+            select(User).join(GareAgent, GareAgent.id_user == User.id)
+            .where(GareAgent.id_gare == gare_id).order_by(User.name, User.first_name)
+        ))
+
+    def add_agent(self, gare_id: int, user_id: int) -> list[User]:
+        gare = self.get_gare(gare_id)
+        user = self.db.get(User, user_id)
+        if not user:
+            raise HTTPException(404, "Utilisateur introuvable.")
+        if not any(normalize_role(role.libelle) == UserRole.AGENT_GARE and role.is_active for role in user.roles):
+            raise HTTPException(422, "Seul un utilisateur ayant le rôle agent de gare peut être rattaché à une gare.")
+        current = self.db.scalar(select(GareAgent).where(GareAgent.id_user == user_id))
+        if current and current.id_gare == gare.id:
+            return self.list_agents(gare_id)
+        if current:
+            other = self.db.get(Gare, current.id_gare)
+            raise HTTPException(409, f"Cet agent est déjà rattaché à la gare « {other.nom if other else current.id_gare} ». Retirez-le d'abord de cette gare.")
+        self.db.add(GareAgent(id_gare=gare.id, id_user=user_id))
+        self.db.commit()
+        return self.list_agents(gare_id)
+
+    def eligible_agents(self) -> list[User]:
+        """Active users with the station-agent role who are not attached to a station yet."""
+        from app.models.role import Role
+        from app.models.user.model import users_roles
+        return list(self.db.scalars(
+            select(User)
+            .join(users_roles, users_roles.c.id_user == User.id)
+            .join(Role, Role.id == users_roles.c.id_role)
+            .where(func.lower(Role.libelle) == UserRole.AGENT_GARE, Role.is_active.is_(True), User.is_active.is_(True))
+            .where(User.id.not_in(select(GareAgent.id_user)))
+            .order_by(User.name, User.first_name)
+        ).unique())
+
+    def remove_agent(self, gare_id: int, user_id: int) -> None:
+        link = self.db.get(GareAgent, {"id_gare": gare_id, "id_user": user_id})
+        if not link:
+            raise HTTPException(404, "Cet agent n'est pas rattaché à cette gare.")
+        self.db.delete(link)
+        self.db.commit()

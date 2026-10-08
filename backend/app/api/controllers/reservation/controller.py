@@ -2,27 +2,25 @@ import csv
 import io
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission
+from app.api.controllers.authentication.dependencies import has_permission, resolve_owner_scope, is_staff, get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission
+from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.depart import Depart
 from app.models.place import DepartPlace
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
-from app.schemas.reservation import DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead
+from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead
+from app.services.finance import FinanceService
 from app.services.reservation import ReservationService
 
 router = APIRouter(tags=["reservations"])
 
 
 def _scope(db: Session, user: User) -> tuple[int | None, set[int] | None]:
-    if has_global_cooperative_access(user):
-        return None, None
-    if has_active_role(user, UserRole.PASSAGER):
-        return user.id, None
-    return None, get_user_cooperative_ids(db, user)
+    return resolve_owner_scope(db, user)
 
 
 @router.get("/reservations", response_model=PageResponse[ReservationRead])
@@ -47,9 +45,23 @@ def list_depart_places(
     if not depart:
         from fastapi import HTTPException
         raise HTTPException(404, "Départ introuvable.")
-    if not has_active_role(current_user, UserRole.PASSAGER):
+    if is_staff(current_user) or not has_active_role(current_user, UserRole.PASSAGER):
         ensure_cooperative_access(db, current_user, depart.id_cooperative)
     return ReservationService(db).list_places(depart_id, include_unavailable=not available_only)
+
+
+@router.get("/departs/{depart_id}/passagers")
+def list_depart_passengers(
+    depart_id: int,
+    current_user: User = Depends(require_permission("RESERVATION_READ")),
+    db: Session = Depends(get_db),
+):
+    """Passengers of a departure with their boarding status (on-screen manifest)."""
+    depart = db.get(Depart, depart_id)
+    if not depart:
+        raise HTTPException(404, "Départ introuvable.")
+    ensure_cooperative_access(db, current_user, depart.id_cooperative)
+    return ReservationService(db).manifest_rows(depart_id)
 
 
 @router.get("/departs/{depart_id}/manifest.csv")
@@ -83,11 +95,43 @@ def export_depart_manifest(
 
 
 @router.post("/reservations", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("20/minute")
 def create_reservation(
+    request: Request,
     data: ReservationCreate,
     current_user: User = Depends(require_permission("RESERVATION_CREATE")), db: Session = Depends(get_db),
 ):
-    return ReservationService(db).create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places], date_expiration=data.date_expiration)
+    owner_id, _ = _scope(db, current_user)
+    return ReservationService(db).create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places], as_passenger=owner_id is not None)
+
+
+@router.post("/reservations/guichet", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
+def counter_sale(
+    data: CounterSaleCreate,
+    current_user: User = Depends(require_permission("RESERVATION_CREATE")), db: Session = Depends(get_db),
+):
+    """Sell seats at the counter in one step: book, confirm, and take cash if a desk is given.
+
+    If a later step fails, the reservation is cancelled so its seats are not left blocked.
+    """
+    if not has_permission(current_user, "RESERVATION_UPDATE"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "La vente au guichet est réservée au personnel.")
+    if data.id_caisse is not None and not has_permission(current_user, "PAIEMENT_PROCESS"):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous ne pouvez pas encaisser de paiement.")
+    service = ReservationService(db)
+    created = service.create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places])
+    try:
+        reservation = service.confirm(created.id)
+        if data.id_caisse is not None:
+            FinanceService(db).create_cash_payment(
+                reservation_id=reservation.id, caisse_id=data.id_caisse, amount=reservation.montant_total,
+                reference=data.reference_paiement, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user),
+            )
+    except HTTPException:
+        db.rollback()
+        service.cancel(created.id, agent_id=current_user.id)
+        raise
+    return service._get(created.id)
 
 
 @router.get("/reservations/export.csv")
@@ -129,6 +173,9 @@ def confirm_reservation(
     current_user: User = Depends(require_permission("RESERVATION_UPDATE")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
+    if owner_id is not None:
+        # Seats booked by a passenger are only confirmed once paid.
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "La réservation sera confirmée lors du paiement.")
     return ReservationService(db).confirm(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
 
 
@@ -139,7 +186,8 @@ def cancel_reservation(
     current_user: User = Depends(require_permission("RESERVATION_CANCEL")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user))
+    can_refund_now = has_permission(current_user, "PAIEMENT_REFUND") and has_permission(current_user, "CAISSE_MANAGE")
+    return ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
 
 
 @router.patch("/depart-places/{place_id}", response_model=DepartPlaceRead)

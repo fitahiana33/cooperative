@@ -9,3 +9,5 @@ email-validator==2.2.0
 PyJWT==2.10.1
 slowapi==0.1.9
 qrcode[pil]==8.0
+tzdata==2024.2
+apscheduler==3.10.4

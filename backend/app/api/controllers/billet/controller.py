@@ -1,7 +1,7 @@
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import get_user_cooperative_ids, has_active_role, has_global_cooperative_access, require_permission
+from app.api.controllers.authentication.dependencies import resolve_owner_scope, is_staff, get_user_cooperative_ids, has_active_role, has_global_cooperative_access, require_permission
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.billet import BilletRead
@@ -12,11 +12,7 @@ router = APIRouter(prefix="/billets", tags=["billets"])
 
 
 def _scope(db: Session, user: User) -> tuple[int | None, set[int] | None]:
-    if has_global_cooperative_access(user):
-        return None, None
-    if has_active_role(user, UserRole.PASSAGER):
-        return user.id, None
-    return None, get_user_cooperative_ids(db, user)
+    return resolve_owner_scope(db, user)
 
 
 @router.get("", response_model=PageResponse[BilletRead])
@@ -35,6 +31,20 @@ def get_billet(
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
     return BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+
+
+@router.get("/{billet_id}/qr.png", response_class=Response)
+def get_billet_qr(
+    billet_id: int,
+    current_user: User = Depends(require_permission("BILLET_READ")), db: Session = Depends(get_db),
+):
+    owner_id, cooperative_ids = _scope(db, current_user)
+    billet = BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return Response(
+        content=BilletService.qr_png(billet["qr_code_uuid"]),
+        media_type="image/png",
+        headers={"Cache-Control": "private, max-age=3600"},
+    )
 
 
 @router.get("/code/{code}", response_model=BilletRead)

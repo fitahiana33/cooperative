@@ -27,7 +27,7 @@ export function userError(error: unknown, fallback: string, context: string): st
   if (status === 404) return 'La ressource demandée est introuvable.'
   if (status === 409) return businessMessage || 'Cette donnée existe déjà ou ne peut pas être supprimée car elle est utilisée.'
   if (status === 422) return businessMessage || 'Vérifiez les champs saisis puis réessayez.'
-  if (status >= 500) return 'Une erreur est survenue. Veuillez réessayer.'
+  if (status !== undefined && status >= 500) return 'Une erreur est survenue. Veuillez réessayer.'
 
   if (status === 400) return businessMessage || 'Les informations saisies sont invalides. Vérifiez les champs puis réessayez.'
   return fallback

@@ -16,7 +16,9 @@ from app.models.cooperative import GareCooperative
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationStatus
 from app.models.depart import Depart
+from app.services.billet import BilletService
 from app.services.notification import NotificationService
+from app.core.clock import local_today
 
 
 class FinanceService:
@@ -87,14 +89,17 @@ class FinanceService:
         self.db.refresh(item)
         return self._caisse_read(item)
 
-    def close_caisse(self, caisse_id: int, *, montant_cloture: Decimal | None = None, gare_ids: set[int] | None = None) -> dict:
+    def close_caisse(self, caisse_id: int, *, montant_cloture: Decimal | None = None, gare_ids: set[int] | None = None, user_id: int | None = None, is_manager: bool = False) -> dict:
         item = self._get_caisse(caisse_id, gare_ids)
         if item.statut != CaisseStatus.OUVERTE:
             raise HTTPException(409, "Cette caisse est déjà clôturée.")
+        if user_id is not None and not is_manager and item.id_agent != user_id:
+            raise HTTPException(403, "Seul l'agent qui a ouvert la caisse, ou un responsable, peut la clôturer.")
         expected = self._summary(item)["solde"]
-        if montant_cloture is not None and montant_cloture != expected:
-            raise HTTPException(422, f"Le montant de clôture attendu est {expected}.")
-        item.montant_cloture = expected if montant_cloture is None else montant_cloture
+        # The counted cash is recorded as is; any difference is kept as a discrepancy.
+        counted = expected if montant_cloture is None else montant_cloture
+        item.montant_cloture = counted
+        item.ecart_cloture = counted - expected
         item.date_cloture = datetime.now(timezone.utc)
         item.statut = CaisseStatus.CLOTUREE
         self.db.commit()
@@ -118,8 +123,8 @@ class FinanceService:
                     GareCooperative.id_gare == caisse.id_gare,
                     GareCooperative.id_cooperative == id_cooperative,
                     GareCooperative.is_active.is_(True),
-                    (GareCooperative.date_debut.is_(None) | (GareCooperative.date_debut <= date.today())),
-                    (GareCooperative.date_fin.is_(None) | (GareCooperative.date_fin >= date.today())),
+                    (GareCooperative.date_debut.is_(None) | (GareCooperative.date_debut <= local_today())),
+                    (GareCooperative.date_fin.is_(None) | (GareCooperative.date_fin >= local_today())),
                 )
             )
             if linked is None:
@@ -130,10 +135,12 @@ class FinanceService:
         self.db.refresh(item)
         return item
 
-    def list_payments(self, *, page: int = 1, page_size: int = 20, reservation_id: int | None = None, cooperative_ids: set[int] | None = None):
+    def list_payments(self, *, page: int = 1, page_size: int = 20, reservation_id: int | None = None, cooperative_ids: set[int] | None = None, to_refund: bool = False):
         statement = select(Paiement).join(Reservation).join(Depart, Depart.id == Reservation.id_depart)
         if reservation_id:
             statement = statement.where(Paiement.id_reservation == reservation_id)
+        if to_refund:
+            statement = statement.where(Paiement.statut == PaiementStatus.VALIDE, Paiement.remboursement_demande_le.is_not(None))
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
         total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
@@ -156,13 +163,19 @@ class FinanceService:
             raise HTTPException(422, "La caisse ne correspond pas à une gare autorisée pour le départ.")
 
     def create_cash_payment(self, *, reservation_id: int, caisse_id: int, amount: Decimal, reference: str | None, agent_id: int, gare_ids: set[int] | None = None) -> Paiement:
-        reservation = self.db.get(Reservation, reservation_id)
+        # Lock the reservation so two simultaneous payments cannot both pass the checks.
+        reservation = self.db.scalar(select(Reservation).where(Reservation.id == reservation_id).with_for_update())
         if not reservation:
             raise HTTPException(404, "Réservation introuvable.")
         caisse = self._get_caisse(caisse_id, gare_ids)
         if caisse.statut != CaisseStatus.OUVERTE:
             raise HTTPException(422, "La caisse doit être ouverte pour encaisser un paiement.")
         self._ensure_depart_station(caisse, getattr(reservation, "depart", None))
+        if reservation.statut == ReservationStatus.EN_ATTENTE and reservation.date_expiration and reservation.date_expiration <= datetime.now(timezone.utc):
+            # The trigger on reservations releases the seats.
+            reservation.statut = ReservationStatus.EXPIREE
+            self.db.commit()
+            raise HTTPException(409, "Le délai de paiement de cette réservation est dépassé ; les places ont été libérées.")
         if reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
             raise HTTPException(409, "Cette réservation ne peut plus être payée.")
         already_paid = self.db.scalar(select(func.coalesce(func.sum(Paiement.montant), 0)).where(Paiement.id_reservation == reservation_id, Paiement.statut == PaiementStatus.VALIDE)) or Decimal("0")
@@ -171,13 +184,24 @@ class FinanceService:
             raise HTTPException(422, f"Le montant à payer est exactement {remaining} {getattr(reservation.depart.tarif, 'devise', '')}.")
         item = Paiement(id_reservation=reservation_id, montant=amount, methode=PaiementMethode.ESPECES, reference_paiement=reference or f"CASH-{uuid4().hex[:12].upper()}", statut=PaiementStatus.VALIDE, id_agent=agent_id)
         self.db.add(item)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(409, "Cette réservation est déjà payée.")
         reservation.statut = ReservationStatus.PAYEE
+        # A reservation paid without prior confirmation still needs its tickets.
+        BilletService.issue_for_reservation(self.db, reservation)
         self.db.add(OperationCaisse(id_caisse=caisse_id, type_operation=OperationType.RECETTE, montant=amount, id_paiement=item.id, id_cooperative=reservation.depart.id_cooperative, description=f"Paiement {item.reference_paiement}"))
         NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
         self.db.commit()
         self.db.refresh(item)
         return item
+
+    def request_refund(self, payment: Paiement) -> None:
+        """Mark a payment as to be refunded by a cashier (the reservation is cancelled meanwhile)."""
+        if payment.statut == PaiementStatus.VALIDE and payment.remboursement_demande_le is None:
+            payment.remboursement_demande_le = datetime.now(timezone.utc)
 
     def refund(self, payment_id: int, *, caisse_id: int, agent_id: int, gare_ids: set[int] | None = None, commit: bool = True) -> Paiement:
         item = self.db.get(Paiement, payment_id)

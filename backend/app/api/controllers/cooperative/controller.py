@@ -7,7 +7,7 @@ from app.schemas.cooperative import (
     MemberCreate, MemberUpdate, GareCooperativeRead, CooperativeMemberRead,
 )
 from app.schemas.common import PageResponse
-from app.schemas.user import UserRead
+from app.schemas.user import UserRead, UserSummaryRead
 from app.schemas.gare import GareRead
 from app.services.cooperative import CooperativeService
 from app.api.controllers.authentication.dependencies import (
@@ -18,6 +18,12 @@ from app.api.controllers.authentication.dependencies import (
     require_permission,
     require_roles,
 )
+
+def _require_station_manager(user: User) -> None:
+    """Which stations a cooperative operates from is decided by the station, not the cooperative."""
+    if not has_global_cooperative_access(user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seuls l'administrateur et le responsable de gare peuvent rattacher une coopérative à une gare.")
+
 
 router = APIRouter(prefix="/cooperatives", tags=["cooperatives"])
 
@@ -79,7 +85,7 @@ def get_cooperative(
     ensure_cooperative_access(db, current_user, cooperative_id)
     return CooperativeService(db).get_cooperative(cooperative_id)
 
-@router.get("/{cooperative_id}/eligible-chauffeur-users", response_model=list[UserRead])
+@router.get("/{cooperative_id}/eligible-chauffeur-users", response_model=list[UserSummaryRead])
 def list_eligible_chauffeur_users(
     cooperative_id: int,
     current_user: User = Depends(require_permission("CHAUFFEUR_CREATE")),
@@ -88,7 +94,7 @@ def list_eligible_chauffeur_users(
     ensure_cooperative_access(db, current_user, cooperative_id)
     return CooperativeService(db).list_eligible_chauffeur_users(cooperative_id)
 
-@router.get("/{cooperative_id}/eligible-members", response_model=list[UserRead])
+@router.get("/{cooperative_id}/eligible-members", response_model=list[UserSummaryRead])
 def list_eligible_members(
     cooperative_id: int,
     current_user: User = Depends(require_permission("COOPERATIVE_UPDATE")),
@@ -144,7 +150,7 @@ def attach_to_gare(
     current_user: User = Depends(require_permission("COOPERATIVE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    ensure_cooperative_access(db, current_user, cooperative_id)
+    _require_station_manager(current_user)
     return CooperativeService(db).attach_to_gare(
         gare_id, cooperative_id,
         date_debut=data.date_debut if data else None,
@@ -184,7 +190,7 @@ def update_gare_association(
     current_user: User = Depends(require_permission("COOPERATIVE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    ensure_cooperative_access(db, current_user, cooperative_id)
+    _require_station_manager(current_user)
     return CooperativeService(db).update_gare_association(
         cooperative_id,
         gare_id,

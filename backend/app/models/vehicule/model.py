@@ -2,6 +2,7 @@ from datetime import date, datetime
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from app.core.clock import local_today
 
 class Vehicule(Base):
     __tablename__ = "vehicules"
@@ -62,7 +63,7 @@ class VehiculeDocument(Base):
 
     @property
     def is_expired(self) -> bool:
-        return self.date_expiration is not None and self.date_expiration < date.today()
+        return self.date_expiration is not None and self.date_expiration < local_today()
 
 
 class VehiculeChauffeur(Base):

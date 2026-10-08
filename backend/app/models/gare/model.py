@@ -70,3 +70,14 @@ class Emplacement(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
     
     zone = relationship("Zone", back_populates="emplacements")
+
+
+class GareAgent(Base):
+    """Station staff (agents) attached to a station; defines what they may see."""
+    __tablename__ = "gare_agents"
+    __table_args__ = (Index("idx_gare_agents_user", "id_user"),)
+    id_gare: Mapped[int] = mapped_column(ForeignKey("gares.id_gare", ondelete="CASCADE"), primary_key=True)
+    id_user: Mapped[int] = mapped_column(ForeignKey("users.id_user", ondelete="CASCADE"), primary_key=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    gare = relationship("Gare")
+    user = relationship("User")

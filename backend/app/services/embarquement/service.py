@@ -10,6 +10,7 @@ from app.models.embarquement import Embarquement, EmbarquementStatus
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.user import User
+from app.core.clock import local_date
 from app.services.billet import BilletService
 from app.services.notification import NotificationService
 
@@ -18,8 +19,8 @@ class EmbarquementService:
     def __init__(self, db: Session):
         self.db = db
 
-    def control(self, *, code: str, agent: User, date_heure: datetime | None = None) -> Embarquement:
-        moment = date_heure or datetime.now(timezone.utc)
+    def control(self, *, code: str, agent: User, depart_id: int) -> Embarquement:
+        moment = datetime.now(timezone.utc)
         statement = (
             select(Billet)
             .where(Billet.id == Billet.id)
@@ -36,7 +37,7 @@ class EmbarquementService:
         if not billet:
             from fastapi import HTTPException
             raise HTTPException(404, "Billet introuvable.")
-        motif = self._validate(billet, moment)
+        motif = self._validate(billet, moment, depart_id)
         if motif:
             result = Embarquement(id_billet=billet.id, id_agent=agent.id, date_heure_embarquement=moment, statut=EmbarquementStatus.REFUSE, motif_refus=motif)
             self.db.add(result)
@@ -46,7 +47,10 @@ class EmbarquementService:
         billet.statut = BilletStatus.UTILISE
         billet.date_utilisation = moment
         billet.reservation_place.depart_place.statut = DepartPlaceStatus.OCCUPEE
-        billet.reservation_place.reservation.statut = ReservationStatus.EMBARQUEE
+        reservation = billet.reservation_place.reservation
+        # The reservation is boarded once every one of its tickets has been used.
+        if all(place.billet is None or place.billet.statut != BilletStatus.VALIDE for place in reservation.places):
+            reservation.statut = ReservationStatus.EMBARQUEE
         result = Embarquement(id_billet=billet.id, id_agent=agent.id, date_heure_embarquement=moment, statut=EmbarquementStatus.VALIDE)
         self.db.add(result)
         try:
@@ -62,19 +66,22 @@ class EmbarquementService:
         return result
 
     @staticmethod
-    def _validate(billet: Billet | None, moment: datetime) -> str | None:
+    def _validate(billet: Billet | None, moment: datetime, depart_id: int | None = None) -> str | None:
         if not billet:
             return "Billet introuvable."
         place = billet.reservation_place
         reservation = place.reservation if place else None
         depart = reservation.depart if reservation else None
+        if depart_id is not None and (not depart or depart.id != depart_id):
+            return "Ce billet correspond à un autre départ."
         if billet.statut != BilletStatus.VALIDE:
             return "Ce billet est déjà utilisé, annulé ou expiré."
         if not reservation or reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
             return "La réservation associée n'est pas valide."
-        if reservation.statut != ReservationStatus.PAYEE:
+        # EMBARQUEE: another passenger of the same reservation has already boarded.
+        if reservation.statut not in {ReservationStatus.PAYEE, ReservationStatus.EMBARQUEE}:
             return "Le paiement de la réservation doit être validé avant l'embarquement."
-        if not depart or depart.date_depart != moment.date():
+        if not depart or depart.date_depart != local_date(moment):
             return "La date du billet ne correspond pas à la date du contrôle."
         if depart.statut not in {DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE}:
             return "Ce départ n'autorise plus l'embarquement."

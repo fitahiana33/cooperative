@@ -53,7 +53,7 @@ async function loadRolePermissions() {
   if (!selectedRoleId.value) { assignedPermissionIds.value = []; return }
   try {
     const items = await roleService.listRolePermissions(selectedRoleId.value)
-    assignedPermissionIds.value = items.map(item => item.id)
+    assignedPermissionIds.value = items.map((item: { id: number }) => item.id)
   } catch (errorValue: unknown) { showError(errorValue, 'Impossible de charger les permissions du rôle.') }
 }
 async function load() {

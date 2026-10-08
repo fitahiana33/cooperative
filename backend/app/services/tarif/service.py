@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.cooperative import Cooperative
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.tarif import Tarif
+from app.core.clock import local_today
 
 logger = logging.getLogger("cooperative.tarif")
 
@@ -79,7 +80,7 @@ class TarifService:
             raise HTTPException(409, "Un tarif actif existe déjà pour cette portée.")
 
     def create_tarif(self, *, id_itineraire: int, id_cooperative: int | None, prix, devise="MGA", date_debut: date | None = None, date_fin: date | None = None) -> Tarif:
-        start = date_debut or date.today()
+        start = date_debut or local_today()
         if date_fin is not None and date_fin < start:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
         self._validate_references(id_itineraire, id_cooperative, start)
@@ -103,7 +104,7 @@ class TarifService:
             return self.toggle_tarif(tarif_id)
         itinerary_id = current.id_itineraire
         cooperative_id = fields.get("id_cooperative", current.id_cooperative)
-        start = fields.get("date_debut", current.date_debut) or date.today()
+        start = fields.get("date_debut", current.date_debut) or local_today()
         end = fields.get("date_fin", current.date_fin)
         if end is not None and end < start:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
@@ -115,8 +116,12 @@ class TarifService:
             if start < current.date_debut:
                 raise HTTPException(422, "La nouvelle version ne peut pas commencer avant le tarif actuel.")
             self._check_active_conflict(itinerary_id, cooperative_id, exclude_id=current.id)
-            current.is_active = False
+            # Starting later: the current fare stays active until the day before,
+            # and the new version waits until the scheduler activates it.
+            scheduled = start > local_today()
             current.date_fin = max(current.date_debut, start - timedelta(days=1))
+            if not scheduled:
+                current.is_active = False
             self.db.flush()
             version = Tarif(
                 id_itineraire=itinerary_id,
@@ -127,7 +132,8 @@ class TarifService:
                         else current.devise),
                 date_debut=start,
                 date_fin=end,
-                is_active=fields.get("is_active", True),
+                is_active=fields.get("is_active", True) and not scheduled,
+                activation_programmee=scheduled,
             )
             self.db.add(version)
             try:
@@ -156,12 +162,12 @@ class TarifService:
         item = self._get(tarif_id)
         if item.is_active:
             item.is_active = False
-            item.date_fin = max(date.today(), item.date_debut) if item.date_fin is None else item.date_fin
+            item.date_fin = max(local_today(), item.date_debut) if item.date_fin is None else item.date_fin
         else:
             self._validate_references(item.id_itineraire, item.id_cooperative, item.date_debut)
             self._check_active_conflict(item.id_itineraire, item.id_cooperative, exclude_id=item.id)
             item.is_active = True
-            if item.date_fin and item.date_fin < date.today():
+            if item.date_fin and item.date_fin < local_today():
                 item.date_fin = None
         self.db.commit()
         return self._get(item.id)
@@ -171,3 +177,34 @@ class TarifService:
         if cooperative_ids is not None:
             statement = statement.where((Tarif.id_cooperative.is_(None)) | Tarif.id_cooperative.in_(cooperative_ids))
         return list(self.db.scalars(statement.order_by(Tarif.date_debut.desc(), Tarif.id.desc())))
+
+
+def activate_scheduled_tarifs(db: Session) -> int:
+    """Switch to fare versions whose start date has come (run by the scheduler).
+
+    The previous version is closed and departures not yet gone that still
+    use it move to the new price. Reservations keep the amount they paid.
+    """
+    from app.models.depart import Depart, DepartStatus
+
+    today = local_today()
+    due = list(db.scalars(select(Tarif).where(Tarif.activation_programmee.is_(True), Tarif.date_debut <= today)))
+    for version in due:
+        previous = db.scalars(select(Tarif).where(
+            Tarif.id != version.id, Tarif.is_active.is_(True), Tarif.id_itineraire == version.id_itineraire,
+            Tarif.id_cooperative.is_(None) if version.id_cooperative is None else Tarif.id_cooperative == version.id_cooperative,
+        )).all()
+        for old in previous:
+            old.is_active = False
+            old.date_fin = old.date_fin or version.date_debut - timedelta(days=1)
+            db.execute(
+                Depart.__table__.update()
+                .where(Depart.id_tarif == old.id, Depart.date_depart >= version.date_debut,
+                       Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.RETARDE]))
+                .values(id_tarif=version.id)
+            )
+        db.flush()
+        version.is_active = True
+        version.activation_programmee = False
+    db.commit()
+    return len(due)

@@ -49,7 +49,13 @@ Les statistiques distinguent les indicateurs instantanés des tendances : la pag
 
 ## Réinitialisation des données de développement
 
-Le menu `Administration > Réinitialiser les données` est réservé aux administrateurs. Il supprime les données métier et les utilisateurs non administrateurs, remet les séquences PostgreSQL à zéro et conserve les comptes administrateurs, les rôles, les permissions et leurs associations. L'action exige de saisir `RESET` et ne doit jamais être utilisée sur une base de production.
+Le menu `Administration > Réinitialiser les données` est réservé aux administrateurs et fonctionne uniquement quand `ENVIRONMENT` vaut `development` (ou `dev`, `local`, `test`). Il supprime les données métier et les utilisateurs non administrateurs, remet les séquences PostgreSQL à zéro et conserve les comptes administrateurs, les rôles, les permissions et la liste des sessions révoquées. L'action exige de saisir `RESET` et le mot de passe de l'administrateur.
+
+## Sécurité de la configuration
+
+Hors développement, l'API refuse de démarrer si `SECRET_KEY` est trop courte ou garde une valeur d'exemple, si `DEFAULT_ADMIN_PASSWORD` garde sa valeur par défaut, ou si `DEBUG_RETURN_RESET_URL` est activé. Générer une clé avec `python -c "import secrets; print(secrets.token_urlsafe(48))"`. Les fichiers `.env` ne doivent pas être versionnés : `git rm --cached .env backend/.env web/.env`.
+
+Les documents des véhicules et les QR codes des billets ne sont plus servis publiquement : ils passent par `GET /vehicules/documents/{id}/download` et `GET /billets/{id}/qr.png`, qui exigent une authentification.
 
 ## Données de démonstration (seed)
 
@@ -83,3 +89,44 @@ Comptes créés, tous avec le mot de passe `Demo123!` :
 | Responsable de coopérative | `responsable.fte@`, `responsable.mdt@`, `responsable.smr@`, `responsable.zav@cooperative.com` |
 | Chauffeur | `chauffeur01@cooperative.com` à `chauffeur14@cooperative.com` |
 | Passager | `passager01@cooperative.com` à `passager25@cooperative.com` |
+
+## Tâches planifiées
+
+L'API exécute chaque minute une maintenance (`app/jobs/maintenance.py`) :
+
+- les réservations non payées dont le délai est dépassé passent à `EXPIREE` et libèrent leurs places ;
+- les réservations des départs terminés passent à `TERMINEE`, et les billets non utilisés à `EXPIRE` ;
+- les affectations chauffeur–véhicule échues sont clôturées, celles qui commencent sont activées ;
+- les jetons révoqués expirés sont purgés.
+
+Un verrou PostgreSQL garantit qu'un seul processus l'exécute à la fois. Pour la lancer depuis un cron plutôt que depuis l'API : `SCHEDULER_ENABLED=false` sur l'API, puis `python -m app.jobs.maintenance`. L'intervalle se règle avec `MAINTENANCE_INTERVAL_SECONDS`.
+
+## Fuseau horaire
+
+Les dates métier (« aujourd'hui », date d'un départ, contrôle d'embarquement) sont calculées dans le fuseau de la gare, `TIMEZONE=Indian/Antananarivo` par défaut, même si le serveur est en UTC.
+
+## Rôles, permissions et agents de gare
+
+`python -m app.db.seed` crée les rôles, les permissions et le compte administrateur manquants. Il est lancé au démarrage du conteneur, avant l'API. Il ne modifie jamais l'existant : un rôle désactivé ou une permission retirée par un administrateur le reste. Pour changer les droits par défaut d'une base existante, écrire une migration Alembic.
+
+Un agent de gare est rattaché à une gare depuis la page de la gare (section « Agents de la gare »). Il voit alors les départs, réservations, billets et caisses des coopératives qui opèrent dans cette gare. Un agent ne peut être rattaché qu'à une seule gare.
+
+## Tests
+
+Les tests du backend s'exécutent sur une vraie base PostgreSQL (les règles métier reposent sur des triggers). La base `<nom>_test` est recréée à chaque lancement, à partir de `DATABASE_URL` ou de `TEST_DATABASE_URL`.
+
+```powershell
+docker compose exec backend pip install -r requirements-dev.txt
+docker compose exec backend python -m pytest
+```
+
+La vérification des types du web : `docker compose exec web npm run typecheck`. L'intégration continue (`.github/workflows/ci.yml`) lance les tests du backend, la vérification des types et le build du web, et `flutter analyze` sur chaque pull request.
+
+## Règles de réservation, d'annulation et de caisse
+
+- **Réservation par un passager :** les places sont retenues `RESERVATION_HOLD_MINUTES` (30 par défaut). La réservation est confirmée et les billets sont émis au paiement au guichet. Un passager a au plus `PASSENGER_MAX_PENDING_RESERVATIONS` réservations en attente et `PASSENGER_MAX_SEATS_PER_RESERVATION` places par réservation.
+- **Vente au guichet :** l'agent ou le responsable de gare réserve, confirme et peut encaisser en une seule opération (`POST /reservations/guichet`). En cas d'échec, la réservation est annulée et les places sont libérées.
+- **Annulation :** possible jusqu'au départ. Une réservation payée ne peut plus être annulée par le passager moins de `CANCELLATION_DEADLINE_MINUTES` (120) avant le départ. Si la personne qui annule ne peut pas sortir d'argent d'une caisse, le remboursement reste « à effectuer » et apparaît dans `Paiements & caisse` pour un caissier.
+- **Clôture de caisse :** le montant compté est saisi ; l'écart avec le solde attendu est enregistré. Seul l'agent qui a ouvert la caisse, ou un responsable, peut la clôturer.
+- **Embarquement :** l'agent choisit le départ en cours ; un billet d'un autre départ est refusé. La liste des passagers embarqués et non embarqués s'affiche à l'écran.
+- **Changement de mot de passe :** toutes les sessions ouvertes avant le changement sont fermées. Un mot de passe contient au moins 8 caractères, dont des lettres et des chiffres.

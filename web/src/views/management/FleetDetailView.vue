@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, ref, watch } from 'vue'
+import { localIsoDate } from '../../utils/date'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
@@ -19,10 +20,10 @@ import { userError } from '../../utils/errors'
 type FleetSection = 'vehicules' | 'chauffeurs' | 'marques' | 'modeles'
 const route = useRoute()
 const auth = useAuthenticationStore()
-const section = computed<FleetSection>(() => ({
+const section = computed<FleetSection>(() => (({
   'vehicule-detail': 'vehicules', 'chauffeur-detail': 'chauffeurs',
   'marque-detail': 'marques', 'modele-detail': 'modeles',
-}[String(route.name || 'vehicule-detail')] || 'vehicules'))
+} as Record<string, FleetSection>)[String(route.name || 'vehicule-detail')] || 'vehicules'))
 const id = computed(() => Number(route.params.id))
 const listPath = computed(() => `/${section.value}`)
 const editPath = computed(() => `/${section.value}/${id.value}/edit`)
@@ -49,7 +50,7 @@ const documentFile = ref<File | null>(null)
 const assignments = ref<Array<{ id_vehicule: number; id_chauffeur: number; date_debut: string; date_fin?: string; is_active: boolean }>>([])
 const assignmentVehicles = ref<Vehicule[]>([])
 const assignmentVehicleCatalog = ref<Vehicule[]>([])
-const assignmentForm = ref({ id_vehicule: 0, date_debut: new Date().toISOString().slice(0, 10), date_fin: '' })
+const assignmentForm = ref({ id_vehicule: 0, date_debut: localIsoDate(), date_fin: '' })
 const assignmentSubmitting = ref(false)
 const canManageAssignment = computed(() => auth.hasPermission('CHAUFFEUR_UPDATE'))
 const hasActiveAssignment = computed(() => assignments.value.some(item => item.is_active))
@@ -176,7 +177,7 @@ async function closeAssignment(assignment: { id_vehicule: number; date_debut: st
   assignmentSubmitting.value = true; error.value = ''
   try {
     await chauffeurService.closeAssignment(chauffeur.value.id, assignment.id_vehicule, assignment.date_debut)
-    assignments.value = assignments.value.map(item => item.id_vehicule === assignment.id_vehicule && item.date_debut === assignment.date_debut ? { ...item, is_active: false, date_fin: new Date().toISOString().slice(0, 10) } : item)
+    assignments.value = assignments.value.map(item => item.id_vehicule === assignment.id_vehicule && item.date_debut === assignment.date_debut ? { ...item, is_active: false, date_fin: localIsoDate() } : item)
     await loadAvailableAssignmentVehicles()
     success.value = 'Affectation clôturée avec succès.'
   } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de clôturer l’affectation.', 'ASSIGNMENT_CLOSE_ERROR') }
@@ -198,6 +199,7 @@ onMounted(load)
     <p v-if="loading" class="status-msg">Chargement des détails en cours…</p>
     <p v-else-if="error && !vehicule" class="error-banner">{{ error }}</p>
     <p v-if="success" class="success-banner">{{ success }}</p><p v-if="error && vehicule" class="error-banner">{{ error }}</p>
+    <p v-if="route.query.upload_error && vehicule" class="error-banner" role="alert">Le véhicule a été créé, mais au moins un document n’a pas pu être téléversé. Ajoutez-le ci-dessous.</p>
 
     <template v-if="section === 'vehicules' && vehicule">
       <BaseCard><div class="card-heading"><div><h2>{{ vehicule.immatriculation }}</h2><p><span :class="['status-badge', vehicule.is_active ? 'active' : 'inactive']">{{ vehicule.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Modèle</span><strong>{{ modele?.nom || '—' }}</strong></div><div class="detail-item"><span class="detail-label">Marque</span><strong>{{ displayBrand(modele?.id_marque) }}</strong></div><div class="detail-item"><span class="detail-label">Propriétaire</span><strong>{{ displayCooperative(vehicule.id_cooperative) }}</strong></div><div class="detail-item"><span class="detail-label">Nombre de places</span><strong>{{ vehicule.nombre_places }}</strong></div><div class="detail-item"><span class="detail-label">Puissance</span><strong>{{ vehicule.chevaux ? `${vehicule.chevaux} CV` : '—' }}</strong></div><div class="detail-item"><span class="detail-label">Disponibilité</span><strong>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</strong></div><div class="detail-item"><span class="detail-label">État</span><strong>{{ vehicule.etat }}</strong></div><div class="detail-item"><span class="detail-label">Créé le</span><strong>{{ formatDate(vehicule.created_at) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ vehicule.description || 'Aucune description.' }}</strong></div></div></BaseCard>

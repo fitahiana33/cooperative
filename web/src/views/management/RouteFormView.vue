@@ -7,6 +7,7 @@ import { destinationService } from '../../services/destination/service'
 import { itineraireService } from '../../services/itineraire/service'
 import { tarifService } from '../../services/tarif/service'
 import { cooperativeService } from '../../services/cooperative/service'
+import type { Tarif } from '../../models/tarif/model'
 import { userError } from '../../utils/errors'
 
 const route = useRoute(); const router = useRouter(); const id = route.params.id ? Number(route.params.id) : null
@@ -28,13 +29,13 @@ async function loadRefs() {
   if (results[1].status === 'fulfilled') itineraries.value = results[1].value.items
   if (results[2].status === 'fulfilled') cooperatives.value = results[2].value.items
 }
-onMounted(async () => { await loadRefs(); if (!id) { loading.value = false; return }; try { const value = section.value === 'destinations' ? await destinationService.get(id) : section.value === 'itineraires' ? await itineraireService.get(id) : await tarifService.get(id); if (section.value === 'destinations') Object.assign(destination, value); else if (section.value === 'itineraires') Object.assign(itinerary, value); else Object.assign(fare, { ...value, date_debut: value.date_debut || '', date_fin: value.date_fin || '' }) } catch (value: unknown) { showError(value, 'Impossible de charger cet element.') } finally { loading.value = false } })
+onMounted(async () => { await loadRefs(); if (!id) { loading.value = false; return }; try { const value = section.value === 'destinations' ? await destinationService.get(id) : section.value === 'itineraires' ? await itineraireService.get(id) : await tarifService.get(id); if (section.value === 'destinations') Object.assign(destination, value); else if (section.value === 'itineraires') Object.assign(itinerary, value); else { const tarif = value as Tarif; Object.assign(fare, { ...tarif, date_debut: tarif.date_debut || '', date_fin: tarif.date_fin || '' }) } } catch (value: unknown) { showError(value, 'Impossible de charger cet element.') } finally { loading.value = false } })
 async function submit() {
   if (submitting.value) return; submitting.value = true; error.value = ''
   try {
     if (section.value === 'destinations') editing.value ? await destinationService.update(id!, destination) : await destinationService.create(destination)
     if (section.value === 'itineraires') editing.value ? await itineraireService.update(id!, itinerary) : await itineraireService.create(itinerary)
-    if (section.value === 'tarifs') { const data = { ...fare, date_debut: fare.date_debut || undefined, date_fin: fare.date_fin || null }; editing.value ? await tarifService.update(id!, data) : await tarifService.create(data) }
+    if (section.value === 'tarifs') { const prix = fare.prix; if (prix === null || prix <= 0) { error.value = 'Saisissez un prix supérieur à zéro.'; return } const data = { ...fare, prix, date_debut: fare.date_debut || undefined, date_fin: fare.date_fin || null }; editing.value ? await tarifService.update(id!, data) : await tarifService.create(data) }
     await router.push({ path: backPath.value, query: { success: `${section.value.slice(0, -1)} enregistre avec succes.` } })
   } catch (value: unknown) { showError(value, 'Enregistrement impossible.') } finally { submitting.value = false }
 }

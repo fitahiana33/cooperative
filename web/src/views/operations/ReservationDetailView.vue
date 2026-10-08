@@ -43,14 +43,15 @@ async function load() {
 async function change(action: 'confirm' | 'cancel') {
   if (!item.value || busy.value) return
   if (action === 'cancel') {
-    if (item.value.statut === 'PAYEE' && !canProcessRefund()) { error.value = 'Cette réservation est payée. Demandez son annulation et son remboursement à un agent de caisse.'; return }
-    if (item.value.statut === 'PAYEE' && !cancelCaisseId.value) { error.value = 'Sélectionnez une caisse ouverte pour enregistrer le remboursement.'; return }
-    if (!window.confirm(`Annuler la réservation ${item.value.numero_reservation} ? Cette action libérera les places.`)) return
+    const refundNow = item.value.statut === 'PAYEE' && canProcessRefund() && Boolean(cancelCaisseId.value)
+    const refundNote = item.value.statut !== 'PAYEE' ? '' : refundNow ? ' Le montant sera remboursé depuis la caisse sélectionnée.' : ' Le remboursement sera à effectuer par un agent de caisse.'
+    if (!window.confirm(`Annuler la réservation ${item.value.numero_reservation} ? Les places seront libérées.${refundNote}`)) return
   }
   busy.value = true; error.value = ''
   try {
     item.value = action === 'confirm' ? await reservationService.confirm(item.value.id) : await reservationService.cancel(item.value.id, cancelCaisseId.value || undefined)
-    success.value = action === 'confirm' ? 'Réservation confirmée et billets générés.' : 'Réservation annulée.'
+    const pendingRefund = action === 'cancel' && !cancelCaisseId.value && item.value.statut === 'ANNULEE'
+    success.value = action === 'confirm' ? 'Réservation confirmée et billets générés.' : pendingRefund ? 'Réservation annulée. Le remboursement est en attente au guichet.' : 'Réservation annulée.'
   } catch (value: unknown) { showError(value, 'Opération impossible.') } finally { busy.value = false }
 }
 onMounted(load)
@@ -67,7 +68,7 @@ onMounted(load)
       <h3 class="section-title">Places et billets</h3><div class="table-scroll"><table class="data-table"><thead><tr><th>Place</th><th>Passager</th><th>Téléphone</th><th>Billet</th><th>Statut</th></tr></thead><tbody><tr v-for="place in item.places" :key="place.id"><td>{{ place.depart_place?.numero_place || place.id_depart_place }}</td><td>{{ place.nom_passager }}</td><td>{{ place.telephone_passager || '—' }}</td><td>{{ place.billet?.numero_billet || 'Billet non généré' }}</td><td>{{ place.billet?.statut || item.statut }}</td></tr></tbody></table></div>
       <div v-if="item.statut === 'PAYEE' && canProcessRefund()" class="form-grid cancellation-cash"><label class="form-field"><span>Caisse de remboursement *</span><select v-model="cancelCaisseId"><option :value="null">Choisir une caisse ouverte</option><option v-for="caisse in caisses" :key="caisse.id" :value="caisse.id">Gare #{{ caisse.id_gare }} · solde {{ caisse.solde }}</option></select></label></div>
       <p v-if="item.statut === 'PAYEE' && !canProcessRefund()" class="status-msg">Le remboursement doit être traité par un agent habilité à utiliser une caisse.</p>
-      <div class="form-actions"><RouterLink class="secondary-button compact-button" :to="`/reservations/${item.id}/edit`">Modifier</RouterLink><button v-if="canUpdate() && item.statut === 'EN_ATTENTE'" class="primary-button" :disabled="busy" @click="change('confirm')">Confirmer</button><button v-if="canCancel() && !['ANNULEE', 'TERMINEE', 'EMBARQUEE'].includes(item.statut) && !(item.statut === 'PAYEE' && !canProcessRefund())" class="secondary-button danger-action" :disabled="busy || (item.statut === 'PAYEE' && !cancelCaisseId)" @click="change('cancel')">Annuler</button></div>
+      <div class="form-actions"><button v-if="canUpdate() && item.statut === 'EN_ATTENTE'" class="primary-button" :disabled="busy" @click="change('confirm')">Confirmer</button><button v-if="canCancel() && !['ANNULEE', 'TERMINEE', 'EMBARQUEE'].includes(item.statut) && true" class="secondary-button danger-action" :disabled="busy" @click="change('cancel')">Annuler</button></div>
     </BaseCard></template>
   </AppLayout>
 </template>

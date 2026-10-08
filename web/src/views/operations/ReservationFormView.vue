@@ -1,14 +1,20 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { localIsoDate } from '../../utils/date'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import { departService } from '../../services/depart/service'
 import { reservationService } from '../../services/reservation/service'
+import { financeService } from '../../services/finance/service'
+import { gareService } from '../../services/gare/service'
+import type { Caisse } from '../../models/finance/model'
 import type { Depart } from '../../models/depart/model'
 import type { DepartPlace, Reservation, ReservationStatus } from '../../models/reservation/model'
+import { useAuthenticationStore } from '../../stores/authentication/store'
 import { userError } from '../../utils/errors'
 
+const auth = useAuthenticationStore()
 const route = useRoute()
 const router = useRouter()
 const isEdit = computed(() => route.name === 'reservation-edit')
@@ -27,8 +33,31 @@ const submitting = ref(false)
 const busy = ref(false)
 const error = ref('')
 const success = ref('')
-const today = new Date().toISOString().slice(0, 10)
+const today = localIsoDate()
 const reservation = ref<Reservation | null>(null)
+// Staff sell at the counter (booked and confirmed at once); passengers get a booking to pay within the hold period.
+const isCounterSale = computed(() => auth.hasPermission('RESERVATION_UPDATE'))
+const canCollectCash = computed(() => isCounterSale.value && auth.hasPermission('PAIEMENT_PROCESS'))
+const openCaisses = ref<Caisse[]>([])
+const caisseId = ref<number | null>(null)
+const gareNames = ref<Record<number, string>>({})
+
+function departLabel(item: Depart) {
+  const from = item.itineraire?.destination_depart?.nom || '?'
+  const to = item.itineraire?.destination_arrivee?.nom || '?'
+  const cooperative = item.cooperative?.nom || `Coopérative #${item.id_cooperative}`
+  return `${item.date_depart} ${item.heure_depart.slice(0, 5)} · ${from} → ${to} · ${cooperative} · ${item.places_disponibles} place(s) libre(s)`
+}
+
+async function loadOpenCaisses() {
+  if (!canCollectCash.value) return
+  try {
+    const result = await financeService.caisses({ page: 1, page_size: 100 })
+    openCaisses.value = (result.items || []).filter((item: Caisse) => item.statut === 'OUVERTE')
+    const gares = await gareService.listGares({ page: 1, page_size: 100 })
+    gareNames.value = Object.fromEntries((gares.items || []).map((gare: { id: number; nom: string }) => [gare.id, gare.nom]))
+  } catch { /* names are a convenience: keep the numbers if stations cannot be listed */ }
+}
 
 const selectedDepart = computed(() => departures.value.find((item) => item.id === departId.value))
 const selectedPlaces = computed(() => places.value.filter((place) => selected.value.includes(place.id)).sort((a, b) => a.numero_place - b.numero_place))
@@ -110,10 +139,13 @@ async function submit() {
   if (!departId.value || !selected.value.length || missingPassenger) { error.value = 'Sélectionnez un départ, puis renseignez le nom de chaque passager sélectionné.'; return }
   submitting.value = true
   try {
-    const created = await reservationService.create({ id_depart: departId.value, places: selectedPlaces.value.map((place) => ({ id_depart_place: place.id, nom_passager: passengerFor(place.id).nom.trim(), telephone_passager: passengerFor(place.id).telephone.trim() || undefined })) })
-    await reservationService.confirm(created.id)
+    const payload = { id_depart: departId.value, places: selectedPlaces.value.map((place) => ({ id_depart_place: place.id, nom_passager: passengerFor(place.id).nom.trim(), telephone_passager: passengerFor(place.id).telephone.trim() || undefined })) }
+    // One request for the counter: if any step fails the server cancels the booking, so no seat stays blocked.
+    const created = isCounterSale.value
+      ? await reservationService.counterSale({ ...payload, id_caisse: caisseId.value })
+      : await reservationService.create(payload)
     await router.push({ name: 'reservation-detail', params: { id: created.id }, query: { created: '1' } })
-  } catch (value: unknown) { showError(value, 'La réservation n’a pas pu être confirmée.') } finally { submitting.value = false }
+  } catch (value: unknown) { showError(value, 'La réservation n’a pas pu être enregistrée.'); if (departId.value) await chooseDepart() } finally { submitting.value = false }
 }
 
 async function change(action: 'confirm' | 'cancel') {
@@ -135,7 +167,7 @@ async function load() {
   }
 }
 
-onMounted(load)
+onMounted(() => { load(); loadOpenCaisses() })
 </script>
 
 <template>
@@ -197,12 +229,12 @@ onMounted(load)
           <label class="form-field"><span>Départ *</span>
             <select v-model="departId" :disabled="loading || submitting" @change="chooseDepart">
               <option :value="null">Choisir un départ</option>
-              <option v-for="item in departures" :key="item.id" :value="item.id">{{ item.date_depart }} {{ item.heure_depart.slice(0, 5) }} — #{{ item.id }} — {{ item.nombre_places }} place(s), {{ item.places_disponibles }} disponible(s)</option>
+              <option v-for="item in departures" :key="item.id" :value="item.id">{{ departLabel(item) }}</option>
             </select>
           </label>
         </div>
         <div v-if="selectedDepart" class="detail-grid">
-          <div class="detail-item"><span class="detail-label">Coopérative</span><strong>#{{ selectedDepart.id_cooperative }}</strong></div>
+          <div class="detail-item"><span class="detail-label">Coopérative</span><strong>{{ selectedDepart.cooperative?.nom || '#' + selectedDepart.id_cooperative }}</strong></div>
           <div class="detail-item"><span class="detail-label">Capacité du véhicule</span><strong>{{ selectedDepart.nombre_places }} places</strong></div>
           <div class="detail-item"><span class="detail-label">Disponibles</span><strong>{{ selectedDepart.places_disponibles }} places</strong></div>
           <div class="detail-item"><span class="detail-label">Tarif</span><strong>{{ selectedDepart.tarif?.prix || '—' }} {{ selectedDepart.tarif?.devise || '' }}</strong></div>
@@ -271,7 +303,15 @@ onMounted(load)
           </div>
         </div>
         <div class="form-actions">
-          <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Confirmation…' : 'Confirmer la réservation' }}</button>
+          <label v-if="canCollectCash" class="form-field cash-choice">
+            <span>Encaissement</span>
+            <select v-model="caisseId" :disabled="submitting">
+              <option :value="null">Encaisser plus tard</option>
+              <option v-for="item in openCaisses" :key="item.id" :value="item.id">Encaisser maintenant en espèces · {{ gareNames[item.id_gare] || 'caisse de la gare #' + item.id_gare }}</option>
+            </select>
+          </label>
+          <p v-if="!isCounterSale" class="seat-help">Vos places sont retenues pour une durée limitée : payez au guichet de la gare avant l’heure d’expiration indiquée pour recevoir vos billets.</p>
+          <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Enregistrement…' : isCounterSale ? (caisseId ? 'Vendre et encaisser' : 'Confirmer la réservation') : 'Réserver' }}</button>
           <RouterLink class="secondary-button" to="/reservations">Annuler</RouterLink>
         </div>
       </BaseCard>

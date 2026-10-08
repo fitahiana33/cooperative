@@ -173,12 +173,13 @@ class RoleService:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
         role = self.get_role(role_id)
         if role in user.roles:
-            if self._is_admin(role) and sum(
-                1
-                for assigned_role in user.roles
-                if assigned_role.is_active and self._is_admin(assigned_role)
-            ) <= 1:
-                raise HTTPException(status_code=409, detail="Le dernier rôle administrateur d'un utilisateur ne peut pas être retiré.")
+            if self._is_admin(role) and user.is_active:
+                other_admins = self.db.scalar(
+                    select(func.count(func.distinct(User.id))).select_from(User).join(User.roles)
+                    .where(User.id != user.id, User.is_active.is_(True), Role.is_active.is_(True), func.lower(Role.libelle) == UserRole.ADMIN)
+                ) or 0
+                if other_admins == 0:
+                    raise HTTPException(status_code=409, detail="Le dernier administrateur actif ne peut pas perdre son rôle.")
             user.roles.remove(role)
             self.db.commit()
             self.db.refresh(user)

@@ -53,7 +53,7 @@ export interface DashboardStatistics {
   date_to: string
   departs: DailyDepartureStatistic[]
   reservations: DailyReservationStatistic[]
-  destinations: Array<{ id_itineraire: number; reservations: number }>
+  destinations: Array<{ id_itineraire: number; libelle?: string; reservations: number }>
   comparison: {
     previous_from: string
     previous_to: string

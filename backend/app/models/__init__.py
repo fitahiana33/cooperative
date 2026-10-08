@@ -1,7 +1,7 @@
 from app.models.user import User
 from app.models.role import Role
 from app.models.permission import Permission
-from app.models.gare import Gare, Quai, Zone, Emplacement
+from app.models.gare import Gare, GareAgent, Quai, Zone, Emplacement
 from app.models.cooperative import Cooperative, GareCooperative, CooperativeMember
 from app.models.marque import Marque
 from app.models.modele import Modele
@@ -24,6 +24,7 @@ __all__ = [
     "Role",
     "Permission",
     "Gare",
+    "GareAgent",
     "Quai",
     "Zone",
     "Emplacement",

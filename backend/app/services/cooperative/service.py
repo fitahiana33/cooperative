@@ -10,6 +10,7 @@ from app.core.roles import normalize_role
 from app.core.pagination import paginate
 from app.models import Chauffeur, Cooperative, CooperativeMember, Gare, GareCooperative, Role, User
 from app.models.user import UserRole
+from app.core.clock import local_today
 
 logger = logging.getLogger("cooperative.cooperative")
 
@@ -113,7 +114,7 @@ class CooperativeService:
         cooperative = self.get_cooperative(cooperative_id)
         if not cooperative.is_active:
             raise HTTPException(422, "La coopérative sélectionnée est inactive.")
-        today = date.today()
+        today = local_today()
         member_exists = exists(select(CooperativeMember.id_user).where(
             CooperativeMember.id_cooperative == cooperative_id,
             CooperativeMember.id_user == User.id,
@@ -214,13 +215,13 @@ class CooperativeService:
             member.is_active = True
             member.fonction = "RESPONSABLE"
             if member.date_adhesion is None:
-                member.date_adhesion = date.today()
+                member.date_adhesion = local_today()
             return
         self.db.add(CooperativeMember(
             id_cooperative=cooperative_id,
             id_user=user_id,
             fonction="RESPONSABLE",
-            date_adhesion=date.today(),
+            date_adhesion=local_today(),
             is_active=True,
         ))
 

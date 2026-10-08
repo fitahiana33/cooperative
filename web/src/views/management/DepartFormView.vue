@@ -1,5 +1,6 @@
 <script setup lang="ts">
 import { computed, onMounted, reactive, ref } from 'vue'
+import { localIsoDate } from '../../utils/date'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
@@ -25,7 +26,7 @@ const form = reactive({
   id_vehicule: 0,
   id_chauffeur: 0,
   id_tarif: 0,
-  date_depart: new Date().toISOString().slice(0, 10),
+  date_depart: localIsoDate(),
   heure_depart: '08:00',
   nombre_places: null as number | null,
 })
@@ -38,7 +39,7 @@ const tarifs = ref<any[]>([])
 const backPath = '/departs'
 
 function coversDate(start: string | null | undefined, end: string | null | undefined) {
-  return Boolean(start) && start <= form.date_depart && (!end || end >= form.date_depart)
+  return !!start && start <= form.date_depart && (!end || end >= form.date_depart)
 }
 
 const selectedItinerary = computed(() => itineraires.value.find((item) => item.id === form.id_itineraire))
@@ -53,8 +54,10 @@ const filteredChauffeurs = computed(() => chauffeurs.value.filter((item) => (
   (!form.id_cooperative || item.id_cooperative === form.id_cooperative)
   && item.date_expiration_permis >= form.date_depart
 )))
-const filteredTarifs = computed(() => tarifs.value.filter((item) => (
-  item.is_active
+// Active fares, fare versions scheduled to start by the departure date, and
+// the fare already used by the departure being edited.
+const filteredTarifs = computed(() => tarifs.value.filter((item) => item.id === form.id_tarif || (
+  (item.is_active || item.activation_programmee)
   && item.id_itineraire === form.id_itineraire
   && (item.id_cooperative == null || item.id_cooperative === form.id_cooperative)
   && coversDate(item.date_debut, item.date_fin)
@@ -75,9 +78,19 @@ async function loadReferences() {
 
   if (results[0].status === 'fulfilled') itineraires.value = results[0].value.items.filter((item: any) => item.is_active)
   if (results[1].status === 'fulfilled') cooperatives.value = results[1].value.items.filter((item: any) => item.is_active)
-  if (results[2].status === 'fulfilled') vehicules.value = results[2].value.items.filter((item: any) => item.is_active && item.disponibilite)
-  if (results[3].status === 'fulfilled') chauffeurs.value = results[3].value.items.filter((item: any) => item.is_active && item.disponibilite)
+  if (results[2].status === 'fulfilled') allVehicules = results[2].value.items
+  if (results[3].status === 'fulfilled') allChauffeurs = results[3].value.items
   if (results[4].status === 'fulfilled') tarifs.value = results[4].value.items
+  filterAvailable()
+}
+
+// Unavailable vehicles and drivers are not offered, except the ones already
+// assigned to the departure being edited (otherwise it could not be saved).
+let allVehicules: any[] = []
+let allChauffeurs: any[] = []
+function filterAvailable() {
+  vehicules.value = allVehicules.filter((item: any) => (item.is_active && item.disponibilite) || item.id === form.id_vehicule)
+  chauffeurs.value = allChauffeurs.filter((item: any) => (item.is_active && item.disponibilite) || item.id === form.id_chauffeur)
 }
 
 onMounted(async () => {
@@ -90,6 +103,7 @@ onMounted(async () => {
   try {
     Object.assign(form, await departService.get(id))
     form.heure_depart = form.heure_depart.slice(0, 5)
+    filterAvailable()
   } catch (value: unknown) {
     error.value = userError(value, 'Impossible de charger ce départ.', 'DEPART_FORM_LOAD_ERROR')
   } finally {

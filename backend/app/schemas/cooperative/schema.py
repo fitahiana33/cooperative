@@ -1,6 +1,6 @@
 from datetime import date, datetime
 
-from pydantic import BaseModel, ConfigDict, model_validator
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class CooperativeUserRead(BaseModel):
@@ -23,24 +23,24 @@ class CooperativeGareRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 class CooperativeCreate(BaseModel):
-    nom: str
-    sigle: str | None = None
-    numero_agrement: str | None = None
-    adresse: str | None = None
-    ville: str | None = None
-    telephone: str | None = None
-    email: str | None = None
+    nom: str = Field(min_length=1, max_length=150)
+    sigle: str | None = Field(default=None, max_length=50)
+    numero_agrement: str | None = Field(default=None, max_length=100)
+    adresse: str | None = Field(default=None, max_length=255)
+    ville: str | None = Field(default=None, max_length=100)
+    telephone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=150)
     description: str | None = None
     responsable_id: int | None = None
 
 class CooperativeUpdate(BaseModel):
-    nom: str | None = None
-    sigle: str | None = None
-    numero_agrement: str | None = None
-    adresse: str | None = None
-    ville: str | None = None
-    telephone: str | None = None
-    email: str | None = None
+    nom: str | None = Field(default=None, max_length=150)
+    sigle: str | None = Field(default=None, max_length=50)
+    numero_agrement: str | None = Field(default=None, max_length=100)
+    adresse: str | None = Field(default=None, max_length=255)
+    ville: str | None = Field(default=None, max_length=100)
+    telephone: str | None = Field(default=None, max_length=30)
+    email: str | None = Field(default=None, max_length=150)
     description: str | None = None
     responsable_id: int | None = None
     is_active: bool | None = None

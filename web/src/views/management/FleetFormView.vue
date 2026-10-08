@@ -29,12 +29,12 @@ type DocumentDraft = {
 
 const route = useRoute()
 const router = useRouter()
-const section = computed<FleetSection>(() => ({
+const section = computed<FleetSection>(() => (({
   'vehicule-create': 'vehicules', 'vehicule-edit': 'vehicules',
   'chauffeur-create': 'chauffeurs', 'chauffeur-edit': 'chauffeurs',
   'marque-create': 'marques', 'marque-edit': 'marques',
   'modele-create': 'modeles', 'modele-edit': 'modeles',
-}[String(route.name || 'vehicule-create')] || 'vehicules'))
+} as Record<string, FleetSection>)[String(route.name || 'vehicule-create')] || 'vehicules'))
 const id = computed(() => route.params.id ? Number(route.params.id) : null)
 const editing = computed(() => Boolean(id.value))
 const title = computed(() => `${editing.value ? 'Modifier' : 'Ajouter'} ${{
@@ -136,8 +136,16 @@ async function submitVehicule() {
   if (!validateDocumentDrafts()) throw new Error(error.value)
   const payload = { id_modele: vehiculeForm.id_modele, id_cooperative: vehiculeForm.id_cooperative, immatriculation: vehiculeForm.immatriculation, chevaux: vehiculeForm.chevaux || undefined, nombre_places: vehiculeForm.nombre_places, disponibilite: vehiculeForm.disponibilite, etat: vehiculeForm.etat, description: vehiculeForm.description || undefined, ...(editing.value ? { is_active: vehiculeForm.is_active } : {}) }
   const saved = id.value ? await vehiculeService.updateVehicule(id.value, payload) : await vehiculeService.createVehicule(payload)
-  await uploadDrafts(saved)
+  try {
+    await uploadDrafts(saved)
+  } catch (uploadError: unknown) {
+    if (id.value) throw uploadError
+    // The vehicle exists now: continue on its page instead of creating it twice.
+    await router.replace({ path: `/vehicules/${saved.id}`, query: { upload_error: '1' } })
+    throw new VehicleCreatedError()
+  }
 }
+class VehicleCreatedError extends Error {}
 async function submitChauffeur() {
   const payload = { id_user: chauffeurForm.id_user, id_cooperative: chauffeurForm.id_cooperative, numero_permis: chauffeurForm.numero_permis, categorie_permis: chauffeurForm.categorie_permis, date_expiration_permis: chauffeurForm.date_expiration_permis, disponibilite: chauffeurForm.disponibilite, ...(editing.value ? { is_active: chauffeurForm.is_active } : {}) }
   if (id.value) await chauffeurService.updateChauffeur(id.value, payload); else await chauffeurService.createChauffeur(payload)
@@ -165,7 +173,10 @@ async function submit() {
     else if (section.value === 'marques') await submitMarque()
     else await submitModele()
     await router.push({ path: listPath.value, query: { success: editing.value ? 'Element modifie avec succes.' : 'Element cree avec succes.' } })
-  } catch (errorValue: unknown) { showError(errorValue, errorValue instanceof Error ? errorValue.message : 'Enregistrement impossible.') }
+  } catch (errorValue: unknown) {
+    if (errorValue instanceof VehicleCreatedError) return
+    showError(errorValue, errorValue instanceof Error ? errorValue.message : 'Enregistrement impossible.')
+  }
   finally { submitting.value = false }
 }
 onMounted(async () => {

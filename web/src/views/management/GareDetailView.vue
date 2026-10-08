@@ -6,7 +6,7 @@ import BaseCard from "../../components/ui/BaseCard.vue";
 import { gareService } from "../../services/gare/service";
 import { useAuthenticationStore } from "../../stores/authentication/store";
 import { userError } from "../../utils/errors";
-import type { Emplacement, Gare, Quai, Zone } from "../../models/gare/model";
+import type { Emplacement, Gare, GareAgent, Quai, Zone } from "../../models/gare/model";
 
 const route = useRoute();
 const auth = useAuthenticationStore();
@@ -18,6 +18,49 @@ const success = ref("");
 const busyAction = ref<string | null>(null);
 const canEdit = computed(() => auth.hasPermission("GARE_UPDATE"));
 const quaiForm = reactive({ numero: "", nom: "", description: "" });
+// Station agents: they see the departures, reservations and cash desk of this station.
+const agents = ref<GareAgent[]>([]);
+const eligibleAgents = ref<GareAgent[]>([]);
+const selectedAgentId = ref<number | null>(null);
+function agentName(agent: GareAgent) {
+  return [agent.first_name, agent.name].filter(Boolean).join(" ");
+}
+async function loadAgents() {
+  if (!gare.value) return;
+  agents.value = await gareService.listAgents(gare.value.id);
+  eligibleAgents.value = canEdit.value ? await gareService.listEligibleAgents(gare.value.id) : [];
+}
+async function addAgent() {
+  if (!gare.value || !selectedAgentId.value || busyAction.value) return;
+  busyAction.value = "agent-add";
+  clearFeedback();
+  try {
+    agents.value = await gareService.addAgent(gare.value.id, selectedAgentId.value);
+    eligibleAgents.value = eligibleAgents.value.filter((agent) => agent.id !== selectedAgentId.value);
+    selectedAgentId.value = null;
+    success.value = "Agent rattaché à la gare.";
+  } catch (errorValue: unknown) {
+    showError(errorValue, "Impossible de rattacher cet agent.");
+  } finally {
+    busyAction.value = null;
+  }
+}
+async function removeAgent(agent: GareAgent) {
+  if (!gare.value || busyAction.value) return;
+  if (!window.confirm(`Retirer ${agentName(agent)} de cette gare ?`)) return;
+  busyAction.value = `agent-remove-${agent.id}`;
+  clearFeedback();
+  try {
+    await gareService.removeAgent(gare.value.id, agent.id);
+    agents.value = agents.value.filter((item) => item.id !== agent.id);
+    eligibleAgents.value = [...eligibleAgents.value, agent];
+    success.value = "Agent retiré de la gare.";
+  } catch (errorValue: unknown) {
+    showError(errorValue, "Impossible de retirer cet agent.");
+  } finally {
+    busyAction.value = null;
+  }
+}
 const zoneForm = reactive({ nom: "", type_zone: "", description: "" });
 const emplacementForms = reactive<
   Record<
@@ -29,7 +72,7 @@ const emplacementForms = reactive<
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("fr-FR") : "-";
 }
-function formatCoordinate(value?: number) {
+function formatCoordinate(value?: number | null) {
   return value === undefined || value === null ? "-" : String(value);
 }
 function showError(errorValue: unknown, fallback: string) {
@@ -163,6 +206,7 @@ onMounted(async () => {
   try {
     gare.value = await gareService.getGare(id.value);
     document.title = `${gare.value.nom} - Gare`;
+    await loadAgents();
   } catch (errorValue: unknown) {
     showError(errorValue, "Impossible de charger les details de la gare.");
   } finally {
@@ -261,6 +305,70 @@ onMounted(async () => {
             ><strong>{{ gare.description || "Aucune description." }}</strong>
           </div>
         </div></BaseCard
+      >
+
+      <BaseCard
+        ><div class="card-heading">
+          <div>
+            <h2>Agents de la gare ({{ agents.length }})</h2>
+            <p>Les agents rattachés voient les départs, réservations et caisses de cette gare.</p>
+          </div>
+        </div>
+        <form
+          v-if="canEdit"
+          class="management-form inline-form"
+          @submit.prevent="addAgent"
+        >
+          <label class="sr-only" for="agent-select">Agent à rattacher</label>
+          <select id="agent-select" v-model="selectedAgentId" required>
+            <option :value="null" disabled>
+              {{ eligibleAgents.length ? "Choisir un agent" : "Aucun agent disponible" }}
+            </option>
+            <option v-for="agent in eligibleAgents" :key="agent.id" :value="agent.id">
+              {{ agentName(agent) }} · {{ agent.email }}
+            </option>
+          </select>
+          <button
+            class="primary-button compact-button"
+            type="submit"
+            :disabled="busyAction !== null || !selectedAgentId"
+          >
+            {{ busyAction === "agent-add" ? "Ajout..." : "Rattacher" }}
+          </button>
+        </form>
+        <div v-if="agents.length" class="table-scroll">
+          <table class="data-table">
+            <caption>
+              Agents rattachés
+            </caption>
+            <thead>
+              <tr>
+                <th>Nom</th>
+                <th>Email</th>
+                <th>Téléphone</th>
+                <th v-if="canEdit">Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr v-for="agent in agents" :key="agent.id">
+                <td>{{ agentName(agent) }}</td>
+                <td>{{ agent.email }}</td>
+                <td>{{ agent.telephone || "—" }}</td>
+                <td v-if="canEdit">
+                  <button
+                    class="table-action danger-action"
+                    type="button"
+                    :disabled="busyAction !== null"
+                    @click="removeAgent(agent)"
+                  >
+                    Retirer
+                  </button>
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p v-else class="empty-state">Aucun agent rattaché à cette gare.</p></BaseCard
       >
 
       <BaseCard

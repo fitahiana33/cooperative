@@ -41,7 +41,11 @@ async function exportCsv() {
     URL.revokeObjectURL(url)
   } catch (value: unknown) { showError(value) }
 }
-function routeName(item: Reservation) { return item.depart ? `Départ #${item.id_depart}` : `Départ #${item.id_depart}` }
+function routeName(item: Reservation) {
+  const route = item.depart?.itineraire
+  if (!route) return `Départ #${item.id_depart}`
+  return `${route.destination_depart?.nom || '?'} → ${route.destination_arrivee?.nom || '?'}${item.depart?.cooperative ? ' · ' + item.depart.cooperative.nom : ''}`
+}
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('fr-FR') : '—' }
 const canCreate = () => auth.hasPermission('RESERVATION_CREATE')
 onMounted(load)

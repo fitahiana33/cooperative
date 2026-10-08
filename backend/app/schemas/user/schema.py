@@ -1,5 +1,6 @@
 from datetime import datetime
 
+from app.schemas.common import StrongPassword
 from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 
@@ -10,7 +11,7 @@ class UserCreate(BaseModel):
     telephone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=255)
     role: str = Field(default="passenger", min_length=2, max_length=100)
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword
 
 
 class UserUpdate(BaseModel):
@@ -19,7 +20,7 @@ class UserUpdate(BaseModel):
     email: EmailStr | None = None
     telephone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=255)
-    password: str | None = Field(default=None, min_length=8, max_length=128)
+    password: StrongPassword | None = None
     is_active: bool | None = None
 
 
@@ -44,4 +45,13 @@ class UserRead(BaseModel):
 
     permissions: list[str] = Field(default_factory=list)
 
+    model_config = ConfigDict(from_attributes=True)
+
+
+class UserSummaryRead(BaseModel):
+    """Just enough to pick a user in a list; no contact details, roles or permissions."""
+    id: int
+    name: str
+    first_name: str | None = None
+    email: str
     model_config = ConfigDict(from_attributes=True)
