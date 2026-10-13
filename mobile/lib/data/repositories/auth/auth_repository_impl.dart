@@ -73,7 +73,7 @@ class AuthRepositoryImpl implements AuthRepository {
 
   @override
   Future<UserEntity?> getCachedUser() async {
-    final userMap = _tokenStorage.getUser();
+    final userMap = await _tokenStorage.getUser();
     if (userMap != null) {
       return UserDto.fromJson(userMap);
     }
@@ -93,6 +93,20 @@ class AuthRepositoryImpl implements AuthRepository {
       debugPrint('[CURRENT_USER_ERROR] $error');
       return null;
     }
+  }
+
+  @override
+  Future<UserEntity> updateProfile(Map<String, dynamic> fields) async {
+    final user = await _remoteDataSource.updateProfile(fields);
+    await _tokenStorage.saveUser(user.toJson());
+    return user;
+  }
+
+  @override
+  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
+    await _remoteDataSource.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+    // The server ends every session on a password change: sign in again.
+    await _tokenStorage.clear();
   }
 
   @override

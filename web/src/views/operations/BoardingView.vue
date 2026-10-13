@@ -4,6 +4,7 @@ import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { localIsoDate } from "../../utils/date";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { api } from "../../services/api";
 import { departService } from "../../services/depart/service";
 import { reservationService } from "../../services/reservation/service";
@@ -33,10 +34,15 @@ const departures = ref<Depart[]>([]);
 const departureId = ref<number | null>(null);
 const passengers = ref<PassengerRow[]>([]);
 const loadingPassengers = ref(false);
+const passengerPage = ref(1);
+const passengerPageSize = 20;
 let scannerControls: IScannerControls | null = null;
 
 const boarded = computed(() => passengers.value.filter((row) => row.embarque));
 const waiting = computed(() => passengers.value.filter((row) => !row.embarque));
+const passengerRows = computed(() => [...waiting.value, ...boarded.value]);
+const passengerPages = computed(() => Math.max(1, Math.ceil(passengerRows.value.length / passengerPageSize)));
+const visiblePassengerRows = computed(() => passengerRows.value.slice((passengerPage.value - 1) * passengerPageSize, passengerPage.value * passengerPageSize));
 
 function departLabel(item: Depart) {
   const from = item.itineraire?.destination_depart?.nom || "?";
@@ -61,6 +67,7 @@ async function loadPassengers() {
     return;
   }
   loadingPassengers.value = true;
+  passengerPage.value = 1;
   try {
     passengers.value = (await api.get<PassengerRow[]>(`/departs/${departureId.value}/passagers`)).data;
   } catch (value: unknown) {
@@ -214,7 +221,7 @@ onUnmounted(stopScanner);
           <caption class="sr-only">Passagers du départ</caption>
           <thead><tr><th>Place</th><th>Passager</th><th>Billet</th><th>Réservation</th><th>Embarquement</th></tr></thead>
           <tbody>
-            <tr v-for="row in [...waiting, ...boarded]" :key="row.billet || row.reservation + row.place">
+            <tr v-for="row in visiblePassengerRows" :key="row.billet || row.reservation + row.place">
               <td>{{ row.place }}</td>
               <td>{{ row.passager }}<br /><small>{{ row.telephone || "—" }}</small></td>
               <td><small>{{ row.billet || "Non émis" }}</small></td>
@@ -228,6 +235,7 @@ onUnmounted(stopScanner);
             </tr>
           </tbody>
         </table>
+        <PaginationControls :page="passengerPage" :pages="passengerPages" :total="passengerRows.length" item-label="passager(s)" @change="passengerPage = $event" />
       </div>
     </BaseCard>
   </AppLayout>

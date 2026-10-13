@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { destinationService } from "../../services/destination/service";
 import { itineraireService } from "../../services/itineraire/service";
 import { tarifService } from "../../services/tarif/service";
@@ -23,6 +24,9 @@ const section = computed(() =>
 const item = ref<any | null>(null);
 const associations = ref<any[]>([]);
 const fares = ref<any[]>([]);
+const associationPage = ref(1);
+const farePage = ref(1);
+const detailPageSize = 20;
 const cooperatives = ref<any[]>([]);
 const selectedCooperative = ref<number | null>(null);
 const associationStart = ref("");
@@ -35,6 +39,15 @@ const busy = ref(false);
 const canAssociate = computed(() =>
   auth.hasPermission("ITINERAIRE_COOPERATIVE_MANAGE"),
 );
+function pageCount(items: unknown[]) {
+  return Math.max(1, Math.ceil(items.length / detailPageSize));
+}
+function visibleItems<T>(items: T[], page: number) {
+  const start = (page - 1) * detailPageSize;
+  return items.slice(start, start + detailPageSize);
+}
+const visibleAssociations = computed(() => visibleItems(associations.value, associationPage.value));
+const visibleFares = computed(() => visibleItems(fares.value, farePage.value));
 function showError(value: unknown, fallback: string) {
   error.value = userError(value, fallback, "ROUTES_DETAIL_ERROR");
   success.value = "";
@@ -60,6 +73,8 @@ async function load() {
       ]);
       associations.value = links.status === "fulfilled" ? links.value : [];
       fares.value = history.status === "fulfilled" ? history.value : [];
+      associationPage.value = 1;
+      farePage.value = 1;
       cooperatives.value = cooperativePage.status === "fulfilled" ? cooperativePage.value.items : [];
     }
   } catch (value: unknown) {
@@ -280,7 +295,7 @@ onMounted(load);
               </thead>
               <tbody>
                 <tr
-                  v-for="association in associations"
+                  v-for="association in visibleAssociations"
                   :key="association.id_cooperative"
                 >
                   <td>
@@ -312,6 +327,7 @@ onMounted(load);
                 </tr>
               </tbody>
             </table>
+            <PaginationControls :page="associationPage" :pages="pageCount(associations)" :total="associations.length" item-label="coopérative(s)" @change="associationPage = $event" />
           </div>
           <div v-else class="empty-state">
             Aucune cooperative autorisee.
@@ -340,7 +356,7 @@ onMounted(load);
                 </tr>
               </thead>
               <tbody>
-                <tr v-for="fare in fares" :key="fare.id">
+                <tr v-for="fare in visibleFares" :key="fare.id">
                   <td>{{ fare.cooperative?.nom || "General" }}</td>
                   <td>{{ fare.prix }} {{ fare.devise }}</td>
                   <td>{{ formatDate(fare.date_debut) }}</td>
@@ -349,6 +365,7 @@ onMounted(load);
                 </tr>
               </tbody>
             </table>
+            <PaginationControls :page="farePage" :pages="pageCount(fares)" :total="fares.length" item-label="tarif(s)" @change="farePage = $event" />
           </div>
           <div v-else class="empty-state">
             Aucun tarif enregistre.

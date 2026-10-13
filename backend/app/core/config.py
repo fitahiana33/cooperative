@@ -54,6 +54,12 @@ class Settings(BaseSettings):
     passenger_max_seats_per_reservation: int = 6
     # A passenger may cancel a paid reservation until this many minutes before departure.
     cancellation_deadline_minutes: int = 120
+    # Online payment adapter. `mock` is intentionally safe for development;
+    # production must provide a real adapter and a private webhook secret.
+    online_payment_enabled: bool = False
+    payment_provider: str = "mock"
+    payment_webhook_secret: str = "change-me-webhook-secret"
+    default_commission_rate: float = 0.0
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -77,6 +83,11 @@ class Settings(BaseSettings):
             raise ValueError("JWT_ALGORITHM doit être HS256, HS384 ou HS512.")
         if self.debug_return_reset_url:
             raise ValueError("DEBUG_RETURN_RESET_URL est réservé au développement.")
+        if self.online_payment_enabled:
+            if self.payment_provider.lower() == "mock":
+                raise ValueError("PAYMENT_PROVIDER=mock est réservé au développement.")
+            if len(self.payment_webhook_secret) < 32 or self.payment_webhook_secret.lower().startswith(DEFAULT_SECRET_PREFIXES):
+                raise ValueError("PAYMENT_WEBHOOK_SECRET doit être une valeur aléatoire d'au moins 32 caractères.")
         return self
 
 

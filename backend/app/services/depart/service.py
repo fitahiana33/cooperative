@@ -3,14 +3,15 @@ import logging
 from math import ceil
 
 from fastapi import HTTPException
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.chauffeur import Chauffeur
 from app.models.billet import BilletStatus
 from app.models.cooperative import Cooperative
 from app.models.depart import Depart, DepartStatus
+from app.models.destination import Destination
 from app.models.finance import Paiement, PaiementStatus
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.place import DepartPlaceStatus
@@ -19,7 +20,7 @@ from app.models.tarif import Tarif
 from app.models.vehicule import Vehicule, VehiculeChauffeur, VehiculeDocument
 from app.services.finance import FinanceService
 from app.services.notification import NotificationService
-from app.core.clock import local_moment, local_today
+from app.core.clock import local_moment, local_now, local_today
 
 logger = logging.getLogger("cooperative.depart")
 
@@ -34,7 +35,7 @@ class DepartService:
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_depart),
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_arrivee),
             selectinload(Depart.cooperative),
-            selectinload(Depart.vehicule),
+            selectinload(Depart.vehicule).selectinload(Vehicule.modele),
             selectinload(Depart.chauffeur),
             selectinload(Depart.tarif),
         )
@@ -63,6 +64,11 @@ class DepartService:
         date_to: date | None = None,
         id_chauffeur: int | None = None,
         cooperative_ids: set[int] | None = None,
+        id_destination_depart: int | None = None,
+        id_destination_arrivee: int | None = None,
+        id_itineraire: int | None = None,
+        id_vehicule: int | None = None,
+        reservable: bool = False,
     ):
         if date_from and date_to and date_to < date_from:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
@@ -80,9 +86,44 @@ class DepartService:
             statement = statement.where(Depart.date_depart >= date_from)
         if date_to:
             statement = statement.where(Depart.date_depart <= date_to)
+        if id_itineraire is not None:
+            statement = statement.where(Depart.id_itineraire == id_itineraire)
+        if id_vehicule is not None:
+            statement = statement.where(Depart.id_vehicule == id_vehicule)
+        if id_destination_depart is not None or id_destination_arrivee is not None or (search and search.strip()):
+            statement = statement.join(Itineraire, Itineraire.id == Depart.id_itineraire)
+            if id_destination_depart is not None:
+                statement = statement.where(Itineraire.id_destination_depart == id_destination_depart)
+            if id_destination_arrivee is not None:
+                statement = statement.where(Itineraire.id_destination_arrivee == id_destination_arrivee)
         if search and search.strip():
+            # Free text matches the origin, the destination, the cooperative, the plate or the status.
             term = f"%{search.strip()}%"
-            statement = statement.where(Depart.statut.ilike(term))
+            origin = aliased(Destination)
+            arrival = aliased(Destination)
+            statement = (
+                statement.join(origin, origin.id == Itineraire.id_destination_depart)
+                .join(arrival, arrival.id == Itineraire.id_destination_arrivee)
+                .join(Cooperative, Cooperative.id == Depart.id_cooperative)
+                .join(Vehicule, Vehicule.id == Depart.id_vehicule)
+                .where(or_(
+                    origin.nom.ilike(term), arrival.nom.ilike(term), Cooperative.nom.ilike(term),
+                    Cooperative.sigle.ilike(term), Vehicule.immatriculation.ilike(term), Depart.statut.ilike(term),
+                ))
+            )
+        if reservable:
+            # What a passenger can still book: open, not full, and a scheduled
+            # departure whose time has not passed (delayed/boarding ones still count).
+            now = local_now()
+            statement = statement.where(
+                Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE]),
+                Depart.places_reservees < Depart.nombre_places,
+                or_(
+                    Depart.statut != DepartStatus.PROGRAMME,
+                    Depart.date_depart > now.date(),
+                    and_(Depart.date_depart == now.date(), Depart.heure_depart > now.time().replace(tzinfo=None)),
+                ),
+            )
 
         sort_column = {
             "date_depart": Depart.date_depart,

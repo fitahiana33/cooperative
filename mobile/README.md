@@ -23,18 +23,22 @@ Le téléphone et le PC doivent être connectés au même réseau Wi-Fi. L'adres
 
 1. Sur Windows, trouvez l'adresse IPv4 Wi-Fi du PC avec `ipconfig` (par exemple `192.168.88.19`).
 2. Vérifiez depuis le navigateur du téléphone : `http://192.168.88.19:8000/health` doit retourner une réponse du backend.
-3. Construisez un APK release avec l'adresse du PC :
+3. Construisez un APK **profile** avec l'adresse du PC. Les versions release n'autorisent que le HTTPS ; le HTTP local n'est accepté que par les versions debug et profile :
 
 ```bash
 flutter pub get
-flutter build apk --release --split-per-abi --dart-define=MOBILE_API_BASE_URL=http://192.168.88.19:8000/api/v1
+flutter build apk --profile --split-per-abi --dart-define=MOBILE_API_BASE_URL=http://192.168.88.19:8000/api/v1
 ```
 
 Pour la plupart des smartphones récents, installez :
 
 ```text
-build/app/outputs/flutter-apk/app-arm64-v8a-release.apk
+build/app/outputs/flutter-apk/app-arm64-v8a-profile.apk
 ```
+
+Pour une version release, l'API doit être servie en HTTPS (par exemple `--dart-define=MOBILE_API_BASE_URL=https://api.example.mg/api/v1`).
+
+L'adresse peut aussi être lue depuis un fichier : copiez `.env.example` en `.env`, puis ajoutez `--dart-define-from-file=.env` à la commande `flutter run` ou `flutter build`.
 
 `--split-per-abi` produit un APK par architecture et réduit fortement sa taille. L'APK universel est plus lourd. Si l'adresse IP du PC change, il faut reconstruire l'APK avec la nouvelle adresse.
 

@@ -111,6 +111,9 @@ def seed_default_admin(db: Session) -> None:
         ("CAISSE_MANAGE", "Gestion des operations de caisse", "CAISSE"),
         ("DASHBOARD_READ", "Consultation du tableau de bord", "DASHBOARD"),
         ("STATISTIQUE_READ", "Consultation des statistiques", "STATISTIQUE"),
+        ("RAPPORT_READ", "Consultation et export des rapports", "RAPPORT"),
+        ("AUDIT_READ", "Consultation du journal des actions", "AUDIT"),
+        ("AIDE_DECISION_READ", "Aide à la décision", "STATISTIQUE"),
         ("NOTIFICATION_READ", "Consultation des notifications", "NOTIFICATION"),
         ("NOTIFICATION_MANAGE", "Gestion des notifications", "NOTIFICATION"),
         # SPRINT 6 - DESTINATIONS, ITINERAIRES ET TARIFS
@@ -157,6 +160,7 @@ def seed_default_admin(db: Session) -> None:
             "EMBARQUEMENT_READ", "EMBARQUEMENT_MANAGE", "PAIEMENT_READ", "PAIEMENT_PROCESS", "PAIEMENT_REFUND",
             "CAISSE_READ", "CAISSE_OPEN", "CAISSE_CLOSE", "CAISSE_MANAGE",
             "DASHBOARD_READ", "STATISTIQUE_READ", "NOTIFICATION_READ", "NOTIFICATION_MANAGE",
+            "RAPPORT_READ", "AUDIT_READ", "AIDE_DECISION_READ",
             "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ",
         },
         UserRole.RESPONSABLE_COOPERATIVE: {
@@ -166,6 +170,7 @@ def seed_default_admin(db: Session) -> None:
             "DEPART_READ", "DEPART_CREATE", "DEPART_UPDATE", "DEPART_CANCEL",
             "RESERVATION_READ", "RESERVATION_CREATE", "RESERVATION_UPDATE", "RESERVATION_CANCEL", "BILLET_READ", "PAIEMENT_READ",
             "DASHBOARD_READ", "STATISTIQUE_READ", "NOTIFICATION_READ",
+            "RAPPORT_READ", "AIDE_DECISION_READ",
             "DESTINATION_READ", "ITINERAIRE_READ", "TARIF_READ",
             "ITINERAIRE_COOPERATIVE_MANAGE",
         },

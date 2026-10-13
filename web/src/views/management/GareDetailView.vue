@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { gareService } from "../../services/gare/service";
 import { useAuthenticationStore } from "../../stores/authentication/store";
 import { userError } from "../../utils/errors";
@@ -18,10 +19,34 @@ const success = ref("");
 const busyAction = ref<string | null>(null);
 const canEdit = computed(() => auth.hasPermission("GARE_UPDATE"));
 const quaiForm = reactive({ numero: "", nom: "", description: "" });
+const relationPageSize = 20;
+const agentPage = ref(1);
+const quaiPage = ref(1);
+const zonePage = ref(1);
+const emplacementPages = reactive<Record<number, number>>({});
 // Station agents: they see the departures, reservations and cash desk of this station.
 const agents = ref<GareAgent[]>([]);
 const eligibleAgents = ref<GareAgent[]>([]);
 const selectedAgentId = ref<number | null>(null);
+function pageCount(items: unknown[]) {
+  return Math.max(1, Math.ceil(items.length / relationPageSize));
+}
+function visibleItems<T>(items: T[], page: number) {
+  const start = (page - 1) * relationPageSize;
+  return items.slice(start, start + relationPageSize);
+}
+const visibleAgents = computed(() => visibleItems(agents.value, agentPage.value));
+const visibleQuais = computed(() => gare.value ? visibleItems(gare.value.quais, quaiPage.value) : []);
+const visibleZones = computed(() => gare.value ? visibleItems(gare.value.zones, zonePage.value) : []);
+function emplacementPage(zoneId: number) {
+  return emplacementPages[zoneId] || 1;
+}
+function visibleEmplacements(zone: Zone) {
+  return visibleItems(zone.emplacements, emplacementPage(zone.id));
+}
+function changeEmplacementPage(zone: Zone, next: number) {
+  if (next >= 1 && next <= pageCount(zone.emplacements)) emplacementPages[zone.id] = next;
+}
 function agentName(agent: GareAgent) {
   return [agent.first_name, agent.name].filter(Boolean).join(" ");
 }
@@ -36,6 +61,7 @@ async function addAgent() {
   clearFeedback();
   try {
     agents.value = await gareService.addAgent(gare.value.id, selectedAgentId.value);
+    agentPage.value = 1;
     eligibleAgents.value = eligibleAgents.value.filter((agent) => agent.id !== selectedAgentId.value);
     selectedAgentId.value = null;
     success.value = "Agent rattaché à la gare.";
@@ -53,6 +79,7 @@ async function removeAgent(agent: GareAgent) {
   try {
     await gareService.removeAgent(gare.value.id, agent.id);
     agents.value = agents.value.filter((item) => item.id !== agent.id);
+    agentPage.value = Math.min(agentPage.value, pageCount(agents.value));
     eligibleAgents.value = [...eligibleAgents.value, agent];
     success.value = "Agent retiré de la gare.";
   } catch (errorValue: unknown) {
@@ -103,6 +130,7 @@ async function addQuai() {
       description: quaiForm.description || undefined,
     });
     gare.value.quais.push(item);
+    quaiPage.value = 1;
     Object.assign(quaiForm, { numero: "", nom: "", description: "" });
     success.value = "Quai ajoute avec succes.";
   } catch (errorValue: unknown) {
@@ -123,6 +151,7 @@ async function addZone() {
       description: zoneForm.description || undefined,
     });
     gare.value.zones.push(item);
+    zonePage.value = 1;
     Object.assign(zoneForm, { nom: "", type_zone: "", description: "" });
     success.value = "Zone ajoutee avec succes.";
   } catch (errorValue: unknown) {
@@ -145,6 +174,7 @@ async function addEmplacement(zone: Zone) {
       description: form.description || undefined,
     });
     zone.emplacements.push(item);
+    emplacementPages[zone.id] = 1;
     Object.assign(form, {
       code: "",
       nom: "",
@@ -304,7 +334,8 @@ onMounted(async () => {
             <span class="detail-label">Description</span
             ><strong>{{ gare.description || "Aucune description." }}</strong>
           </div>
-        </div></BaseCard
+        </div>
+      </BaseCard
       >
 
       <BaseCard
@@ -350,7 +381,7 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="agent in agents" :key="agent.id">
+              <tr v-for="agent in visibleAgents" :key="agent.id">
                 <td>{{ agentName(agent) }}</td>
                 <td>{{ agent.email }}</td>
                 <td>{{ agent.telephone || "—" }}</td>
@@ -367,6 +398,7 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
+          <PaginationControls :page="agentPage" :pages="pageCount(agents)" :total="agents.length" item-label="agent(s)" @change="agentPage = $event" />
         </div>
         <p v-else class="empty-state">Aucun agent rattaché à cette gare.</p></BaseCard
       >
@@ -413,7 +445,7 @@ onMounted(async () => {
               </tr>
             </thead>
             <tbody>
-              <tr v-for="quai in gare.quais" :key="quai.id">
+              <tr v-for="quai in visibleQuais" :key="quai.id">
                 <td>
                   <strong>{{ quai.numero }}</strong>
                 </td>
@@ -448,6 +480,7 @@ onMounted(async () => {
               </tr>
             </tbody>
           </table>
+          <PaginationControls :page="quaiPage" :pages="pageCount(gare.quais)" :total="gare.quais.length" item-label="quai(s)" @change="quaiPage = $event" />
         </div>
         <div v-else class="empty-state">Aucun quai enregistre.</div></BaseCard
       >
@@ -486,7 +519,7 @@ onMounted(async () => {
           Aucune zone enregistree.
         </div>
         <div
-          v-for="zone in gare.zones"
+          v-for="zone in visibleZones"
           :key="zone.id"
           class="detail-subsection"
         >
@@ -565,7 +598,7 @@ onMounted(async () => {
               </thead>
               <tbody>
                 <tr
-                  v-for="emplacement in zone.emplacements"
+                  v-for="emplacement in visibleEmplacements(zone)"
                   :key="emplacement.id"
                 >
                   <td>
@@ -606,11 +639,14 @@ onMounted(async () => {
                 </tr>
               </tbody>
             </table>
+            <PaginationControls :page="emplacementPage(zone.id)" :pages="pageCount(zone.emplacements)" :total="zone.emplacements.length" item-label="emplacement(s)" @change="changeEmplacementPage(zone, $event)" />
           </div>
           <div v-else class="empty-state">
             Aucun emplacement dans cette zone.
           </div>
-        </div></BaseCard
+        </div>
+        <PaginationControls :page="zonePage" :pages="pageCount(gare.zones)" :total="gare.zones.length" item-label="zone(s)" @change="zonePage = $event" />
+      </BaseCard
       >
     </template>
   </AppLayout>

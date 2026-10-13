@@ -55,3 +55,16 @@ class UserSummaryRead(BaseModel):
     first_name: str | None = None
     email: str
     model_config = ConfigDict(from_attributes=True)
+
+
+class ProfileUpdate(BaseModel):
+    """What a user may change on their own account (not the email, role or status)."""
+    name: str | None = Field(default=None, min_length=1, max_length=100)
+    first_name: str | None = Field(default=None, min_length=1, max_length=100)
+    telephone: str | None = Field(default=None, max_length=30)
+    address: str | None = Field(default=None, max_length=255)
+
+
+class PasswordChange(BaseModel):
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: StrongPassword

@@ -18,10 +18,13 @@ def _scope(db: Session, user: User) -> tuple[int | None, set[int] | None]:
 @router.get("", response_model=PageResponse[BilletRead])
 def list_billets(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), search: str | None = Query(None, max_length=100),
+    statut: str | None = Query(None, pattern="^(VALIDE|UTILISE|ANNULE|EXPIRE)$"),
+    sort_by: str = Query("date_emission", pattern="^(date_emission|numero_billet|numero_reservation|statut)$"),
+    sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(require_permission("BILLET_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return BilletService(db).list(page=page, page_size=page_size, search=search, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return BilletService(db).list(page=page, page_size=page_size, search=search, statut=statut, sort_by=sort_by, sort_order=sort_order, owner_id=owner_id, cooperative_ids=cooperative_ids)
 
 
 @router.get("/{billet_id}", response_model=BilletRead)

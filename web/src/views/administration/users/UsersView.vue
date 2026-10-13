@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../../components/layout/AppLayout.vue'
 import BaseCard from '../../../components/ui/BaseCard.vue'
 import ListToolbar from '../../../components/ui/ListToolbar.vue'
+import PaginationControls from '../../../components/ui/PaginationControls.vue'
 import { userService } from '../../../services/user/service'
 import { userError } from '../../../utils/errors'
 import type { User } from '../../../models/user/model'
@@ -88,6 +89,7 @@ async function remove(user: User) {
 function changeSort(column: string) {
   sortOrder.value = sortBy.value === column && sortOrder.value === 'asc' ? 'desc' : 'asc'
   sortBy.value = column
+  page.value = 1
   void load()
 }
 
@@ -119,7 +121,7 @@ onMounted(async () => {
 
     <BaseCard>
       <div class="card-heading"><div><h2>Utilisateurs enregistrés ({{ total }})</h2><p>Consultez les informations détaillées et gérez les comptes.</p></div></div>
-      <ListToolbar v-model="search" :loading="loading" placeholder="Rechercher par nom ou email" sort-label="Trier" @search="page = 1; load()" @sort="changeSort('name')" />
+      <ListToolbar v-model="search" :loading="loading" :show-sort="false" placeholder="Rechercher par nom ou email" @search="page = 1; load()" />
       <p v-if="loading" class="status-msg" role="status">Chargement des utilisateurs…</p>
       <p v-else-if="error" class="error-banner" role="alert">{{ error }}</p>
       <p v-if="success" class="success-banner" role="status">{{ success }}</p>
@@ -146,11 +148,7 @@ onMounted(async () => {
         </table>
       </div>
 
-      <div v-if="!loading && !error" class="pagination">
-        <button class="secondary-button" :disabled="page <= 1 || busyAction !== null" @click="changePage(page - 1)">Précédent</button>
-        <span>Page {{ page }} / {{ pages || 1 }} · {{ total }} utilisateur(s)</span>
-        <button class="secondary-button" :disabled="page >= pages || busyAction !== null" @click="changePage(page + 1)">Suivant</button>
-      </div>
+      <PaginationControls v-if="!loading && !error" :page="page" :pages="pages || 1" :total="total" :disabled="busyAction !== null" item-label="utilisateur(s)" @change="changePage" />
     </BaseCard>
   </AppLayout>
 </template>

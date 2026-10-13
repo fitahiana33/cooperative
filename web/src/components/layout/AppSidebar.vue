@@ -29,6 +29,8 @@ const canSeeBoarding = computed(() => auth.hasPermission('EMBARQUEMENT_MANAGE'))
 const canSeeFinance = computed(() => auth.hasPermission('CAISSE_READ'))
 const canSeeNotifications = computed(() => auth.hasPermission('NOTIFICATION_READ'))
 const canSeeStats = computed(() => auth.hasPermission('STATISTIQUE_READ'))
+const canSeeReports = computed(() => auth.hasPermission('RAPPORT_READ'))
+const canSeeDecision = computed(() => auth.hasPermission('AIDE_DECISION_READ'))
 
 const openSections = reactive<Record<SidebarSection, boolean>>({
   principal: true,
@@ -68,7 +70,7 @@ watch(() => route.fullPath, restoreNavScroll)
 
 <template>
   <div v-if="sidebar.mobileOpen" class="sidebar-backdrop" @click="sidebar.closeMobile" />
-  <aside class="app-sidebar" :class="{ collapsed: sidebar.collapsed, 'mobile-open': sidebar.mobileOpen }">
+  <aside class="app-sidebar" :class="{ collapsed: sidebar.collapsed, 'mobile-open': sidebar.mobileOpen }" aria-label="Navigation de l’application">
     <div class="sidebar-brand">
       <span class="brand-symbol">C</span>
       <span class="sidebar-name">Coopérative</span>
@@ -159,11 +161,13 @@ watch(() => route.fullPath, restoreNavScroll)
         </div>
       </div>
 
-      <div v-if="canSeeFinance || canSeeStats" class="sidebar-group">
+      <div v-if="canSeeFinance || canSeeStats || canSeeReports || canSeeDecision" class="sidebar-group">
         <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('finance')" @click="toggleSection('finance')">
           <span>FINANCES & PILOTAGE</span><b>{{ isSectionOpen('finance') ? '⌃' : '⌄' }}</b>
         </button>
         <div v-if="isSectionOpen('finance')" class="sidebar-submenu">
+          <RouterLink v-if="canSeeReports" to="/rapports" class="sidebar-link" @click="sidebar.closeMobile"><span>R</span><b>Rapports</b></RouterLink>
+          <RouterLink v-if="canSeeDecision" to="/aide-decision" class="sidebar-link" @click="sidebar.closeMobile"><span>A</span><b>Aide à la décision</b></RouterLink>
           <RouterLink v-if="canSeeFinance" to="/finance" class="sidebar-link" @click="sidebar.closeMobile"><span>¤</span><b>Paiements & caisse</b></RouterLink>
           <RouterLink v-if="canSeeStats" to="/statistiques" class="sidebar-link" @click="sidebar.closeMobile"><span>▥</span><b>Statistiques</b></RouterLink>
         </div>

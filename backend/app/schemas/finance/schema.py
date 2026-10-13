@@ -14,6 +14,7 @@ class PaiementCreate(BaseModel):
 class PaiementRead(BaseModel):
     id: int
     id_reservation: int
+    numero_reservation: str | None = None
     montant: Decimal
     methode: str
     reference_paiement: str | None = None
@@ -21,7 +22,27 @@ class PaiementRead(BaseModel):
     date_paiement: datetime
     id_agent: int | None = None
     remboursement_demande_le: datetime | None = None
+    fournisseur: str | None = None
+    reference_fournisseur: str | None = None
+    cle_idempotence: str | None = None
+    webhook_recu_le: datetime | None = None
     model_config = ConfigDict(from_attributes=True)
+
+
+class PaiementEnLigneCreate(BaseModel):
+    id_reservation: int
+    montant: Decimal = Field(gt=0)
+    cle_idempotence: str = Field(min_length=8, max_length=100)
+
+
+class PaiementEnLigneRead(BaseModel):
+    id_paiement: int
+    statut: str
+    fournisseur: str
+    reference_paiement: str
+    montant: Decimal
+    message: str
+    checkout_url: str | None = None
 
 
 class CaisseOpen(BaseModel):

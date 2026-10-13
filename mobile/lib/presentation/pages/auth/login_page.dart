@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/validators.dart';
 import '../../controllers/auth/auth_controller.dart';
-import '../../controllers/auth/auth_state.dart';
 import '../../widgets/auth/auth_form_card.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
@@ -30,13 +29,18 @@ class _LoginPageState extends ConsumerState<LoginPage> {
     super.dispose();
   }
 
+  bool _submitting = false;
+
   void _submit() async {
+    if (_submitting) return;
     if (_formKey.currentState?.validate() ?? false) {
       FocusScope.of(context).unfocus();
+      setState(() => _submitting = true);
       final success = await ref.read(authControllerProvider.notifier).login(
             email: _emailController.text,
             password: _passwordController.text,
           );
+      if (mounted) setState(() => _submitting = false);
       if (success && mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -51,7 +55,7 @@ class _LoginPageState extends ConsumerState<LoginPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
-    final isLoading = authState.status == AuthStatus.loading;
+    final isLoading = _submitting;
 
     return Scaffold(
       body: Container(
@@ -120,6 +124,14 @@ class _LoginPageState extends ConsumerState<LoginPage> {
                       child: Column(
                         crossAxisAlignment: CrossAxisAlignment.stretch,
                         children: [
+                          if (authState.infoMessage != null && authState.errorMessage == null) ...[
+                            Container(
+                              padding: const EdgeInsets.all(12),
+                              decoration: BoxDecoration(color: const Color(0xFF064E3B), borderRadius: BorderRadius.circular(12)),
+                              child: Text(authState.infoMessage!, style: const TextStyle(color: Color(0xFFA7F3D0))),
+                            ),
+                            const SizedBox(height: 16),
+                          ],
                           if (authState.errorMessage != null) ...[
                             ErrorBanner(message: authState.errorMessage!),
                             const SizedBox(height: 16),

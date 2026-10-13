@@ -169,6 +169,8 @@ MODELS = {
     "county": ("Hyundai", "County", 25, 140),
     "civilian": ("Nissan", "Civilian", 26, 175),
 }
+# Seat map per model: (seats beside the driver, seats per row behind).
+SEAT_LAYOUTS = {"sprinter515": (2, 4), "sprinter313": (2, 4), "hiace": (2, 3), "coaster": (1, 4), "county": (1, 4), "civilian": (1, 5)}
 INACTIVE_BRAND = ("Renault", "Master", "Modèle retiré de la flotte.")
 
 # (sigle, modèle, route, heure de départ, état); vehicles with a route run daily, alternating direction.
@@ -477,7 +479,9 @@ class DemoSeeder:
                 marques[marque_nom] = Marque(nom=marque_nom, description=f"Véhicules {marque_nom}.")
                 db.add(marques[marque_nom])
                 db.flush()
-            modeles[key] = Modele(id_marque=marques[marque_nom].id, nom=modele_nom, description=f"{marque_nom} {modele_nom}")
+            front, per_row = SEAT_LAYOUTS.get(key, (2, 4))
+            modeles[key] = Modele(id_marque=marques[marque_nom].id, nom=modele_nom, description=f"{marque_nom} {modele_nom}",
+                                  places_avant=front, places_par_rangee=per_row)
             db.add(modeles[key])
         retired = Marque(nom=INACTIVE_BRAND[0], description=INACTIVE_BRAND[2], is_active=False)
         db.add(retired)
@@ -555,10 +559,12 @@ class DemoSeeder:
         retarde_done = False
         for offset in range(-PAST_DAYS, FUTURE_DAYS + 1):
             day = self.today + timedelta(days=offset)
-            for vehicule, chauffeur, sigle, (a, b), hour in self.operational:
+            for index, (vehicule, chauffeur, sigle, (a, b), hour) in enumerate(self.operational):
                 if self.rng.random() < 0.08:
                     continue  # rest day
-                origin, destination = (a, b) if offset % 2 == 0 else (b, a)
+                # Vehicles shuttle between both ends; half start from each end so
+                # every route has departures in both directions each day.
+                origin, destination = (a, b) if (offset + index) % 2 == 0 else (b, a)
                 minutes, _ = self.route_info[(origin, destination)]
                 dep_at = self.at(day, hour)
                 arr_at = dep_at + timedelta(minutes=minutes)
@@ -628,7 +634,8 @@ class DemoSeeder:
             self.book(ctx, [seats[n] for n in chosen], outcome, refused=refused)
 
     def book(self, ctx: DepartContext, place_ids: list[int], outcome: str, *, refused: bool = False) -> None:
-        db, rng = self.db, self.rng
+        db = self.db
+        rng = self.rng
         by_passenger = rng.random() < 0.75
         owner = rng.choice(self.active_passengers) if by_passenger else ctx.agent
         if outcome == "EN_ATTENTE" and by_passenger:
@@ -717,7 +724,7 @@ class DemoSeeder:
                             cancelled_at, reservation_id=reservation.id, depart_id=ctx.depart.id)
             return
 
-        payment = self.pay(ctx, reservation, owner, paid_at, cash_only=not by_passenger)
+        payment = self.pay(ctx, reservation, owner, paid_at)
         if notify:
             self.notify(owner, NotificationType.CONFIRMATION_PAIEMENT, "Paiement reçu",
                         f"Nous avons reçu {payment.montant:,.0f} Ar pour la réservation {reservation.numero_reservation}.".replace(",", " "),
@@ -761,30 +768,17 @@ class DemoSeeder:
         if outcome == "TERMINEE":
             self.set_reservation_status(reservation, ReservationStatus.TERMINEE, ctx.depart.date_heure_arrivee or ctx.arr_at)
 
-    def pay(self, ctx: DepartContext, reservation: Reservation, owner: User, paid_at: datetime, *, cash_only: bool) -> Paiement:
-        db, rng = self.db, self.rng
-        methode = PaiementMethode.ESPECES if cash_only else self.pick(
-            [(PaiementMethode.ESPECES, 60), (PaiementMethode.MOBILE_MONEY, 35), (PaiementMethode.CARTE, 5)])
-        if methode == PaiementMethode.ESPECES:
-            reference = f"CASH-{uuid4().hex[:12].upper()}"
-        elif methode == PaiementMethode.MOBILE_MONEY:
-            reference = f"{rng.choice(['MVOLA', 'ORANGE', 'AIRTEL'])}-{rng.randint(10**9, 10**10 - 1)}"
-            if rng.random() < 0.1:
-                failed_at = paid_at - timedelta(minutes=3)
-                db.add(Paiement(id_reservation=reservation.id, montant=reservation.montant_total, methode=methode,
-                                reference_paiement=f"{reference}-KO", statut=PaiementStatus.ECHOUE, date_paiement=failed_at, created_at=failed_at))
-        else:
-            reference = f"CB-{rng.randint(10**7, 10**8 - 1)}"
-        cash = methode == PaiementMethode.ESPECES
-        payment = Paiement(id_reservation=reservation.id, montant=reservation.montant_total, methode=methode, reference_paiement=reference,
-                           statut=PaiementStatus.VALIDE, date_paiement=paid_at, id_agent=ctx.agent.id if cash else None, created_at=paid_at)
+    def pay(self, ctx: DepartContext, reservation: Reservation, owner: User, paid_at: datetime) -> Paiement:
+        db = self.db
+        reference = f"CASH-{uuid4().hex[:12].upper()}"
+        payment = Paiement(id_reservation=reservation.id, montant=reservation.montant_total, methode=PaiementMethode.ESPECES, reference_paiement=reference,
+                           statut=PaiementStatus.VALIDE, date_paiement=paid_at, id_agent=ctx.agent.id, created_at=paid_at)
         db.add(payment)
         db.flush()  # trigger marks the reservation PAYEE
-        if cash:
-            caisse = self.caisse(ctx.gare, ctx.agent, paid_at)
-            db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.RECETTE, montant=payment.montant, id_paiement=payment.id,
-                                   id_cooperative=ctx.depart.id_cooperative, description=f"Paiement {reference}",
-                                   date_operation=paid_at, created_at=paid_at))
+        caisse = self.caisse(ctx.gare, ctx.agent, paid_at)
+        db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.RECETTE, montant=payment.montant, id_paiement=payment.id,
+                               id_cooperative=ctx.depart.id_cooperative, description=f"Paiement {reference}",
+                               date_operation=paid_at, created_at=paid_at))
         return payment
 
     def notify_departure(self, ctx: DepartContext, offset: int) -> None:

@@ -98,37 +98,24 @@ class AuthRemoteDataSource {
     }
   }
 
-  Exception _handleDioError(DioException e) {
-    if (e.response?.statusCode == 429) {
-      return Exception('Trop de tentatives. Veuillez patienter une minute avant de réessayer.');
+  /// The DioException is passed through so the UI can show the server's own
+  /// explanation (see core/errors/user_error.dart).
+  Exception _handleDioError(DioException e) => e;
+
+  Future<UserDto> updateProfile(Map<String, dynamic> fields) async {
+    try {
+      final response = await _apiClient.put('/users/me', data: fields);
+      return UserDto.fromJson(Map<String, dynamic>.from(response.data as Map));
+    } on DioException catch (e) {
+      throw _handleDioError(e);
     }
-    final status = e.response?.statusCode;
-    if (status == 401) return Exception('Email ou mot de passe incorrect.');
-    if (status == 403) return Exception('Vous n’êtes pas autorisé à effectuer cette action.');
-    if (status == 404) return Exception('La ressource demandée est introuvable.');
-    if (status == 409) return Exception('Cette donnée existe déjà ou est encore utilisée.');
-    if (status == 422) return Exception('Vérifiez les champs saisis puis réessayez.');
-    if (status != null && status >= 500) return Exception('Une erreur est survenue. Veuillez réessayer.');
-    if (e.response != null && e.response?.data != null) {
-      final data = e.response?.data;
-      if (data is Map<String, dynamic>) {
-        if (data.containsKey('detail')) {
-          final detail = data['detail'];
-          if (detail is String) return Exception('La demande ne peut pas être traitée. Vérifiez les informations saisies.');
-        }
-        if (data.containsKey('error')) {
-          return Exception('Trop de tentatives. Veuillez patienter une minute avant de réessayer.');
-        }
-      }
+  }
+
+  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
+    try {
+      await _apiClient.post('/users/me/password', data: {'current_password': currentPassword, 'new_password': newPassword});
+    } on DioException catch (e) {
+      throw _handleDioError(e);
     }
-    if (e.type == DioExceptionType.connectionTimeout || e.type == DioExceptionType.receiveTimeout) {
-      return Exception('Délai d\'attente de connexion dépassé. Vérifiez votre réseau.');
-    }
-    if (e.type == DioExceptionType.connectionError) {
-      return Exception(
-        'Impossible de joindre ${e.requestOptions.uri.host}. Vérifiez que le backend est démarré et, en local, que le téléphone est sur le même réseau que le PC.',
-      );
-    }
-    return Exception('Une erreur est survenue lors de la communication avec le serveur.');
   }
 }

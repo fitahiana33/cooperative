@@ -353,6 +353,14 @@ const router = createRouter({
       meta: { requiresAuth: true, layout: 'default' },
     },
     {
+      path: '/rapports', name: 'rapports', component: () => import('../views/operations/ReportsView.vue'),
+      meta: { requiresAuth: true, layout: 'default' },
+    },
+    {
+      path: '/aide-decision', name: 'aide-decision', component: () => import('../views/operations/DecisionSupportView.vue'),
+      meta: { requiresAuth: true, layout: 'default' },
+    },
+    {
       path: '/acces-refuse', name: 'forbidden', component: () => import('../views/ForbiddenView.vue'),
       meta: { requiresAuth: true, layout: 'default' },
     },
@@ -390,7 +398,7 @@ router.beforeEach((to) => {
     'system-reset': ADMIN_ONLY,
     billets: 'BILLET_READ', 'billet-detail': 'BILLET_READ',
     embarquement: 'EMBARQUEMENT_MANAGE', finance: 'CAISSE_READ', 'caisses-detail': 'CAISSE_READ',
-    notifications: 'NOTIFICATION_READ', statistiques: 'STATISTIQUE_READ',
+    notifications: 'NOTIFICATION_READ', statistiques: 'STATISTIQUE_READ', rapports: 'RAPPORT_READ', 'aide-decision': 'AIDE_DECISION_READ',
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {

@@ -38,6 +38,11 @@ class AuthService {
     return await _repository.fetchCurrentUser();
   }
 
+  Future<UserEntity> updateProfile(Map<String, dynamic> fields) => _repository.updateProfile(fields);
+
+  Future<void> changePassword({required String currentPassword, required String newPassword}) =>
+      _repository.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+
   Future<void> logout() async {
     final token = await _repository.getRefreshTokenForLogout();
     await _repository.logout(refreshToken: token);

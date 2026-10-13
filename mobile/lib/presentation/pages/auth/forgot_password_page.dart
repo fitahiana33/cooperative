@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/reset_link.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/validators.dart';
 import '../../controllers/auth/auth_controller.dart';
@@ -38,17 +39,19 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
       final success = await ref
           .read(authControllerProvider.notifier)
           .forgotPassword(_emailController.text);
+      if (!mounted) return;
       setState(() => _isLoading = false);
-      if (success && mounted) {
+      if (success) {
         setState(() => _isResetMode = true);
       }
     }
   }
 
   void _submitNewPassword() async {
-    if (_tokenController.text.trim().isEmpty) {
+    final token = extractResetToken(_tokenController.text);
+    if (token.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Veuillez saisir votre token de réinitialisation')),
+        const SnackBar(content: Text('Collez le lien reçu par email (ou le code qu’il contient).')),
       );
       return;
     }
@@ -61,12 +64,13 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
 
     setState(() => _isLoading = true);
     final success = await ref.read(authControllerProvider.notifier).resetPassword(
-          token: _tokenController.text,
+          token: token,
           newPassword: _newPasswordController.text,
         );
+    if (!mounted) return;
     setState(() => _isLoading = false);
 
-    if (success && mounted) {
+    if (success) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Mot de passe réinitialisé avec succès! Connectez-vous.'),
@@ -166,13 +170,13 @@ class _ForgotPasswordPageState extends ConsumerState<ForgotPasswordPage> {
                             ),
                           ] else ...[
                             const Text(
-                              'Un code de réinitialisation a été généré. Entrez le code et votre nouveau mot de passe ci-dessous.',
+                              'Si un compte existe pour cette adresse, un email contenant un lien vient d’être envoyé. Copiez ce lien ci-dessous, puis choisissez votre nouveau mot de passe.',
                               style: TextStyle(color: Colors.white70, fontSize: 14),
                             ),
                             const SizedBox(height: 20),
                             CustomTextField(
                               controller: _tokenController,
-                              labelText: 'Token de réinitialisation',
+                              labelText: 'Lien reçu par email (ou code)',
                               prefixIcon: Icons.vpn_key_outlined,
                             ),
                             const SizedBox(height: 16),

@@ -17,6 +17,7 @@ export interface Caisse {
 export interface Paiement {
   id: number
   id_reservation: number
+  numero_reservation?: string | null
   montant: number
   methode: string
   reference_paiement?: string | null

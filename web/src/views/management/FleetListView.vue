@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import ListToolbar from '../../components/ui/ListToolbar.vue'
+import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { vehiculeService } from '../../services/vehicule/service'
 import { chauffeurService } from '../../services/chauffeur/service'
 import { marqueService } from '../../services/marque/service'
@@ -200,6 +201,6 @@ watch(section, async () => { page.value = 1; search.value = ''; success.value = 
       </tbody></table></div>
     </BaseCard>
 
-    <div v-if="!loading && !error" class="pagination"><button class="secondary-button" :disabled="page <= 1" @click="changePage(page - 1)">Précédent</button><span>Page {{ page }} / {{ pages }} · {{ total }} résultat(s)</span><button class="secondary-button" :disabled="page >= pages" @click="changePage(page + 1)">Suivant</button></div>
+    <PaginationControls v-if="!loading && !error" :page="page" :pages="pages" :total="total" :disabled="busyAction !== null" @change="changePage" />
   </AppLayout>
 </template>

@@ -108,17 +108,27 @@ class BilletService:
     def get(self, billet_id: int, **scope) -> dict:
         return self._to_dict(self._get(billet_id, **scope))
 
-    def list(self, *, page: int = 1, page_size: int = 20, search: str | None = None, owner_id: int | None = None, cooperative_ids: set[int] | None = None):
+    def list(self, *, page: int = 1, page_size: int = 20, search: str | None = None, statut: str | None = None, sort_by: str = "date_emission", sort_order: str = "desc", owner_id: int | None = None, cooperative_ids: set[int] | None = None):
         statement = select(Billet).options(*self._options()).join(ReservationPlace).join(Reservation).join(Depart)
         if owner_id is not None:
             statement = statement.where(Reservation.id_user == owner_id)
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
+        if statut:
+            statement = statement.where(Billet.statut == statut)
         if search and search.strip():
             term = f"%{search.strip()}%"
             statement = statement.where(or_(Billet.numero_billet.ilike(term), Reservation.numero_reservation.ilike(term)))
         total = self.db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0
-        items = list(self.db.scalars(statement.order_by(Billet.date_emission.desc(), Billet.id.desc()).offset((page - 1) * page_size).limit(page_size)).unique())
+        sort_columns = {
+            "date_emission": Billet.date_emission,
+            "numero_billet": Billet.numero_billet,
+            "numero_reservation": Reservation.numero_reservation,
+            "statut": Billet.statut,
+        }
+        sort_column = sort_columns.get(sort_by, Billet.date_emission)
+        order_column = sort_column.asc() if sort_order == "asc" else sort_column.desc()
+        items = list(self.db.scalars(statement.order_by(order_column, Billet.id.desc()).offset((page - 1) * page_size).limit(page_size)).unique())
         return {"items": [self._to_dict(item) for item in items], "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
 
     def find_by_code(self, code: str) -> Billet:

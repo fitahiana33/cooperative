@@ -43,3 +43,11 @@ def test_upload_content_must_match_extension(client, db, admin_headers):
         data={"type_document": "ASSURANCE"}, files={"file": ("assurance.pdf", io.BytesIO(b"%PDF-1.4\n%test\n"), "application/pdf")},
     )
     assert real.status_code == 201, real.text
+
+
+def test_logout_with_refresh_token_only_revokes_it(client, db):
+    """I-M08: a client whose access token expired could not end its session."""
+    user = create_user(db, UserRole.PASSAGER)
+    tokens = client.post(f"{API}/auth/login", json={"email": user.email, "password": PASSWORD}).json()
+    assert client.post(f"{API}/auth/logout", json={"refresh_token": tokens["refresh_token"]}).status_code == 200
+    assert client.post(f"{API}/auth/refresh", json={"refresh_token": tokens["refresh_token"]}).status_code == 401

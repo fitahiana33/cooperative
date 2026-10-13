@@ -4,6 +4,7 @@ import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import ListToolbar from '../../components/ui/ListToolbar.vue'
+import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { managementService } from '../../services/management/service'
 import type { Gare } from '../../models/gare/model'
 import type { Cooperative } from '../../models/cooperative/model'
@@ -220,11 +221,7 @@ onMounted(async () => {
         </table>
       </div>
 
-      <div v-if="!loading && !error" class="pagination">
-        <button class="secondary-button" :disabled="page <= 1 || busyAction !== null" @click="changePage(page - 1)">Précédent</button>
-        <span>Page {{ page }} / {{ pages }} · {{ total }} résultat(s)</span>
-        <button class="secondary-button" :disabled="page >= pages || busyAction !== null" @click="changePage(page + 1)">Suivant</button>
-      </div>
+      <PaginationControls v-if="!loading && !error" :page="page" :pages="pages" :total="total" :disabled="busyAction !== null" @change="changePage" />
     </BaseCard>
   </AppLayout>
 </template>

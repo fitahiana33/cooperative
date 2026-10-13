@@ -32,6 +32,14 @@ class Vehicule(Base):
 
     modele = relationship("Modele", back_populates="vehicules")
     cooperative = relationship("Cooperative", back_populates="vehicules")
+    @property
+    def places_avant(self) -> int:
+        return self.modele.places_avant if self.modele else 2
+
+    @property
+    def places_par_rangee(self) -> int:
+        return self.modele.places_par_rangee if self.modele else 4
+
     documents = relationship("VehiculeDocument", back_populates="vehicule", passive_deletes=True)
     chauffeurs_assignments = relationship("VehiculeChauffeur", back_populates="vehicule", passive_deletes=True)
     departs = relationship("Depart", back_populates="vehicule", passive_deletes=True)

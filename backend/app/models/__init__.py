@@ -18,6 +18,7 @@ from app.models.billet import Billet, BilletStatus
 from app.models.embarquement import Embarquement, EmbarquementStatus
 from app.models.finance import Caisse, CaisseStatus, OperationCaisse, OperationType, Paiement, PaiementMethode, PaiementStatus
 from app.models.notification import Notification, NotificationChannel, NotificationType
+from app.models.audit import AuditLog
 
 __all__ = [
     "User",
@@ -63,4 +64,5 @@ __all__ = [
     "Notification",
     "NotificationChannel",
     "NotificationType",
+    "AuditLog",
 ]

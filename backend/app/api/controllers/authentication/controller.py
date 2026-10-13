@@ -61,12 +61,13 @@ def current_user(user: User = Depends(get_current_user)):
 
 @router.post("/logout", response_model=MessageResponse)
 def logout(
-    credentials: HTTPAuthorizationCredentials = Depends(bearer),
-    user: User = Depends(get_current_user),
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
     data: RefreshTokenRequest | None = None,
     db: Session = Depends(get_db),
 ):
-    access_payload = decode_access_token(credentials.credentials)
+    """Revoke the tokens presented. Works with the refresh token alone, so a
+    client whose access token has already expired can still end its session."""
+    access_payload = decode_access_token(credentials.credentials) if credentials else None
     if access_payload and access_payload.get("jti") and not db.get(RevokedToken, access_payload["jti"]):
         db.add(RevokedToken(
             jti=access_payload["jti"],

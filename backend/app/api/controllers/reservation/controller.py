@@ -15,6 +15,7 @@ from app.schemas.common import PageResponse
 from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead
 from app.services.finance import FinanceService
 from app.services.reservation import ReservationService
+from app.services.audit import AuditService
 
 router = APIRouter(tags=["reservations"])
 
@@ -102,7 +103,10 @@ def create_reservation(
     current_user: User = Depends(require_permission("RESERVATION_CREATE")), db: Session = Depends(get_db),
 ):
     owner_id, _ = _scope(db, current_user)
-    return ReservationService(db).create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places], as_passenger=owner_id is not None)
+    item = ReservationService(db).create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places], as_passenger=owner_id is not None)
+    AuditService(db).record(user_id=current_user.id, action="RESERVATION_CREEE", entity_type="reservation", entity_id=item.id, after={"statut": item.statut, "montant_total": item.montant_total})
+    db.commit()
+    return item
 
 
 @router.post("/reservations/guichet", response_model=ReservationRead, status_code=status.HTTP_201_CREATED)
@@ -187,7 +191,10 @@ def cancel_reservation(
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
     can_refund_now = has_permission(current_user, "PAIEMENT_REFUND") and has_permission(current_user, "CAISSE_MANAGE")
-    return ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
+    item = ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
+    AuditService(db).record(user_id=current_user.id, action="RESERVATION_ANNULEE", entity_type="reservation", entity_id=reservation_id, after={"statut": item.statut})
+    db.commit()
+    return item
 
 
 @router.patch("/depart-places/{place_id}", response_model=DepartPlaceRead)
