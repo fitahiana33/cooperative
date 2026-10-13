@@ -3,15 +3,20 @@ import { onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { financeService } from "../../services/finance/service";
 import { cooperativeService } from "../../services/cooperative/service";
 import type { Caisse } from "../../models/finance/model";
 import type { Cooperative } from "../../models/cooperative/model";
 import type { OperationCaisse } from "../../services/finance/service";
 import { userError } from "../../utils/errors";
+import { askCountedAmount, discrepancyMessage } from "../../utils/cash";
 const route = useRoute();
 const caisse = ref<Caisse | null>(null);
 const operations = ref<OperationCaisse[]>([]);
+const operationPage = ref(1);
+const operationPages = ref(1);
+const operationTotal = ref(0);
 const cooperatives = ref<Cooperative[]>([]);
 const depenseMontant = ref("");
 const depenseCooperative = ref<number | null>(null);
@@ -28,19 +33,19 @@ async function load() {
   loading.value = true;
   try {
     const id = Number(route.params.id);
-    const [cash, ops, cooperativePage] = await Promise.all([
+    const [cash, ops] = await Promise.all([
       financeService.getCaisse(id),
-      financeService.listOperations(id, { page: 1, page_size: 100 }),
-      cooperativeService.listCooperatives({
-        page: 1,
-        page_size: 100,
-        sort_by: "nom",
-        sort_order: "asc",
-      }),
+      financeService.listOperations(id, { page: operationPage.value, page_size: 20 }),
     ]);
     caisse.value = cash;
     operations.value = ops.items || ops;
-    cooperatives.value = cooperativePage.items || [];
+    operationTotal.value = ops.total || operations.value.length;
+    operationPages.value = ops.pages || 1;
+    // Cooperative names only label the operations; agents may not be allowed to list them.
+    cooperatives.value = await cooperativeService
+      .listCooperatives({ page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" })
+      .then((page) => page.items || [])
+      .catch(() => []);
   } catch (value: unknown) {
     showError(value, "Impossible de charger la caisse.");
   } finally {
@@ -48,11 +53,14 @@ async function load() {
   }
 }
 async function close() {
-  if (!caisse.value || !window.confirm("Clôturer cette caisse ?")) return;
+  if (!caisse.value) return;
+  const counted = askCountedAmount(caisse.value.solde);
+  if (counted === null) return;
   busy.value = true;
+  error.value = "";
   try {
-    await financeService.close(caisse.value.id);
-    success.value = "Caisse clôturée.";
+    const closed = await financeService.close(caisse.value.id, counted);
+    success.value = discrepancyMessage(closed.ecart_cloture);
     await load();
   } catch (value: unknown) {
     showError(value);
@@ -63,6 +71,7 @@ async function close() {
 async function addDepense() {
   if (!caisse.value) return;
   busy.value = true;
+  error.value = "";
   error.value = "";
   try {
     const data: Record<string, unknown> = {
@@ -91,6 +100,13 @@ function operationClass(type: string) {
   return "";
 }
 onMounted(load);
+
+function changeOperationPage(next: number) {
+  if (next >= 1 && next <= operationPages.value) {
+    operationPage.value = next;
+    void load();
+  }
+}
 </script>
 <template>
   <AppLayout
@@ -177,7 +193,9 @@ onMounted(load);
             <span class="detail-label">Solde</span
             ><strong>{{ caisse.solde }}</strong>
           </div>
-        </div></BaseCard
+        </div>
+        <PaginationControls :page="operationPage" :pages="operationPages" :total="operationTotal" item-label="opération(s)" @change="changeOperationPage" />
+      </BaseCard
       ><BaseCard v-if="caisse.statut === 'OUVERTE'"
         ><div class="card-heading">
           <div>

@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, Query, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import ensure_cooperative_access, get_user_cooperative_ids, has_global_cooperative_access, require_permission, require_roles
@@ -61,7 +61,8 @@ def attach_itineraire_cooperative(
     itineraire_id: int, cooperative_id: int, data: ItineraireCooperativeCreate | None = None,
     current_user: User = Depends(require_permission("ITINERAIRE_COOPERATIVE_MANAGE")), db: Session = Depends(get_db),
 ):
-    ensure_cooperative_access(db, current_user, cooperative_id)
+    if not has_global_cooperative_access(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seuls l'administrateur et le responsable de gare peuvent autoriser une coopérative sur un itinéraire.")
     values = data.model_dump(exclude_unset=True) if data else {}
     return ItineraireService(db).attach_cooperative(itineraire_id, cooperative_id, **values)
 
@@ -84,7 +85,8 @@ def update_itineraire_cooperative(
     current_user: User = Depends(require_permission("ITINERAIRE_COOPERATIVE_MANAGE")),
     db: Session = Depends(get_db),
 ):
-    ensure_cooperative_access(db, current_user, cooperative_id)
+    if not has_global_cooperative_access(current_user):
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Seuls l'administrateur et le responsable de gare peuvent autoriser une coopérative sur un itinéraire.")
     return ItineraireService(db).update_cooperative_association(
         itineraire_id,
         cooperative_id,

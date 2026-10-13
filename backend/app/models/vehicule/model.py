@@ -2,6 +2,7 @@ from datetime import date, datetime
 from sqlalchemy import BigInteger, Boolean, CheckConstraint, Date, DateTime, ForeignKey, Index, Integer, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from app.core.clock import local_today
 
 class Vehicule(Base):
     __tablename__ = "vehicules"
@@ -31,6 +32,14 @@ class Vehicule(Base):
 
     modele = relationship("Modele", back_populates="vehicules")
     cooperative = relationship("Cooperative", back_populates="vehicules")
+    @property
+    def places_avant(self) -> int:
+        return self.modele.places_avant if self.modele else 2
+
+    @property
+    def places_par_rangee(self) -> int:
+        return self.modele.places_par_rangee if self.modele else 4
+
     documents = relationship("VehiculeDocument", back_populates="vehicule", passive_deletes=True)
     chauffeurs_assignments = relationship("VehiculeChauffeur", back_populates="vehicule", passive_deletes=True)
     departs = relationship("Depart", back_populates="vehicule", passive_deletes=True)
@@ -62,7 +71,7 @@ class VehiculeDocument(Base):
 
     @property
     def is_expired(self) -> bool:
-        return self.date_expiration is not None and self.date_expiration < date.today()
+        return self.date_expiration is not None and self.date_expiration < local_today()
 
 
 class VehiculeChauffeur(Base):

@@ -23,6 +23,11 @@ export interface Reservation {
   statut: ReservationStatus
   date_expiration?: string | null
   created_at: string
-  depart?: { id: number; id_itineraire: number; id_cooperative: number; id_vehicule: number; date_depart: string; heure_depart: string; nombre_places: number; places_reservees: number; places_disponibles: number; statut: string }
+  depart?: {
+    id: number; id_itineraire: number; id_cooperative: number; id_vehicule: number; date_depart: string; heure_depart: string
+    nombre_places: number; places_reservees: number; places_disponibles: number; statut: string
+    itineraire?: { id: number; destination_depart?: { id: number; nom: string } | null; destination_arrivee?: { id: number; nom: string } | null } | null
+    cooperative?: { id: number; nom: string } | null
+  }
   places: Array<{ id: number; id_depart_place: number; nom_passager: string; telephone_passager?: string; depart_place?: DepartPlace; billet?: { id: number; numero_billet: string; qr_code_uuid: string; statut: string } | null }>
 }

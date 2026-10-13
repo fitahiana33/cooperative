@@ -11,6 +11,7 @@ from app.models.role import Role
 from app.models.cooperative import Cooperative, CooperativeMember
 from app.models.vehicule import Vehicule, VehiculeChauffeur
 from app.core.pagination import paginate
+from app.core.clock import local_today
 
 logger = logging.getLogger("cooperative.chauffeur")
 
@@ -18,9 +19,27 @@ class ChauffeurService:
     def __init__(self, db: Session):
         self.db = db
 
+    def synchronize(self) -> None:
+        """Bring permits and assignments up to date; run by the scheduler."""
+        self._synchronize_expired_permits()
+        self._close_ended_assignments()
+        self._synchronize_scheduled_assignments()
+
+    def _close_ended_assignments(self) -> None:
+        """Deactivate assignments whose end date has passed so the driver and vehicle are free again."""
+        ended = list(self.db.scalars(select(VehiculeChauffeur).where(
+            VehiculeChauffeur.is_active.is_(True),
+            VehiculeChauffeur.date_fin.is_not(None),
+            VehiculeChauffeur.date_fin < local_today(),
+        )))
+        for assignment in ended:
+            assignment.is_active = False
+        if ended:
+            self.db.commit()
+
     def _synchronize_expired_permits(self) -> None:
         """Make expired permits unavailable and close their active assignments."""
-        today = date.today()
+        today = local_today()
         expired = self.db.scalars(
             select(Chauffeur).where(
                 Chauffeur.date_expiration_permis < today,
@@ -40,7 +59,7 @@ class ChauffeurService:
 
     def _synchronize_scheduled_assignments(self) -> None:
         """Activate due assignments while preserving driver/vehicle uniqueness."""
-        today = date.today()
+        today = local_today()
         due_assignments = list(self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.is_active.is_(False),
             VehiculeChauffeur.date_debut <= today,
@@ -68,7 +87,6 @@ class ChauffeurService:
             self.db.commit()
 
     def list_assignments(self, chauffeur_id: int) -> list[VehiculeChauffeur]:
-        self._synchronize_scheduled_assignments()
         self.get_chauffeur(chauffeur_id)
         return list(self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.id_chauffeur == chauffeur_id,
@@ -80,14 +98,14 @@ class ChauffeurService:
             raise HTTPException(status_code=404, detail="Affectation introuvable.")
         if not item.is_active:
             raise HTTPException(status_code=409, detail="Cette affectation est déjà clôturée.")
-        if date.today() < date_debut:
+        if local_today() < date_debut:
             raise HTTPException(status_code=422, detail="Une affectation future ne peut pas encore être clôturée.")
         item.is_active = False
-        item.date_fin = date.today()
+        item.date_fin = local_today()
         self.db.commit()
 
     def _close_driver_assignments(self, chauffeur_id: int) -> None:
-        today = date.today()
+        today = local_today()
         assignments = self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.id_chauffeur == chauffeur_id,
             VehiculeChauffeur.is_active.is_(True),
@@ -107,8 +125,6 @@ class ChauffeurService:
         id_cooperative=None,
         cooperative_ids: set[int] | None = None,
     ):
-        self._synchronize_expired_permits()
-        self._synchronize_scheduled_assignments()
         query = select(Chauffeur)
         if id_cooperative is not None:
             query = query.where(Chauffeur.id_cooperative == id_cooperative)
@@ -128,16 +144,12 @@ class ChauffeurService:
         )
 
     def get_chauffeur(self, chauffeur_id: int) -> Chauffeur:
-        self._synchronize_expired_permits()
-        self._synchronize_scheduled_assignments()
         item = self.db.get(Chauffeur, chauffeur_id)
         if not item:
             raise HTTPException(status_code=404, detail="Chauffeur introuvable.")
         return item
 
     def get_chauffeur_for_user(self, user_id: int) -> Chauffeur:
-        self._synchronize_expired_permits()
-        self._synchronize_scheduled_assignments()
         item = self.db.scalar(select(Chauffeur).where(Chauffeur.id_user == user_id))
         if not item:
             raise HTTPException(status_code=404, detail="Aucun profil chauffeur n'est associé à cet utilisateur.")
@@ -149,7 +161,7 @@ class ChauffeurService:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
         if not user.is_active:
             raise HTTPException(status_code=422, detail="Un utilisateur inactif ne peut pas devenir chauffeur.")
-        if date_expiration_permis < date.today():
+        if date_expiration_permis < local_today():
             raise HTTPException(status_code=422, detail="La date d'expiration du permis est déjà dépassée.")
         cooperative = self.db.get(Cooperative, id_cooperative)
         if not cooperative:
@@ -157,7 +169,7 @@ class ChauffeurService:
         if not cooperative.is_active:
             raise HTTPException(status_code=422, detail="La coopérative sélectionnée est inactive.")
 
-        today = date.today()
+        today = local_today()
         active_member = self.db.scalar(select(CooperativeMember).where(
             CooperativeMember.id_cooperative == id_cooperative,
             CooperativeMember.id_user == id_user,
@@ -243,7 +255,7 @@ class ChauffeurService:
 
         if fields.get("date_expiration_permis") is not None:
             new_expiration = fields["date_expiration_permis"]
-            if new_expiration < date.today():
+            if new_expiration < local_today():
                 raise HTTPException(status_code=422, detail="La date d'expiration du permis est déjà dépassée.")
             for assignment in item.vehicules_assignments:
                 if assignment.is_active and assignment.date_debut > new_expiration:
@@ -257,7 +269,7 @@ class ChauffeurService:
                         detail="L'expiration du permis ne peut pas précéder la fin d'une affectation active.",
                     )
         next_expiration = fields.get("date_expiration_permis", item.date_expiration_permis)
-        if fields.get("disponibilite") is True and next_expiration < date.today():
+        if fields.get("disponibilite") is True and next_expiration < local_today():
             raise HTTPException(
                 status_code=422,
                 detail="Un chauffeur dont le permis est expiré ne peut pas être rendu disponible.",
@@ -311,13 +323,11 @@ class ChauffeurService:
         date_fin: date | None = None,
     ) -> list[Vehicule]:
         """Return vehicles available for this chauffeur and period."""
-        self._synchronize_expired_permits()
-        self._synchronize_scheduled_assignments()
         chauffeur = self.get_chauffeur(chauffeur_id)
 
-        start = date_debut or date.today()
+        start = date_debut or local_today()
         end = date_fin
-        if start < date.today():
+        if start < local_today():
             raise HTTPException(
                 status_code=422,
                 detail="La date de début d'affectation ne peut pas être antérieure à aujourd'hui.",
@@ -397,7 +407,7 @@ class ChauffeurService:
                 detail="L'affectation ne peut pas dépasser l'expiration du permis.",
             )
 
-        today = date.today()
+        today = local_today()
         if new_date_debut is not None:
             item.date_debut = new_date_debut
         if date_fin is not None:
@@ -441,7 +451,7 @@ class ChauffeurService:
 
         if chauffeur.id_cooperative != vehicule.id_cooperative:
             raise HTTPException(status_code=400, detail="Le chauffeur et le vehicule doivent appartenir a la meme cooperative.")
-        if date_debut < date.today():
+        if date_debut < local_today():
             raise HTTPException(status_code=422, detail="La date de début d'affectation ne peut pas être antérieure à aujourd'hui.")
         if chauffeur.date_expiration_permis < date_debut:
             raise HTTPException(status_code=422, detail="Le permis du chauffeur est expiré. Affectation impossible.")
@@ -482,7 +492,7 @@ class ChauffeurService:
         if any(overlaps(existing) for existing in vehicle_periods):
             raise HTTPException(status_code=409, detail="Le véhicule possède déjà une affectation sur cette période.")
 
-        today = date.today()
+        today = local_today()
         assignment = VehiculeChauffeur(
             id_vehicule=vehicule_id,
             id_chauffeur=chauffeur_id,

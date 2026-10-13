@@ -1,10 +1,12 @@
 from datetime import date, datetime, timezone
+import hashlib
+import hmac
 from decimal import Decimal
 from math import ceil
 from uuid import uuid4
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -16,7 +18,11 @@ from app.models.cooperative import GareCooperative
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationStatus
 from app.models.depart import Depart
+from app.services.billet import BilletService
 from app.services.notification import NotificationService
+from app.services.audit import AuditService
+from app.core.clock import local_today
+from app.core.config import settings
 
 
 class FinanceService:
@@ -61,14 +67,16 @@ class FinanceService:
         items = list(self.db.scalars(statement.order_by(OperationCaisse.date_operation.desc(), OperationCaisse.id.desc()).offset((page - 1) * page_size).limit(page_size)))
         return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
 
-    def list_caisses(self, *, page: int = 1, page_size: int = 20, id_gare: int | None = None, gare_ids: set[int] | None = None):
+    def list_caisses(self, *, page: int = 1, page_size: int = 20, id_gare: int | None = None, gare_ids: set[int] | None = None, sort_by: str = "date_ouverture", sort_order: str = "desc"):
         statement = select(Caisse)
         if id_gare:
             statement = statement.where(Caisse.id_gare == id_gare)
         if gare_ids is not None:
             statement = statement.where(Caisse.id_gare.in_(gare_ids))
         total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
-        items = list(self.db.scalars(statement.order_by(Caisse.date_ouverture.desc(), Caisse.id.desc()).offset((page - 1) * page_size).limit(page_size)))
+        sort_column = {"date_ouverture": Caisse.date_ouverture, "statut": Caisse.statut, "montant_ouverture": Caisse.montant_ouverture}.get(sort_by, Caisse.date_ouverture)
+        order = sort_column.asc() if sort_order.lower() == "asc" else sort_column.desc()
+        items = list(self.db.scalars(statement.order_by(order, Caisse.id.desc()).offset((page - 1) * page_size).limit(page_size)))
         return {"items": [self._caisse_read(item) for item in items], "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
 
     def open_caisse(self, *, gare_id: int, agent_id: int, montant_ouverture: Decimal) -> dict:
@@ -87,14 +95,17 @@ class FinanceService:
         self.db.refresh(item)
         return self._caisse_read(item)
 
-    def close_caisse(self, caisse_id: int, *, montant_cloture: Decimal | None = None, gare_ids: set[int] | None = None) -> dict:
+    def close_caisse(self, caisse_id: int, *, montant_cloture: Decimal | None = None, gare_ids: set[int] | None = None, user_id: int | None = None, is_manager: bool = False) -> dict:
         item = self._get_caisse(caisse_id, gare_ids)
         if item.statut != CaisseStatus.OUVERTE:
             raise HTTPException(409, "Cette caisse est déjà clôturée.")
+        if user_id is not None and not is_manager and item.id_agent != user_id:
+            raise HTTPException(403, "Seul l'agent qui a ouvert la caisse, ou un responsable, peut la clôturer.")
         expected = self._summary(item)["solde"]
-        if montant_cloture is not None and montant_cloture != expected:
-            raise HTTPException(422, f"Le montant de clôture attendu est {expected}.")
-        item.montant_cloture = expected if montant_cloture is None else montant_cloture
+        # The counted cash is recorded as is; any difference is kept as a discrepancy.
+        counted = expected if montant_cloture is None else montant_cloture
+        item.montant_cloture = counted
+        item.ecart_cloture = counted - expected
         item.date_cloture = datetime.now(timezone.utc)
         item.statut = CaisseStatus.CLOTUREE
         self.db.commit()
@@ -118,8 +129,8 @@ class FinanceService:
                     GareCooperative.id_gare == caisse.id_gare,
                     GareCooperative.id_cooperative == id_cooperative,
                     GareCooperative.is_active.is_(True),
-                    (GareCooperative.date_debut.is_(None) | (GareCooperative.date_debut <= date.today())),
-                    (GareCooperative.date_fin.is_(None) | (GareCooperative.date_fin >= date.today())),
+                    (GareCooperative.date_debut.is_(None) | (GareCooperative.date_debut <= local_today())),
+                    (GareCooperative.date_fin.is_(None) | (GareCooperative.date_fin >= local_today())),
                 )
             )
             if linked is None:
@@ -130,14 +141,22 @@ class FinanceService:
         self.db.refresh(item)
         return item
 
-    def list_payments(self, *, page: int = 1, page_size: int = 20, reservation_id: int | None = None, cooperative_ids: set[int] | None = None):
-        statement = select(Paiement).join(Reservation).join(Depart, Depart.id == Reservation.id_depart)
+    def list_payments(self, *, page: int = 1, page_size: int = 20, reservation_id: int | None = None, cooperative_ids: set[int] | None = None, to_refund: bool = False, search: str | None = None, sort_by: str = "date_paiement", sort_order: str = "desc"):
+        statement = select(Paiement, Reservation.numero_reservation).join(Reservation).join(Depart, Depart.id == Reservation.id_depart)
         if reservation_id:
             statement = statement.where(Paiement.id_reservation == reservation_id)
+        if to_refund:
+            statement = statement.where(Paiement.statut == PaiementStatus.VALIDE, Paiement.remboursement_demande_le.is_not(None))
+        if search and search.strip():
+            term = f"%{search.strip()}%"
+            statement = statement.where(or_(Paiement.reference_paiement.ilike(term), Reservation.numero_reservation.ilike(term)))
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
         total = self.db.scalar(select(func.count()).select_from(statement.subquery())) or 0
-        items = list(self.db.scalars(statement.order_by(Paiement.date_paiement.desc(), Paiement.id.desc()).offset((page - 1) * page_size).limit(page_size)))
+        sort_column = {"date_paiement": Paiement.date_paiement, "statut": Paiement.statut, "montant": Paiement.montant}.get(sort_by, Paiement.date_paiement)
+        order = sort_column.asc() if sort_order.lower() == "asc" else sort_column.desc()
+        rows = list(self.db.execute(statement.order_by(order, Paiement.id.desc()).offset((page - 1) * page_size).limit(page_size)))
+        items = [{**{attribute.key: getattr(row.Paiement, attribute.key) for attribute in Paiement.__mapper__.column_attrs}, "numero_reservation": row.numero_reservation} for row in rows]
         return {"items": items, "total": total, "page": page, "page_size": page_size, "pages": ceil(total / page_size) if total else 0}
 
     def _ensure_depart_station(self, caisse: Caisse, depart: Depart) -> None:
@@ -156,13 +175,19 @@ class FinanceService:
             raise HTTPException(422, "La caisse ne correspond pas à une gare autorisée pour le départ.")
 
     def create_cash_payment(self, *, reservation_id: int, caisse_id: int, amount: Decimal, reference: str | None, agent_id: int, gare_ids: set[int] | None = None) -> Paiement:
-        reservation = self.db.get(Reservation, reservation_id)
+        # Lock the reservation so two simultaneous payments cannot both pass the checks.
+        reservation = self.db.scalar(select(Reservation).where(Reservation.id == reservation_id).with_for_update())
         if not reservation:
             raise HTTPException(404, "Réservation introuvable.")
         caisse = self._get_caisse(caisse_id, gare_ids)
         if caisse.statut != CaisseStatus.OUVERTE:
             raise HTTPException(422, "La caisse doit être ouverte pour encaisser un paiement.")
         self._ensure_depart_station(caisse, getattr(reservation, "depart", None))
+        if reservation.statut == ReservationStatus.EN_ATTENTE and reservation.date_expiration and reservation.date_expiration <= datetime.now(timezone.utc):
+            # The trigger on reservations releases the seats.
+            reservation.statut = ReservationStatus.EXPIREE
+            self.db.commit()
+            raise HTTPException(409, "Le délai de paiement de cette réservation est dépassé ; les places ont été libérées.")
         if reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
             raise HTTPException(409, "Cette réservation ne peut plus être payée.")
         already_paid = self.db.scalar(select(func.coalesce(func.sum(Paiement.montant), 0)).where(Paiement.id_reservation == reservation_id, Paiement.statut == PaiementStatus.VALIDE)) or Decimal("0")
@@ -171,13 +196,103 @@ class FinanceService:
             raise HTTPException(422, f"Le montant à payer est exactement {remaining} {getattr(reservation.depart.tarif, 'devise', '')}.")
         item = Paiement(id_reservation=reservation_id, montant=amount, methode=PaiementMethode.ESPECES, reference_paiement=reference or f"CASH-{uuid4().hex[:12].upper()}", statut=PaiementStatus.VALIDE, id_agent=agent_id)
         self.db.add(item)
-        self.db.flush()
+        try:
+            self.db.flush()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(409, "Cette réservation est déjà payée.")
         reservation.statut = ReservationStatus.PAYEE
+        # A reservation paid without prior confirmation still needs its tickets.
+        BilletService.issue_for_reservation(self.db, reservation)
         self.db.add(OperationCaisse(id_caisse=caisse_id, type_operation=OperationType.RECETTE, montant=amount, id_paiement=item.id, id_cooperative=reservation.depart.id_cooperative, description=f"Paiement {item.reference_paiement}"))
         NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
         self.db.commit()
         self.db.refresh(item)
         return item
+
+    def create_online_payment(self, *, reservation_id: int, amount: Decimal, idempotency_key: str, user_id: int) -> dict:
+        """Create a pending payment without trusting the client for confirmation.
+
+        The provider adapter is deliberately represented by a stable contract:
+        the real provider calls the signed webhook below, while development can
+        use the `mock` provider and replay the same webhook flow.
+        """
+        if not settings.online_payment_enabled:
+            raise HTTPException(503, "Le paiement en ligne est désactivé : présentez-vous au guichet pour payer en espèces.")
+        existing = self.db.scalar(select(Paiement).where(Paiement.cle_idempotence == idempotency_key))
+        if existing:
+            return self._online_read(existing)
+        reservation = self.db.scalar(select(Reservation).where(Reservation.id == reservation_id).with_for_update())
+        if not reservation:
+            raise HTTPException(404, "Réservation introuvable.")
+        if reservation.id_user != user_id:
+            raise HTTPException(403, "Cette réservation n'appartient pas à votre compte.")
+        if reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
+            raise HTTPException(409, "Cette réservation ne peut plus être payée.")
+        if Decimal(amount) != Decimal(reservation.montant_total):
+            raise HTTPException(422, f"Le montant à payer est exactement {reservation.montant_total}.")
+        reference = f"ONLINE-{uuid4().hex[:16].upper()}"
+        item = Paiement(
+            id_reservation=reservation_id, montant=amount, methode=PaiementMethode.MOBILE_MONEY,
+            reference_paiement=reference, fournisseur=settings.payment_provider,
+            reference_fournisseur=reference, cle_idempotence=idempotency_key,
+            statut=PaiementStatus.EN_ATTENTE, id_agent=None,
+        )
+        self.db.add(item)
+        try:
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            item = self.db.scalar(select(Paiement).where(Paiement.cle_idempotence == idempotency_key))
+            if item:
+                return self._online_read(item)
+            raise HTTPException(409, "Cette demande de paiement existe déjà.")
+        self.db.refresh(item)
+        AuditService(self.db).record(user_id=user_id, action="PAIEMENT_EN_LIGNE_INITIE", entity_type="paiement", entity_id=item.id, after={"statut": item.statut, "fournisseur": item.fournisseur})
+        self.db.commit()
+        return self._online_read(item)
+
+    @staticmethod
+    def _online_read(item: Paiement) -> dict:
+        return {
+            "id_paiement": item.id, "statut": item.statut, "fournisseur": item.fournisseur or settings.payment_provider,
+            "reference_paiement": item.reference_paiement or "", "montant": item.montant,
+            "message": "Paiement en attente de confirmation du fournisseur.",
+            "checkout_url": None,
+        }
+
+    def handle_online_webhook(self, *, provider: str, payload: dict, signature: str | None) -> dict:
+        if not settings.online_payment_enabled:
+            raise HTTPException(503, "Les paiements en ligne sont désactivés.")
+        if provider != settings.payment_provider:
+            raise HTTPException(404, "Fournisseur de paiement inconnu.")
+        raw = payload.get("reference_paiement") or payload.get("reference")
+        status_value = str(payload.get("statut") or payload.get("status") or "").upper()
+        if not raw or status_value not in {PaiementStatus.VALIDE, PaiementStatus.ECHOUE}:
+            raise HTTPException(422, "Webhook de paiement incomplet.")
+        expected = hmac.new(settings.payment_webhook_secret.encode(), f"{provider}:{raw}:{status_value}".encode(), hashlib.sha256).hexdigest()
+        if not signature or not hmac.compare_digest(expected, signature):
+            raise HTTPException(401, "Signature de webhook invalide.")
+        item = self.db.scalar(select(Paiement).where(Paiement.reference_paiement == raw, Paiement.fournisseur == provider).with_for_update())
+        if not item:
+            raise HTTPException(404, "Paiement fournisseur introuvable.")
+        if item.statut == PaiementStatus.VALIDE:
+            return {"id_paiement": item.id, "statut": item.statut, "idempotent": True}
+        item.statut = status_value
+        item.webhook_recu_le = datetime.now(timezone.utc)
+        item.reference_fournisseur = str(payload.get("reference_fournisseur") or raw)[:150]
+        if status_value == PaiementStatus.VALIDE:
+            reservation = item.reservation
+            reservation.statut = ReservationStatus.PAYEE
+            BilletService.issue_for_reservation(self.db, reservation)
+            NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement en ligne confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
+        self.db.commit()
+        return {"id_paiement": item.id, "statut": item.statut, "idempotent": False}
+
+    def request_refund(self, payment: Paiement) -> None:
+        """Mark a payment as to be refunded by a cashier (the reservation is cancelled meanwhile)."""
+        if payment.statut == PaiementStatus.VALIDE and payment.remboursement_demande_le is None:
+            payment.remboursement_demande_le = datetime.now(timezone.utc)
 
     def refund(self, payment_id: int, *, caisse_id: int, agent_id: int, gare_ids: set[int] | None = None, commit: bool = True) -> Paiement:
         item = self.db.get(Paiement, payment_id)

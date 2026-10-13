@@ -4,6 +4,8 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import (
+    has_permission,
+    is_staff,
     ensure_cooperative_access,
     get_user_gare_ids,
     get_user_cooperative_ids,
@@ -17,14 +19,20 @@ from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
 from app.schemas.depart import DepartCreate, DepartPointage, DepartRead, DepartStatusUpdate, DepartUpdate
 from app.services.depart import DepartService
+from app.services.audit import AuditService
 
 router = APIRouter(prefix="/departs", tags=["departs"])
 
 
 def _scope(db: Session, user: User) -> set[int] | None:
+    if has_global_cooperative_access(user):
+        return None
+    if is_staff(user):
+        return get_user_cooperative_ids(db, user)
+    # Passengers browse every departure to book one.
     if has_active_role(user, UserRole.PASSAGER):
         return None
-    return None if has_global_cooperative_access(user) else get_user_cooperative_ids(db, user)
+    return set()
 
 
 @router.get("", response_model=PageResponse[DepartRead])
@@ -38,10 +46,19 @@ def list_departs(
     id_cooperative: int | None = None,
     date_from: date | None = None,
     date_to: date | None = None,
+    id_destination_depart: int | None = Query(None, description="Ville de départ (destination d'origine)."),
+    id_destination_arrivee: int | None = Query(None, description="Ville d'arrivée."),
+    id_itineraire: int | None = None,
+    id_vehicule: int | None = None,
+    id_chauffeur: int | None = None,
+    reservable: bool = Query(False, description="Seulement les départs encore réservables (ouverts, non complets, pas encore partis)."),
     current_user: User = Depends(require_permission("DEPART_READ")),
     db: Session = Depends(get_db),
 ):
-    if id_cooperative is not None:
+    scope = _scope(db, current_user)
+    # Filtering only narrows what the user may already see; it needs a check
+    # only for scoped staff (passengers browse every departure).
+    if id_cooperative is not None and scope is not None:
         ensure_cooperative_access(db, current_user, id_cooperative)
     return DepartService(db).list_departs(
         page=page,
@@ -53,7 +70,13 @@ def list_departs(
         id_cooperative=id_cooperative,
         date_from=date_from,
         date_to=date_to,
-        cooperative_ids=_scope(db, current_user),
+        cooperative_ids=scope,
+        id_destination_depart=id_destination_depart,
+        id_destination_arrivee=id_destination_arrivee,
+        id_itineraire=id_itineraire,
+        id_vehicule=id_vehicule,
+        id_chauffeur=id_chauffeur,
+        reservable=reservable,
     )
 
 
@@ -77,7 +100,10 @@ def create_depart(
     db: Session = Depends(get_db),
 ):
     ensure_cooperative_access(db, current_user, data.id_cooperative)
-    return DepartService(db).create_depart(**data.model_dump())
+    item = DepartService(db).create_depart(**data.model_dump())
+    AuditService(db).record(user_id=current_user.id, action="DEPART_CREE", entity_type="depart", entity_id=item.id, after={"date_depart": item.date_depart, "statut": item.statut})
+    db.commit()
+    return item
 
 
 @router.get("/{depart_id}", response_model=DepartRead)
@@ -100,7 +126,10 @@ def update_depart(
     current = service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
     values = data.model_dump(exclude_unset=True)
     ensure_cooperative_access(db, current_user, values.get("id_cooperative", current.id_cooperative))
-    return service.update_depart(depart_id, **values)
+    item = service.update_depart(depart_id, **values)
+    AuditService(db).record(user_id=current_user.id, action="DEPART_MODIFIE", entity_type="depart", entity_id=depart_id, after=values)
+    db.commit()
+    return item
 
 
 @router.patch("/{depart_id}/status", response_model=DepartRead)
@@ -112,7 +141,10 @@ def update_depart_status(
 ):
     service = DepartService(db)
     service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
-    return service.update_status(depart_id, data.statut)
+    item = service.update_status(depart_id, data.statut)
+    AuditService(db).record(user_id=current_user.id, action="DEPART_STATUT_MODIFIE", entity_type="depart", entity_id=depart_id, after={"statut": data.statut})
+    db.commit()
+    return item
 
 
 @router.post("/{depart_id}/pointage", response_model=DepartRead)
@@ -134,7 +166,11 @@ def cancel_depart(
 ):
     service = DepartService(db)
     service.get_depart(depart_id, cooperative_ids=_scope(db, current_user))
-    return service.cancel_depart(depart_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user))
+    can_refund_now = has_permission(current_user, "PAIEMENT_REFUND") and has_permission(current_user, "CAISSE_MANAGE")
+    item = service.cancel_depart(depart_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
+    AuditService(db).record(user_id=current_user.id, action="DEPART_ANNULE", entity_type="depart", entity_id=depart_id, after={"statut": item.statut})
+    db.commit()
+    return item
 
 
 @router.delete("/{depart_id}", status_code=status.HTTP_204_NO_CONTENT)

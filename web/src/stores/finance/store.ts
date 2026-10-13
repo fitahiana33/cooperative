@@ -66,7 +66,7 @@ export const useFinanceStore = defineStore('finance', () => {
   async function listOperations(id: number, data: Record<string, any> = {}) {
     loading.value = true
     try {
-      const res = await financeService.operations(id, data)
+      const res = await financeService.listOperations(id, data)
       operations.value = res.items || res
       return operations.value
     } finally {
@@ -77,7 +77,7 @@ export const useFinanceStore = defineStore('finance', () => {
   async function addDepense(idCaisse: number, data: Record<string, any>) {
     loading.value = true
     try {
-      const res = await financeService.operations(idCaisse, { ...data, type: 'DEPENSE' })
+      const res = await financeService.addOperation(idCaisse, { ...data, type_operation: 'DEPENSE' })
       operations.value = res.items || res
       return res
     } finally {

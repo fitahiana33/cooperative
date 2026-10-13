@@ -1,3 +1,4 @@
+import threading
 import logging
 import smtplib
 from email.message import EmailMessage
@@ -139,6 +140,11 @@ class AuthenticationService:
                 status_code=status.HTTP_401_UNAUTHORIZED,
                 detail="Utilisateur introuvable ou inactif.",
             )
+        if user.token_is_stale(refresh_payload.get("iat")):
+            raise HTTPException(
+                status_code=status.HTTP_401_UNAUTHORIZED,
+                detail="Le mot de passe a été modifié. Reconnectez-vous.",
+            )
 
         # Rotation : dès qu'un refresh token est utilisé, il ne peut plus être
         # rejoué. La révocation est persistée dans PostgreSQL.
@@ -172,7 +178,9 @@ class AuthenticationService:
         if user and user.is_active:
             token = create_password_reset_token(email_clean)
             reset_url = f"{settings.frontend_url.rstrip('/')}/forgot-password?token={quote(token)}"
-            self._send_password_reset_email(email_clean, reset_url)
+            # Sent in the background: the answer must not depend on whether the
+            # account exists or the mail server is slow or failing.
+            threading.Thread(target=self._send_password_reset_email_safely, args=(email_clean, reset_url), daemon=True).start()
             # In a production environment, send an email with the reset token / link.
             logger.info(
                 "[PASSWORD_RESET] Reset token generated for email=%s at=%s",
@@ -181,9 +189,16 @@ class AuthenticationService:
             )
 
         return MessageResponse(
-            reset_url=reset_url if settings.environment.lower() in {"development", "dev", "test"} and not settings.smtp_host else None,
+            reset_url=reset_url if settings.debug_return_reset_url else None,
             message="Si cet email existe dans notre système, des instructions de réinitialisation ont été envoyées."
         )
+
+    @classmethod
+    def _send_password_reset_email_safely(cls, recipient: str, reset_url: str) -> None:
+        try:
+            cls._send_password_reset_email(recipient, reset_url)
+        except Exception:
+            logger.exception("L'email de réinitialisation n'a pas pu être envoyé.")
 
     @staticmethod
     def _send_password_reset_email(recipient: str, reset_url: str) -> None:
@@ -196,7 +211,10 @@ class AuthenticationService:
             "Si vous n'êtes pas à l'origine de cette demande, ignorez ce message."
         )
         if not settings.smtp_host:
-            logger.warning("SMTP non configuré; lien de réinitialisation (développement uniquement): %s", reset_url)
+            if settings.is_development:
+                logger.warning("SMTP non configuré; lien de réinitialisation (développement uniquement): %s", reset_url)
+            else:
+                logger.error("SMTP non configuré : l'email de réinitialisation n'a pas été envoyé.")
             return
         message = EmailMessage()
         message["Subject"] = subject
@@ -228,7 +246,7 @@ class AuthenticationService:
                 detail="Utilisateur non trouvé.",
             )
 
-        user.password_hash = hash_password(data.new_password)
+        user.set_password(hash_password(data.new_password))
         try:
             self.db.add(RevokedToken(
                 jti=payload["jti"],

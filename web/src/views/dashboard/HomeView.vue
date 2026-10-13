@@ -9,6 +9,7 @@ import type {
   DashboardSummary,
 } from "../../models/dashboard/model";
 import { dashboardService } from "../../services/dashboard/service";
+import { useAuthenticationStore } from "../../stores/authentication/store";
 import { userError } from "../../utils/errors";
 
 const data = ref<DashboardSummary>({
@@ -28,6 +29,11 @@ const data = ref<DashboardSummary>({
   departs_imminents: [],
 });
 const period = ref<DashboardStatistics | null>(null);
+const auth = useAuthenticationStore();
+// Each figure is requested only by users allowed to see it, so one missing
+// permission (e.g. statistics for an agent) does not break the whole page.
+const canReadDashboard = computed(() => auth.hasPermission("DASHBOARD_READ"));
+const canReadStatistics = computed(() => auth.hasPermission("STATISTIQUE_READ"));
 const loading = ref(true);
 const error = ref("");
 const lastUpdated = ref<Date | null>(null);
@@ -120,29 +126,32 @@ function statusLabel(status: string) {
 }
 
 async function load() {
+  if (!canReadDashboard.value) {
+    loading.value = false;
+    return;
+  }
   loading.value = true;
   error.value = "";
-  try {
-    const [summary, statistics] = await Promise.all([
-      dashboardService.summary(),
-      dashboardService.statistics(),
-    ]);
-    data.value = summary as DashboardSummary;
-    period.value = statistics as DashboardStatistics;
+  const [summary, statistics] = await Promise.allSettled([
+    dashboardService.summary(),
+    canReadStatistics.value ? dashboardService.statistics() : Promise.resolve(null),
+  ]);
+  if (summary.status === "fulfilled") {
+    data.value = summary.value as DashboardSummary;
     lastUpdated.value = new Date();
-  } catch (value: unknown) {
+  } else {
     error.value = userError(
-      value,
+      summary.reason,
       "Le tableau de bord est momentanément indisponible.",
       "DASHBOARD_ERROR",
     );
-  } finally {
-    loading.value = false;
   }
+  period.value = statistics.status === "fulfilled" ? (statistics.value as DashboardStatistics | null) : null;
+  loading.value = false;
 }
 onMounted(load);
 onMounted(() => {
-  refreshTimer = window.setInterval(load, 30000);
+  if (canReadDashboard.value) refreshTimer = window.setInterval(load, 30000);
 });
 onUnmounted(() => {
   if (refreshTimer) window.clearInterval(refreshTimer);
@@ -162,12 +171,22 @@ onUnmounted(() => {
       <div class="dashboard-actions">
         <button class="secondary-button" type="button" @click="load">
           Actualiser</button
-        ><RouterLink class="primary-button" to="/reservations/new"
+        ><RouterLink v-if="auth.hasPermission('RESERVATION_CREATE')" class="primary-button" to="/reservations/new"
           >Nouvelle réservation</RouterLink
         >
       </div>
     </section>
-    <p v-if="loading" class="status-msg">Chargement des données métier…</p>
+    <BaseCard v-if="!canReadDashboard" class="welcome-card">
+      <h2>Bienvenue {{ auth.user?.first_name || auth.user?.name }}</h2>
+      <p>Le tableau de bord de la gare n’est pas disponible pour votre rôle. Accédez directement à vos espaces :</p>
+      <div class="dashboard-actions">
+        <RouterLink v-if="auth.hasPermission('DEPART_READ')" class="secondary-button" to="/departs">Départs</RouterLink>
+        <RouterLink v-if="auth.hasPermission('RESERVATION_READ')" class="secondary-button" to="/reservations">Réservations</RouterLink>
+        <RouterLink v-if="auth.hasPermission('BILLET_READ')" class="secondary-button" to="/billets">Billets</RouterLink>
+        <RouterLink v-if="auth.hasPermission('NOTIFICATION_READ')" class="secondary-button" to="/notifications">Notifications</RouterLink>
+      </div>
+    </BaseCard>
+    <p v-else-if="loading" class="status-msg">Chargement des données métier…</p>
     <p v-else-if="error" class="error-banner">{{ error }}</p>
     <template v-else>
       <section class="stats-grid">

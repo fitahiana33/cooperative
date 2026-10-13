@@ -1,12 +1,19 @@
+import logging
+
 from sqlalchemy import text
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.db.base import Base
 from app.models.user import User
 
 
+logger = logging.getLogger("cooperative.system")
+
+
 class SystemService:
-    _protected_tables = {"users", "roles", "permissions", "users_roles", "roles_permissions"}
+    # revoked_tokens is kept so logged-out sessions stay revoked.
+    _protected_tables = {"users", "roles", "permissions", "users_roles", "roles_permissions", "revoked_tokens"}
 
     def __init__(self, db: Session):
         self.db = db
@@ -37,4 +44,9 @@ class SystemService:
             {"admin_user_id": admin_user_id},
         ).rowcount or 0
         self.db.commit()
+        qr_dir = settings.uploads_dir / "qr_codes"
+        if qr_dir.is_dir():
+            for path in qr_dir.glob("TKT-*.png"):
+                path.unlink(missing_ok=True)
+        logger.warning("Données métier réinitialisées par l'utilisateur %s (%s tables, %s utilisateurs supprimés).", admin_user_id, len(tables), deleted_users)
         return {"tables_cleared": len(tables), "users_deleted": deleted_users}

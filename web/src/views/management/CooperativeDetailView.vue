@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { managementService } from '../../services/management/service'
 import { chauffeurService } from '../../services/chauffeur/service'
 import { vehiculeService } from '../../services/vehicule/service'
@@ -39,6 +40,11 @@ const gares = ref<GareAssociation[]>([])
 const members = ref<CooperativeMember[]>([])
 const vehicules = ref<Vehicule[]>([])
 const chauffeurs = ref<Chauffeur[]>([])
+const garePage = ref(1)
+const memberPage = ref(1)
+const vehiclePage = ref(1)
+const driverPage = ref(1)
+const relationPageSize = 20
 const availableGares = ref<Gare[]>([])
 const eligibleMembers = ref<User[]>([])
 const selectedGare = ref<number | null>(null)
@@ -53,6 +59,18 @@ const relationSubmitting = ref(false)
 const error = ref('')
 const relationError = ref('')
 const success = ref('')
+
+function pageCount(items: unknown[]) {
+  return Math.max(1, Math.ceil(items.length / relationPageSize))
+}
+function visibleItems<T>(items: T[], page: number) {
+  const start = (page - 1) * relationPageSize
+  return items.slice(start, start + relationPageSize)
+}
+const visibleGares = computed(() => visibleItems(gares.value, garePage.value))
+const visibleMembers = computed(() => visibleItems(members.value, memberPage.value))
+const visibleVehicules = computed(() => visibleItems(vehicules.value, vehiclePage.value))
+const visibleChauffeurs = computed(() => visibleItems(chauffeurs.value, driverPage.value))
 
 const canEdit = computed(() => auth.hasPermission('COOPERATIVE_UPDATE'))
 const canManageRelations = computed(() => auth.hasPermission('COOPERATIVE_UPDATE'))
@@ -84,6 +102,10 @@ function displayDriver(chauffeur: Chauffeur) {
 async function loadRelations() {
   relationLoading.value = true
   relationError.value = ''
+  garePage.value = 1
+  memberPage.value = 1
+  vehiclePage.value = 1
+  driverPage.value = 1
   const requests: Promise<unknown>[] = [
     managementService.listGareAssociations(id.value),
     managementService.listCooperativeMembers(id.value),
@@ -274,8 +296,9 @@ onMounted(async () => {
         </div>
         <div v-if="gares.length" class="table-scroll">
           <table class="data-table"><caption>Liste des gares associees</caption><thead><tr><th>Gare</th><th>Debut</th><th>Fin</th><th>Statut</th><th v-if="canManageRelations">Actions</th></tr></thead>
-            <tbody><tr v-for="gare in gares" :key="gare.id_gare"><td><RouterLink class="table-link" :to="`/gares/${gare.gare?.id || gare.id_gare}`"><strong>{{ gare.gare?.nom || `Gare #${gare.id_gare}` }}</strong></RouterLink><small v-if="gare.gare">{{ gare.gare.ville }}</small></td><td>{{ formatDate(gare.date_debut) }}</td><td>{{ formatDate(gare.date_fin) }}</td><td><span :class="['status-badge', gare.is_active ? 'active' : 'inactive']">{{ gare.is_active ? 'Active' : 'Inactive' }}</span></td><td v-if="canManageRelations"><button class="table-action danger-action" type="button" :disabled="relationSubmitting || !gare.is_active" @click="detachGare(gare.id_gare)">Retirer</button></td></tr></tbody>
+            <tbody><tr v-for="gare in visibleGares" :key="gare.id_gare"><td><RouterLink class="table-link" :to="`/gares/${gare.gare?.id || gare.id_gare}`"><strong>{{ gare.gare?.nom || `Gare #${gare.id_gare}` }}</strong></RouterLink><small v-if="gare.gare">{{ gare.gare.ville }}</small></td><td>{{ formatDate(gare.date_debut) }}</td><td>{{ formatDate(gare.date_fin) }}</td><td><span :class="['status-badge', gare.is_active ? 'active' : 'inactive']">{{ gare.is_active ? 'Active' : 'Inactive' }}</span></td><td v-if="canManageRelations"><button class="table-action danger-action" type="button" :disabled="relationSubmitting || !gare.is_active" @click="detachGare(gare.id_gare)">Retirer</button></td></tr></tbody>
           </table>
+          <PaginationControls :page="garePage" :pages="pageCount(gares)" :total="gares.length" item-label="gare(s)" @change="garePage = $event" />
         </div>
         <div v-else class="empty-state">Aucune gare associee.</div>
       </BaseCard>
@@ -294,21 +317,22 @@ onMounted(async () => {
         </div>
         <div v-if="members.length" class="table-scroll">
           <table class="data-table"><caption>Liste des membres</caption><thead><tr><th>Utilisateur</th><th>Fonction</th><th>Adhesion</th><th>Fin</th><th>Statut</th><th v-if="canManageRelations">Actions</th></tr></thead>
-            <tbody><tr v-for="member in members" :key="member.id_user"><td><strong>{{ displayUser(member) }}</strong><small v-if="member.user">{{ member.user.email }}</small></td><td>{{ member.fonction || 'Membre' }}</td><td>{{ formatDate(member.date_adhesion) }}</td><td>{{ formatDate(member.date_fin) }}</td><td><span :class="['status-badge', member.is_active ? 'active' : 'inactive']">{{ member.is_active ? 'Actif' : 'Inactif' }}</span></td><td v-if="canManageRelations"><button class="table-action danger-action" type="button" :disabled="relationSubmitting || !member.is_active" @click="removeMember(member.id_user)">Retirer</button></td></tr></tbody>
+            <tbody><tr v-for="member in visibleMembers" :key="member.id_user"><td><strong>{{ displayUser(member) }}</strong><small v-if="member.user">{{ member.user.email }}</small></td><td>{{ member.fonction || 'Membre' }}</td><td>{{ formatDate(member.date_adhesion) }}</td><td>{{ formatDate(member.date_fin) }}</td><td><span :class="['status-badge', member.is_active ? 'active' : 'inactive']">{{ member.is_active ? 'Actif' : 'Inactif' }}</span></td><td v-if="canManageRelations"><button class="table-action danger-action" type="button" :disabled="relationSubmitting || !member.is_active" @click="removeMember(member.id_user)">Retirer</button></td></tr></tbody>
           </table>
+          <PaginationControls :page="memberPage" :pages="pageCount(members)" :total="members.length" item-label="membre(s)" @change="memberPage = $event" />
         </div>
         <div v-else class="empty-state">Aucun membre enregistre.</div>
       </BaseCard>
 
       <BaseCard>
         <div class="card-heading"><div><h2>Vehicules ({{ vehicules.length }})</h2><p>Vehicules appartenant a cette cooperative.</p></div><RouterLink class="card-link" to="/vehicules">Voir la flotte <span>-&gt;</span></RouterLink></div>
-        <div v-if="vehicules.length" class="table-scroll"><table class="data-table"><caption>Vehicules de la cooperative</caption><thead><tr><th>Immatriculation</th><th>Modele</th><th>Places</th><th>Disponibilite</th><th>Etat</th></tr></thead><tbody><tr v-for="vehicule in vehicules" :key="vehicule.id"><td><RouterLink class="table-link" :to="`/vehicules/${vehicule.id}`"><strong>{{ vehicule.immatriculation }}</strong></RouterLink></td><td>{{ vehicule.modele?.nom || `Modele #${vehicule.id_modele}` }}</td><td>{{ vehicule.nombre_places }}</td><td>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td>{{ vehicule.etat }}</td></tr></tbody></table></div>
+        <div v-if="vehicules.length" class="table-scroll"><table class="data-table"><caption>Vehicules de la cooperative</caption><thead><tr><th>Immatriculation</th><th>Modele</th><th>Places</th><th>Disponibilite</th><th>Etat</th></tr></thead><tbody><tr v-for="vehicule in visibleVehicules" :key="vehicule.id"><td><RouterLink class="table-link" :to="`/vehicules/${vehicule.id}`"><strong>{{ vehicule.immatriculation }}</strong></RouterLink></td><td>{{ vehicule.modele?.nom || `Modele #${vehicule.id_modele}` }}</td><td>{{ vehicule.nombre_places }}</td><td>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td>{{ vehicule.etat }}</td></tr></tbody></table><PaginationControls :page="vehiclePage" :pages="pageCount(vehicules)" :total="vehicules.length" item-label="véhicule(s)" @change="vehiclePage = $event" /></div>
         <div v-else class="empty-state">Aucun vehicule enregistre.</div>
       </BaseCard>
 
       <BaseCard>
         <div class="card-heading"><div><h2>Chauffeurs ({{ chauffeurs.length }})</h2><p>Chauffeurs rattaches a cette cooperative.</p></div><RouterLink class="card-link" to="/chauffeurs">Voir les chauffeurs <span>-&gt;</span></RouterLink></div>
-        <div v-if="chauffeurs.length" class="table-scroll"><table class="data-table"><caption>Chauffeurs de la cooperative</caption><thead><tr><th>Utilisateur</th><th>Permis</th><th>Expiration</th><th>Disponibilite</th><th>Statut</th></tr></thead><tbody><tr v-for="chauffeur in chauffeurs" :key="chauffeur.id"><td><RouterLink class="table-link" :to="`/chauffeurs/${chauffeur.id}`"><strong>{{ displayDriver(chauffeur) }}</strong></RouterLink></td><td>{{ chauffeur.numero_permis }}</td><td>{{ formatDate(chauffeur.date_expiration_permis) }}</td><td>{{ chauffeur.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td><span :class="['status-badge', chauffeur.is_active ? 'active' : 'inactive']">{{ chauffeur.is_active ? 'Actif' : 'Inactif' }}</span></td></tr></tbody></table></div>
+        <div v-if="chauffeurs.length" class="table-scroll"><table class="data-table"><caption>Chauffeurs de la cooperative</caption><thead><tr><th>Utilisateur</th><th>Permis</th><th>Expiration</th><th>Disponibilite</th><th>Statut</th></tr></thead><tbody><tr v-for="chauffeur in visibleChauffeurs" :key="chauffeur.id"><td><RouterLink class="table-link" :to="`/chauffeurs/${chauffeur.id}`"><strong>{{ displayDriver(chauffeur) }}</strong></RouterLink></td><td>{{ chauffeur.numero_permis }}</td><td>{{ formatDate(chauffeur.date_expiration_permis) }}</td><td>{{ chauffeur.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td><span :class="['status-badge', chauffeur.is_active ? 'active' : 'inactive']">{{ chauffeur.is_active ? 'Actif' : 'Inactif' }}</span></td></tr></tbody></table><PaginationControls :page="driverPage" :pages="pageCount(chauffeurs)" :total="chauffeurs.length" item-label="chauffeur(s)" @change="driverPage = $event" /></div>
         <div v-else class="empty-state">Aucun chauffeur enregistre.</div>
       </BaseCard>
     </template>

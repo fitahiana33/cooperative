@@ -7,9 +7,12 @@ import { departService } from '../../services/depart/service'
 import { reservationService } from '../../services/reservation/service'
 import type { Depart, DepartStatus } from '../../models/depart/model'
 import type { DepartPlace, PlaceStatus } from '../../models/reservation/model'
+import { useAuthenticationStore } from '../../stores/authentication/store'
 import { userError } from '../../utils/errors'
 
 const route = useRoute()
+// Everyone who sees the departure sees its seats; only PLACE_MANAGE may change them.
+const canManage = computed(() => useAuthenticationStore().hasPermission('PLACE_MANAGE'))
 const departId = Number(route.params.id)
 const depart = ref<Depart | null>(null)
 const places = ref<DepartPlace[]>([])
@@ -68,7 +71,7 @@ async function loadPlaces() {
 }
 
 function startEdit(place: DepartPlace) {
-  if (busy.value) return
+  if (busy.value || !canManage.value) return
   editingPlaceId.value = place.id
   newStatut.value = place.statut
 }

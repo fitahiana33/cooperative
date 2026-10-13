@@ -1,7 +1,10 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
+import { computed, onMounted, ref, watch } from 'vue'
+import { localIsoDate, daysAgo } from '../../utils/date'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import ListToolbar from '../../components/ui/ListToolbar.vue'
+import PaginationControls from '../../components/ui/PaginationControls.vue'
 import type { DashboardStatistics } from '../../models/dashboard/model'
 import { dashboardService } from '../../services/dashboard/service'
 import { userError } from '../../utils/errors'
@@ -9,11 +12,17 @@ import { userError } from '../../utils/errors'
 const data = ref<DashboardStatistics | null>(null)
 const loading = ref(true)
 const error = ref('')
-const today = new Date().toISOString().slice(0, 10)
-const defaultFrom = new Date(Date.now() - 29 * 86400000).toISOString().slice(0, 10)
+const today = localIsoDate()
+const defaultFrom = localIsoDate(daysAgo(29))
 const dateFrom = ref(defaultFrom)
 const dateTo = ref(today)
 const viewMode = ref<'trends' | 'details'>('trends')
+const detailSearch = ref('')
+const detailSortBy = ref<'date' | 'total' | 'reservations'>('date')
+const detailSortOrder = ref<'asc' | 'desc'>('desc')
+const detailPage = ref(1)
+const routePage = ref(1)
+const detailPageSize = 20
 const invalidPeriod = computed(() => !dateFrom.value || !dateTo.value || dateTo.value < dateFrom.value)
 
 const totals = computed(() => {
@@ -49,9 +58,34 @@ const chartXAxis = computed(() => {
   return indexes.map((index) => ({ date: rows[index].date, position: (index / (rows.length - 1)) * 100 }))
 })
 
+const detailRows = computed(() => {
+  const term = detailSearch.value.trim().toLowerCase()
+  return [...(data.value?.departs || [])].filter((row) => !term || row.date.toLowerCase().includes(term)).sort((left, right) => {
+    const a = detailSortBy.value === 'date' ? left.date : detailSortBy.value === 'total' ? left.total : left.places_reservees
+    const b = detailSortBy.value === 'date' ? right.date : detailSortBy.value === 'total' ? right.total : right.places_reservees
+    const comparison = typeof a === 'number' && typeof b === 'number' ? a - b : String(a).localeCompare(String(b), 'fr', { numeric: true })
+    return detailSortOrder.value === 'asc' ? comparison : -comparison
+  })
+})
+const routeRows = computed(() => {
+  const term = detailSearch.value.trim().toLowerCase()
+  return [...(data.value?.destinations || [])].filter((row) => !term || String(row.libelle || `Itinéraire #${row.id_itineraire}`).toLowerCase().includes(term)).sort((left, right) => {
+    const comparison = left.reservations - right.reservations
+    return detailSortOrder.value === 'asc' ? comparison : -comparison
+  })
+})
+const detailPages = computed(() => Math.max(1, Math.ceil(detailRows.value.length / detailPageSize)))
+const routePages = computed(() => Math.max(1, Math.ceil(routeRows.value.length / detailPageSize)))
+const visibleDetailRows = computed(() => detailRows.value.slice((detailPage.value - 1) * detailPageSize, detailPage.value * detailPageSize))
+const visibleRouteRows = computed(() => routeRows.value.slice((routePage.value - 1) * detailPageSize, routePage.value * detailPageSize))
+function resetDetailPages() { detailPage.value = 1; routePage.value = 1 }
+function toggleDetailSort() { detailSortOrder.value = detailSortOrder.value === 'asc' ? 'desc' : 'asc'; resetDetailPages() }
+watch([detailSearch, detailSortBy, detailSortOrder], resetDetailPages)
+
 async function load() {
   loading.value = true
   error.value = ''
+  resetDetailPages()
   if (invalidPeriod.value) {
     error.value = 'La date de fin doit être postérieure ou égale à la date de début.'
     loading.value = false
@@ -74,12 +108,12 @@ onMounted(load)
         <section class="trend-grid"><BaseCard><div class="trend-panel"><span class="stat-label">Évolution des départs</span><strong>{{ trends.departures.current }} départ(s)</strong><small :class="trends.variations.departures >= 0 ? 'positive' : 'negative'">{{ trends.variations.departures >= 0 ? '+' : '' }}{{ trends.variations.departures }}% par rapport à la période précédente</small></div></BaseCard><BaseCard><div class="trend-panel"><span class="stat-label">Évolution des réservations</span><strong>{{ trends.reservations.current }} réservation(s)</strong><small :class="trends.variations.reservations >= 0 ? 'positive' : 'negative'">{{ trends.variations.reservations >= 0 ? '+' : '' }}{{ trends.variations.reservations }}% par rapport à la période précédente</small></div></BaseCard><BaseCard><div class="trend-panel"><span class="stat-label">Évolution du remplissage</span><strong>{{ trends.occupancy.current }}%</strong><small :class="trends.variations.occupancy >= 0 ? 'positive' : 'negative'">{{ trends.variations.occupancy >= 0 ? '+' : '' }}{{ trends.variations.occupancy }}% par rapport à la période précédente</small></div></BaseCard></section>
         <BaseCard class="main-chart"><div class="card-heading"><div><h2>Évolution quotidienne de l’activité</h2><p>Une tendance nécessite au moins deux dates. Les courbes comparent les départs et réservations (nombre) ainsi que le remplissage (%).</p></div></div><div v-if="chartRows.length < 2" class="single-point-state"><div class="single-point-icon">•</div><strong>Pas encore assez de données pour tracer une évolution</strong><span>{{ chartRows.length ? `Donnée disponible : ${formatDate(chartRows[0].date)}` : 'Aucune donnée sur cette période.' }}</span><small>Élargissez la période ou enregistrez une autre journée d’activité.</small></div><template v-else><div class="chart-shell"><div class="axis-y left"><span>{{ chartMax }}</span><span>{{ Math.round(chartMax / 2) }}</span><span>0</span></div><svg class="trend-chart" viewBox="0 0 100 100" preserveAspectRatio="none" role="img" aria-label="Évolution des départs et réservations par jour"><line x1="0" y1="12" x2="100" y2="12" class="grid-line"/><line x1="0" y1="56" x2="100" y2="56" class="grid-line"/><line x1="0" y1="100" x2="100" y2="100" class="axis-line"/><polyline :points="chartPoints('total').join(' ')" class="line departures-line"/><polyline :points="chartPoints('reservations').join(' ')" class="line reservations-line"/><polyline :points="occupancyPoints.join(' ')" class="line occupancy-line"/></svg><div class="axis-y right"><span>100%</span><span>50%</span><span>0%</span></div></div><div class="axis-x"><span v-for="tick in chartXAxis" :key="tick.date" :style="{ left: `${tick.position}%` }">{{ formatDate(tick.date) }}</span></div><div class="chart-legend"><span><i class="legend departures"></i>Départs (nombre)</span><span><i class="legend reservations"></i>Réservations (nombre)</span><span><i class="legend occupancy"></i>Remplissage (%)</span></div></template></BaseCard>
 			</template>
-			<section v-else class="content-grid statistics-grid">
+      <ListToolbar v-if="viewMode === 'details'" v-model="detailSearch" :loading="loading" placeholder="Rechercher une date ou un itinéraire" :sort-label="detailSortOrder === 'asc' ? 'Tri croissant ↑' : 'Tri décroissant ↓'" @search="resetDetailPages" @sort="toggleDetailSort" /><div v-if="viewMode === 'details'" class="filter-row statistics-filter"><select v-model="detailSortBy" aria-label="Colonne de tri" @change="resetDetailPages"><option value="date">Trier par date</option><option value="total">Trier par départs</option><option value="reservations">Trier par réservées</option></select></div><section v-if="viewMode === 'details'" class="content-grid statistics-grid">
 
 
 
-				<BaseCard><div class="card-heading"><div><h2>Détail des départs</h2><p>Capacité et remplissage par date.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Départs</th><th>Réservées</th><th>Capacité</th><th>Remplissage</th></tr></thead><tbody><tr v-for="row in data.departs" :key="`detail-${row.date}`"><td>{{ formatDate(row.date) }}</td><td>{{ row.total }}</td><td>{{ row.places_reservees }}</td><td>{{ row.places_total }}</td><td>{{ row.places_total ? Math.round(row.places_reservees * 100 / row.places_total) : 0 }}%</td></tr><tr v-if="!data.departs.length"><td colspan="5" class="empty-state">Aucune donnée.</td></tr></tbody></table></div></BaseCard>
-				<BaseCard><div class="card-heading"><div><h2>Itinéraires demandés</h2><p>Classement par réservations.</p></div></div><div class="route-ranking"><div v-for="(row, index) in data.destinations" :key="row.id_itineraire" class="route-row"><span class="rank">{{ Number(index) + 1 }}</span><span>Itinéraire #{{ row.id_itineraire }}</span><strong>{{ row.reservations }}</strong></div><p v-if="!data.destinations.length" class="empty-state">Aucun itinéraire réservé.</p></div></BaseCard>
+				<BaseCard><div class="card-heading"><div><h2>Détail des départs</h2><p>Capacité et remplissage par date.</p></div></div><div class="table-scroll"><table class="data-table"><thead><tr><th>Date</th><th>Départs</th><th>Réservées</th><th>Capacité</th><th>Remplissage</th></tr></thead><tbody><tr v-for="row in visibleDetailRows" :key="`detail-${row.date}`"><td>{{ formatDate(row.date) }}</td><td>{{ row.total }}</td><td>{{ row.places_reservees }}</td><td>{{ row.places_total }}</td><td>{{ row.places_total ? Math.round(row.places_reservees * 100 / row.places_total) : 0 }}%</td></tr><tr v-if="!detailRows.length"><td colspan="5" class="empty-state">Aucune donnée ne correspond à la recherche.</td></tr></tbody></table></div><PaginationControls :page="detailPage" :pages="detailPages" :total="detailRows.length" item-label="date(s)" @change="detailPage = $event" /></BaseCard>
+				<BaseCard><div class="card-heading"><div><h2>Itinéraires demandés</h2><p>Classement par réservations.</p></div></div><div class="route-ranking"><div v-for="(row, index) in visibleRouteRows" :key="row.id_itineraire" class="route-row"><span class="rank">{{ Number(index) + 1 + (routePage - 1) * detailPageSize }}</span><span>{{ row.libelle || 'Itinéraire #' + row.id_itineraire }}</span><strong>{{ row.reservations }}</strong></div><p v-if="!routeRows.length" class="empty-state">Aucun itinéraire ne correspond à la recherche.</p></div><PaginationControls :page="routePage" :pages="routePages" :total="routeRows.length" item-label="itinéraire(s)" @change="routePage = $event" /></BaseCard>
 			</section>
 		</template>
 	</AppLayout>

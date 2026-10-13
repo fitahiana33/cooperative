@@ -1,5 +1,5 @@
 <script setup lang="ts">
-import { onMounted, ref } from "vue";
+import { onBeforeUnmount, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
@@ -18,14 +18,24 @@ function showError(value: unknown) {
     "BILLET_DETAIL_ERROR",
   );
 }
-function qrUrl(path?: string | null) {
-  if (!path) return "";
-  const apiRoot = (api.defaults.baseURL || "").replace(/\/api\/v1\/?$/, "");
-  return `${apiRoot}${path}`;
+// QR images require authentication, so they are fetched as a blob
+// instead of being linked directly.
+const qrSrc = ref("");
+async function loadQr(id: number) {
+  try {
+    const response = await api.get<Blob>(`/billets/${id}/qr.png`, { responseType: "blob" });
+    qrSrc.value = URL.createObjectURL(response.data);
+  } catch {
+    qrSrc.value = "";
+  }
 }
+onBeforeUnmount(() => {
+  if (qrSrc.value) URL.revokeObjectURL(qrSrc.value);
+});
 async function load() {
   try {
     item.value = await billetService.get(Number(route.params.id));
+    await loadQr(item.value.id);
   } catch (value: unknown) {
     showError(value);
   } finally {
@@ -61,9 +71,9 @@ onMounted(load);
             >
           </div>
         </div>
-        <div v-if="item.qr_code_path" class="qr-panel">
+        <div v-if="qrSrc" class="qr-panel">
           <img
-            :src="qrUrl(item.qr_code_path)"
+            :src="qrSrc"
             :alt="`QR Code du billet ${item.numero_billet}`"
             class="qr-image"
           />

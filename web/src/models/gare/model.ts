@@ -15,7 +15,6 @@ export interface Emplacement {
   nom?: string
   type_emplacement?: string
   description?: string
-  description?: string
   is_available: boolean
   is_active: boolean
   created_at: string
@@ -41,8 +40,8 @@ export interface Gare {
   telephone?: string
   email?: string
   description?: string
-  latitude?: number
-  longitude?: number
+  latitude?: number | null
+  longitude?: number | null
   is_active: boolean
   created_at: string
   updated_at?: string
@@ -58,6 +57,14 @@ export interface GareCreate {
   telephone?: string
   email?: string
   description?: string
-  latitude?: number
-  longitude?: number
+  latitude?: number | null
+  longitude?: number | null
+}
+
+export interface GareAgent {
+  id: number
+  name: string
+  first_name?: string | null
+  email: string
+  telephone?: string | null
 }

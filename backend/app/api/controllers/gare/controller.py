@@ -3,7 +3,7 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.models.user import User
 from app.schemas.gare import (
-    GareCreate, GareUpdate, GareRead, QuaiCreate, QuaiRead, QuaiUpdate,
+    GareAgentRead, GareCreate, GareUpdate, GareRead, QuaiCreate, QuaiRead, QuaiUpdate,
     ZoneCreate, ZoneRead, ZoneUpdate, EmplacementCreate, EmplacementRead, EmplacementUpdate,
 )
 from app.schemas.common import PageResponse
@@ -149,3 +149,24 @@ def toggle_emplacement(gare_id: int, zone_id: int, emplacement_id: int, _: User 
 @router.delete("/{gare_id}/zones/{zone_id}/emplacements/{emplacement_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_emplacement(gare_id: int, zone_id: int, emplacement_id: int, _: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
     GareService(db).delete_emplacement(gare_id, zone_id, emplacement_id)
+
+
+@router.get("/{gare_id}/agents", response_model=list[GareAgentRead])
+def list_gare_agents(gare_id: int, _: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
+    return GareService(db).list_agents(gare_id)
+
+
+@router.get("/{gare_id}/eligible-agents", response_model=list[GareAgentRead])
+def list_eligible_gare_agents(gare_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    GareService(db).get_gare(gare_id)
+    return GareService(db).eligible_agents()
+
+
+@router.post("/{gare_id}/agents/{user_id}", response_model=list[GareAgentRead])
+def add_gare_agent(gare_id: int, user_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db).add_agent(gare_id, user_id)
+
+
+@router.delete("/{gare_id}/agents/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+def remove_gare_agent(gare_id: int, user_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    GareService(db).remove_agent(gare_id, user_id)

@@ -7,6 +7,7 @@ export interface Tarif {
   date_debut: string
   date_fin?: string | null
   is_active: boolean
+  activation_programmee?: boolean
   created_at: string
   updated_at?: string | null
   itineraire?: { id: number; id_destination_depart: number; id_destination_arrivee: number } | null

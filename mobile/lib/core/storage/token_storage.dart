@@ -34,12 +34,15 @@ class TokenStorage {
     return _secureStorage.read(key: _refreshTokenKey);
   }
 
+  /// The cached profile (name, phone, address...) is personal data: it is kept
+  /// in the secure storage like the tokens, not in plain SharedPreferences.
   Future<void> saveUser(Map<String, dynamic> userMap) async {
-    await _prefs.setString(_userKey, jsonEncode(userMap));
+    await _secureStorage.write(key: _userKey, value: jsonEncode(userMap));
+    await _prefs.remove(_userKey);
   }
 
-  Map<String, dynamic>? getUser() {
-    final rawJson = _prefs.getString(_userKey);
+  Future<Map<String, dynamic>?> getUser() async {
+    final rawJson = await _secureStorage.read(key: _userKey);
     if (rawJson == null || rawJson.isEmpty) return null;
     try {
       return jsonDecode(rawJson) as Map<String, dynamic>;
@@ -51,6 +54,7 @@ class TokenStorage {
   Future<void> clear() async {
     await _secureStorage.delete(key: _accessTokenKey);
     await _secureStorage.delete(key: _refreshTokenKey);
+    await _secureStorage.delete(key: _userKey);
     await _prefs.remove(_userKey);
   }
 }

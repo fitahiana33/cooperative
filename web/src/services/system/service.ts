@@ -7,7 +7,7 @@ export interface ResetBusinessDataResult {
 }
 
 export const systemService = {
-  async resetBusinessData() {
-    return (await api.post<ResetBusinessDataResult>('/system/reset-business-data')).data
+  async resetBusinessData(password: string) {
+    return (await api.post<ResetBusinessDataResult>('/system/reset-business-data', { password })).data
   },
 }

@@ -87,15 +87,14 @@ class AuthController extends StateNotifier<AuthState> {
     }
   }
 
+  // Login and registration do not switch the app to the global loading
+  // status: that would replace the form (and erase what was typed). Pages
+  // show their own progress while the request runs.
   Future<bool> login({
     required String email,
     required String password,
   }) async {
-    state = state.copyWith(
-      status: AuthStatus.loading,
-      clearError: true,
-      clearInfo: true,
-    );
+    state = state.copyWith(clearError: true, clearInfo: true);
     try {
       final request = LoginRequestDto(email: email, password: password);
       final user = await _authService.login(request);
@@ -107,7 +106,7 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (error) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: userError(error, 'Email ou mot de passe incorrect.', 'MOBILE_LOGIN_ERROR'),
+        errorMessage: userError(error, 'Connexion impossible.', 'MOBILE_LOGIN_ERROR', unauthorizedMessage: 'Email ou mot de passe incorrect.'),
       );
       return false;
     }
@@ -121,11 +120,7 @@ class AuthController extends StateNotifier<AuthState> {
     String? address,
     required String password,
   }) async {
-    state = state.copyWith(
-      status: AuthStatus.loading,
-      clearError: true,
-      clearInfo: true,
-    );
+    state = state.copyWith(clearError: true, clearInfo: true);
     try {
       final request = RegisterRequestDto(
         name: name,
@@ -182,6 +177,28 @@ class AuthController extends StateNotifier<AuthState> {
         errorMessage: userError(error, 'Code ou jeton invalide ou expiré.', 'MOBILE_RESET_PASSWORD_ERROR'),
       );
       return false;
+    }
+  }
+
+  Future<String?> updateProfile(Map<String, dynamic> fields) async {
+    try {
+      final user = await _authService.updateProfile(fields);
+      state = state.copyWith(user: user);
+      return null;
+    } catch (error) {
+      return userError(error, 'Le profil n’a pas pu être enregistré.', 'MOBILE_PROFILE_ERROR');
+    }
+  }
+
+  /// Returns an error message, or null when the password was changed (the
+  /// user is then signed out, as every session ends on a password change).
+  Future<String?> changePassword({required String currentPassword, required String newPassword}) async {
+    try {
+      await _authService.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+      state = const AuthState(status: AuthStatus.unauthenticated, infoMessage: 'Mot de passe modifié. Reconnectez-vous avec le nouveau mot de passe.');
+      return null;
+    } catch (error) {
+      return userError(error, 'Le mot de passe n’a pas pu être modifié.', 'MOBILE_PASSWORD_ERROR', unauthorizedMessage: 'Mot de passe actuel incorrect.');
     }
   }
 

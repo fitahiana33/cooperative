@@ -1,24 +1,26 @@
-from datetime import date, datetime, time, timezone
+from datetime import date, datetime, time, timedelta, timezone
 import logging
 from math import ceil
 
 from fastapi import HTTPException
-from sqlalchemy import asc, desc, func, or_, select
+from sqlalchemy import and_, asc, desc, func, or_, select
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.chauffeur import Chauffeur
 from app.models.billet import BilletStatus
 from app.models.cooperative import Cooperative
 from app.models.depart import Depart, DepartStatus
+from app.models.destination import Destination
 from app.models.finance import Paiement, PaiementStatus
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.tarif import Tarif
-from app.models.vehicule import Vehicule, VehiculeChauffeur
+from app.models.vehicule import Vehicule, VehiculeChauffeur, VehiculeDocument
 from app.services.finance import FinanceService
 from app.services.notification import NotificationService
+from app.core.clock import local_moment, local_now, local_today
 
 logger = logging.getLogger("cooperative.depart")
 
@@ -33,7 +35,7 @@ class DepartService:
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_depart),
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_arrivee),
             selectinload(Depart.cooperative),
-            selectinload(Depart.vehicule),
+            selectinload(Depart.vehicule).selectinload(Vehicule.modele),
             selectinload(Depart.chauffeur),
             selectinload(Depart.tarif),
         )
@@ -62,6 +64,11 @@ class DepartService:
         date_to: date | None = None,
         id_chauffeur: int | None = None,
         cooperative_ids: set[int] | None = None,
+        id_destination_depart: int | None = None,
+        id_destination_arrivee: int | None = None,
+        id_itineraire: int | None = None,
+        id_vehicule: int | None = None,
+        reservable: bool = False,
     ):
         if date_from and date_to and date_to < date_from:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
@@ -79,9 +86,44 @@ class DepartService:
             statement = statement.where(Depart.date_depart >= date_from)
         if date_to:
             statement = statement.where(Depart.date_depart <= date_to)
+        if id_itineraire is not None:
+            statement = statement.where(Depart.id_itineraire == id_itineraire)
+        if id_vehicule is not None:
+            statement = statement.where(Depart.id_vehicule == id_vehicule)
+        if id_destination_depart is not None or id_destination_arrivee is not None or (search and search.strip()):
+            statement = statement.join(Itineraire, Itineraire.id == Depart.id_itineraire)
+            if id_destination_depart is not None:
+                statement = statement.where(Itineraire.id_destination_depart == id_destination_depart)
+            if id_destination_arrivee is not None:
+                statement = statement.where(Itineraire.id_destination_arrivee == id_destination_arrivee)
         if search and search.strip():
+            # Free text matches the origin, the destination, the cooperative, the plate or the status.
             term = f"%{search.strip()}%"
-            statement = statement.where(Depart.statut.ilike(term))
+            origin = aliased(Destination)
+            arrival = aliased(Destination)
+            statement = (
+                statement.join(origin, origin.id == Itineraire.id_destination_depart)
+                .join(arrival, arrival.id == Itineraire.id_destination_arrivee)
+                .join(Cooperative, Cooperative.id == Depart.id_cooperative)
+                .join(Vehicule, Vehicule.id == Depart.id_vehicule)
+                .where(or_(
+                    origin.nom.ilike(term), arrival.nom.ilike(term), Cooperative.nom.ilike(term),
+                    Cooperative.sigle.ilike(term), Vehicule.immatriculation.ilike(term), Depart.statut.ilike(term),
+                ))
+            )
+        if reservable:
+            # What a passenger can still book: open, not full, and a scheduled
+            # departure whose time has not passed (delayed/boarding ones still count).
+            now = local_now()
+            statement = statement.where(
+                Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE]),
+                Depart.places_reservees < Depart.nombre_places,
+                or_(
+                    Depart.statut != DepartStatus.PROGRAMME,
+                    Depart.date_depart > now.date(),
+                    and_(Depart.date_depart == now.date(), Depart.heure_depart > now.time().replace(tzinfo=None)),
+                ),
+            )
 
         sort_column = {
             "date_depart": Depart.date_depart,
@@ -121,7 +163,7 @@ class DepartService:
         heure_depart: time,
         nombre_places: int | None,
     ) -> int:
-        if date_depart < date.today():
+        if date_depart < local_today():
             raise HTTPException(422, "La date du départ ne peut pas être antérieure à aujourd'hui.")
 
         itinerary = self.db.get(Itineraire, id_itineraire)
@@ -193,7 +235,8 @@ class DepartService:
             raise HTTPException(400, "Le tarif et l'itinéraire doivent correspondre.")
         if tariff.id_cooperative is not None and tariff.id_cooperative != id_cooperative:
             raise HTTPException(400, "Le tarif et la coopérative doivent correspondre.")
-        if not tariff.is_active:
+        scheduled_for_date = tariff.activation_programmee and tariff.date_debut <= date_depart
+        if not tariff.is_active and not scheduled_for_date:
             raise HTTPException(422, "Le tarif sélectionné est inactif.")
         if tariff.date_debut > date_depart or (tariff.date_fin and tariff.date_fin < date_depart):
             raise HTTPException(422, "Le tarif ne couvre pas la date du départ.")
@@ -202,22 +245,51 @@ class DepartService:
         if capacity > vehicle.nombre_places:
             raise HTTPException(422, "Le nombre de places ne peut pas dépasser la capacité du véhicule.")
 
-        conflict = self.db.scalar(
-            select(Depart).where(
-                Depart.id != depart_id if depart_id is not None else True,
-                Depart.statut != DepartStatus.ANNULE,
-                Depart.date_depart == date_depart,
-                Depart.heure_depart == heure_depart,
-                or_(
-                    Depart.id_vehicule == id_vehicule,
-                    Depart.id_chauffeur == id_chauffeur,
-                ),
+        expired_document = self.db.scalar(
+            select(VehiculeDocument).where(
+                VehiculeDocument.id_vehicule == id_vehicule,
+                VehiculeDocument.is_active.is_(True),
+                VehiculeDocument.type_document.in_(["ASSURANCE", "VISITE_TECHNIQUE"]),
+                VehiculeDocument.date_expiration.is_not(None),
+                VehiculeDocument.date_expiration < date_depart,
             )
         )
-        if conflict:
-            raise HTTPException(409, "Le véhicule ou le chauffeur est déjà programmé à cette date et cette heure.")
+        if expired_document:
+            label = "L'assurance" if expired_document.type_document == "ASSURANCE" else "La visite technique"
+            raise HTTPException(422, f"{label} du véhicule expire le {expired_document.date_expiration:%d/%m/%Y}, avant la date du départ.")
 
+        self._check_overlap(depart_id, itinerary, id_vehicule, id_chauffeur, date_depart, heure_depart)
         return capacity
+
+    def _check_overlap(self, depart_id: int | None, itinerary: Itineraire, id_vehicule: int, id_chauffeur: int, date_depart: date, heure_depart: time) -> None:
+        """Refuse a departure whose trip overlaps another trip of the same vehicle or driver."""
+        def window(day: date, at: time, route: Itineraire | None) -> tuple[datetime, datetime]:
+            start = local_moment(day, at)
+            return start, start + timedelta(minutes=(route.duree_estimee_minutes if route and route.duree_estimee_minutes else 60))
+
+        start, end = window(date_depart, heure_depart, itinerary)
+        candidates = self.db.scalars(
+            select(Depart).where(
+                Depart.id != depart_id if depart_id is not None else True,
+                Depart.statut.not_in([DepartStatus.ANNULE, DepartStatus.TERMINE]),
+                # Long trips run overnight, so look at the neighbouring days too.
+                Depart.date_depart.between(date_depart - timedelta(days=2), date_depart + timedelta(days=2)),
+                or_(Depart.id_vehicule == id_vehicule, Depart.id_chauffeur == id_chauffeur),
+            ).options(selectinload(Depart.itineraire))
+        )
+        for other in candidates:
+            other_start, other_end = window(other.date_depart, other.heure_depart, other.itineraire)
+            if start < other_end and other_start < end:
+                who = "Le véhicule" if other.id_vehicule == id_vehicule else "Le chauffeur"
+                raise HTTPException(409, f"{who} est déjà en trajet de {other_start:%d/%m %H:%M} à {other_end:%d/%m %H:%M} (départ #{other.id}).")
+
+    def _notify_passengers(self, item: Depart, *, type_notification: str, titre: str, message: str) -> None:
+        reservations = self.db.scalars(select(Reservation).where(
+            Reservation.id_depart == item.id,
+            Reservation.statut.in_([ReservationStatus.EN_ATTENTE, ReservationStatus.CONFIRMEE, ReservationStatus.PAYEE]),
+        ))
+        for reservation in reservations:
+            NotificationService.add(self.db, user_id=reservation.id_user, type_notification=type_notification, titre=titre, message=message, reservation_id=reservation.id, depart_id=item.id)
 
     def create_depart(self, **fields) -> Depart:
         capacity = self._validate_schedule(depart_id=None, **fields)
@@ -250,8 +322,14 @@ class DepartService:
             "nombre_places": fields.get("nombre_places", item.nombre_places),
         }
         values["nombre_places"] = self._validate_schedule(depart_id=depart_id, **values)
+        schedule_changed = (values["date_depart"], values["heure_depart"]) != (item.date_depart, item.heure_depart)
         for key, value in values.items():
             setattr(item, key, value)
+        if schedule_changed:
+            self._notify_passengers(
+                item, type_notification="MODIFICATION_HORAIRE", titre="Changement d'horaire",
+                message=f"Votre départ est désormais prévu le {item.date_depart:%d/%m/%Y} à {item.heure_depart:%H:%M}.",
+            )
         try:
             self.db.commit()
             return self._get(item.id)
@@ -275,6 +353,11 @@ class DepartService:
             raise HTTPException(422, "Utilisez l'action d'annulation dédiée pour annuler un départ.")
         if target != current and target not in transitions[current]:
             raise HTTPException(409, "Cette transition de statut n'est pas autorisée.")
+        if target == DepartStatus.RETARDE and current != DepartStatus.RETARDE:
+            self._notify_passengers(
+                item, type_notification="RETARD", titre="Départ retardé",
+                message=f"Votre départ du {item.date_depart:%d/%m/%Y} prévu à {item.heure_depart:%H:%M} est retardé. Restez à proximité de la gare.",
+            )
         item.statut = target
         now = datetime.now(timezone.utc)
         if target == DepartStatus.PARTI and item.date_heure_depart is None:
@@ -313,7 +396,7 @@ class DepartService:
         self.db.commit()
         return self._get(item.id)
 
-    def cancel_depart(self, depart_id: int, *, caisse_id: int | None = None, agent_id: int | None = None, gare_ids: set[int] | None = None) -> Depart:
+    def cancel_depart(self, depart_id: int, *, caisse_id: int | None = None, agent_id: int | None = None, gare_ids: set[int] | None = None, can_refund_now: bool = False) -> Depart:
         item = self._get(depart_id)
         if item.statut in {DepartStatus.ANNULE, DepartStatus.PARTI, DepartStatus.TERMINE}:
             raise HTTPException(409, "Ce départ ne peut plus être annulé.")
@@ -327,16 +410,13 @@ class DepartService:
             .join(Reservation, Reservation.id == Paiement.id_reservation)
             .where(Reservation.id_depart == item.id, Paiement.statut == PaiementStatus.VALIDE)
         ))
-        if payments and not caisse_id:
-            raise HTTPException(409, "Ce départ comporte des réservations payées. Indiquez une caisse ouverte pour effectuer les remboursements.")
+        finance = FinanceService(self.db)
         for payment in payments:
-            FinanceService(self.db).refund(
-                payment.id,
-                caisse_id=caisse_id,
-                agent_id=agent_id or item.id_chauffeur,
-                gare_ids=gare_ids,
-                commit=False,
-            )
+            # Refund now from the chosen desk if allowed; otherwise leave it to a cashier.
+            if can_refund_now and caisse_id:
+                finance.refund(payment.id, caisse_id=caisse_id, agent_id=agent_id, gare_ids=gare_ids, commit=False)
+            else:
+                finance.request_refund(payment)
         for reservation in reservations:
             if reservation.statut not in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE}:
                 reservation.statut = ReservationStatus.ANNULEE

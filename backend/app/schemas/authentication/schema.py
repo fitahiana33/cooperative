@@ -1,3 +1,4 @@
+from app.schemas.common import StrongPassword
 from pydantic import BaseModel, EmailStr, Field
 
 from app.schemas.user import UserRead
@@ -14,7 +15,7 @@ class UserRegisterRequest(BaseModel):
     email: EmailStr
     telephone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=255)
-    password: str = Field(min_length=8, max_length=128)
+    password: StrongPassword
 
 
 class RefreshTokenRequest(BaseModel):
@@ -27,7 +28,7 @@ class ForgotPasswordRequest(BaseModel):
 
 class ResetPasswordRequest(BaseModel):
     token: str
-    new_password: str = Field(min_length=8, max_length=128)
+    new_password: StrongPassword
 
 
 class TokenResponse(BaseModel):

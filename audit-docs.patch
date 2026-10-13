@@ -1,0 +1,2119 @@
+# docs: add project audit, action plan and manual test guide
+#
+# Add four French documents comparing the code with the specification:
+# - ETAT_DU_PROJET.md: coverage of each section (backend, web, mobile)
+# - PROBLEMES.md: 90 functional and technical issues with fixes
+# - PLAN_ACTION.md: 7-phase plan covering every issue
+# - GUIDE_DE_TEST.md: full manual test campaign by role
+
+diff --git a/docs/ETAT_DU_PROJET.md b/docs/ETAT_DU_PROJET.md
+new file mode 100644
+index 0000000..42e3cd3
+--- /dev/null
++++ b/docs/ETAT_DU_PROJET.md
+@@ -0,0 +1,283 @@
++# État du projet par rapport au cahier des charges
++
++Comparaison entre le cahier des charges (`cahier_des_charges-ETU003314.pdf`, 29 sections) et le code de `main` (commit `0179f01`), au 8 octobre 2026.
++
++Documents associés :
++- [PROBLEMES.md](PROBLEMES.md) : les problèmes relevés pendant l'audit, avec gravité, cause et correction.
++- [PLAN_ACTION.md](PLAN_ACTION.md) : le plan pour tout traiter.
++- [GUIDE_DE_TEST.md](GUIDE_DE_TEST.md) : une campagne de tests manuels pas à pas.
++
++Légende : ✅ fait · 🟡 partiel · ❌ manquant
++
++---
++
++## 1. Synthèse
++
++Le **backend est la partie la plus avancée** :
++- Il expose 116 endpoints REST.
++- Il couvre presque tous les modules de gestion.
++- Ses triggers PostgreSQL protègent correctement les places contre la double réservation.
++
++L'**application web** couvre la plupart des écrans de gestion, mais avec des incohérences entre rôles et permissions.
++
++L'**application mobile est la moins avancée**. Un passager peut s'inscrire, voir une liste de départs, choisir des places et réserver. Il n'y a ni recherche de voyage, ni QR code sur le billet, ni historique des réservations, ni annulation, ni paiement, ni notifications.
++
++Quatre volets du cahier des charges sont **absents de toutes les couches** :
++- **Aide à la décision / IA** (§24)
++- **Rapports** (§21) : seuls deux exports CSV existent
++- **Journal des actions / historique des modifications** (§6, §23)
++- **Paiement en ligne** (§17)
++
++Avant toute démonstration ou mise en production, il faut corriger les problèmes critiques de [PROBLEMES.md](PROBLEMES.md) : les secrets versionnés dans un dépôt public, l'embarquement des réservations multi-places, le blocage de places, et les documents téléversés accessibles publiquement.
++
++| Couche | Taille | Couverture du cahier des charges (estimation) | Build / analyse | Tests |
++|---|---|---|---|---|
++| Backend (FastAPI + PostgreSQL) | ~10 100 lignes, 116 endpoints, 21 migrations | ~75 % | Fonctionne ; `alembic upgrade head` OK | 2 tests unitaires (réussis) |
++| Web (Vue 3 + TypeScript) | ~9 600 lignes, 117 fichiers | ~65 % | `npm run build` réussit, mais sa vérification des types est vide : 21 vraies erreurs de type sont masquées ([I-W02](PROBLEMES.md#i-w02)) | aucun |
++| Mobile (Flutter) | ~3 600 lignes, 40 fichiers | ~30 % | `flutter analyze` : 0 erreur, 12 remarques de style | aucun (pas de dossier `test/`) |
++| Infrastructure (Docker Compose) | base + API + web | ✅ conforme au §25 | Configuration de développement uniquement (`--reload`, serveur Vite de dev) | pas de CI |
++
++Les pourcentages sont des estimations : ils comptent les points des sections 4 à 24, un point partiel valant la moitié.
++
++---
++
++## 2. Couverture par section du cahier des charges
++
++Les colonnes **Backend / Web / Mobile** donnent l'état dans chaque couche. Un tiret (—) signifie que la fonction n'est pas attendue dans cette couche : le cahier des charges confie la gestion au web et le parcours passager au mobile.
++
++### §4 Acteurs et droits
++
++| Acteur | Backend | Web | Mobile | Remarques |
++|---|---|---|---|---|
++| Administrateur | ✅ | ✅ | — | Contourne tous les contrôles de permission. Les rapports manquent partout. |
++| Responsable de gare | 🟡 | 🟡 | — | Voit toutes les gares, pas seulement la sienne. Le web lui cache les écrans véhicules et chauffeurs alors qu'il a la permission. |
++| Agent de gare | 🟡 | 🟡 | ❌ | Sans appartenance à une coopérative, l'agent ne voit ni départs, ni réservations, ni billets ([I-B07](PROBLEMES.md#i-b07)). Le tableau de bord web est cassé pour les agents. Pas d'application mobile de scan. |
++| Responsable de coopérative | ✅ | 🟡 | — | Le web lui bloque « modifier ma coopérative » et « ajouter un véhicule ». Pas de suivi des recettes. |
++| Chauffeur | 🟡 | ❌ | 🟡 | Mobile : liste de ses départs et pointage départ/arrivée uniquement. Le web n'a pas de page chauffeur. |
++| Passager | 🟡 | — | 🟡 | La réservation fonctionne. La recherche, l'historique, l'annulation, l'affichage du QR code et les notifications manquent sur mobile. |
++
++### §5 Application mobile (passager)
++
++| Exigence | État | Détail |
++|---|---|---|
++| 5.1 Inscription / connexion / déconnexion | ✅ | |
++| 5.1 Récupération de compte | 🟡 | Le lien envoyé par email ouvre l'application **web**. Sur mobile, il faut copier le jeton à la main. |
++| 5.1 Gestion du profil / modification des informations | ❌ | Aucun écran, et aucun endpoint `PUT /users/me` côté backend. |
++| 5.2 Recherche par départ, destination, date | ❌ | L'application liste les 100 premiers départs à venir. Le backend n'a pas de filtre par point de départ ni par destination. |
++| 5.3 Détail d'un départ (destination, date, heure, coopérative, véhicule, places, places disponibles, tarif, statut) | 🟡 | La coopérative, le véhicule, le nombre total de places et le statut ne sont pas affichés. Les prix s'affichent bruts (« 15000.00 »). |
++| 5.4 Choix du véhicule | ❌ | Le véhicule découle du départ et n'est jamais affiché. |
++| 5.5 Plan des places à 4 états, sans double réservation | 🟡 | Les 4 états sont affichés et le backend garantit l'absence de double réservation. La légende omet « occupée », et le plan n'est pas rafraîchi après une réservation. |
++| 5.6 Parcours de réservation (plusieurs places, infos passagers, récapitulatif, confirmation) | 🟡 | Plusieurs places : oui. Un seul nom est utilisé pour toutes les places. Pas de récapitulatif ni de montant affiché. La réservation est confirmée immédiatement, sans paiement. |
++| 5.7 Billet électronique (n° de réservation, n° de billet, voyage, passager, place, montant, QR code) | 🟡 | Liste uniquement. **Aucun QR code affiché.** Le n° de réservation, le passager et le montant manquent. |
++| 5.8 Historique (réservations, voyages, billets, statut) | 🟡 | Liste des billets uniquement. Les réservations et leur statut ne sont jamais affichés. |
++| 5.9 Notifications | ❌ | Ni écran ni push. Le backend se contente d'enregistrer des lignes en base. |
++
++### §6 Gestion des utilisateurs
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Ajouter / modifier / consulter / activer–désactiver un utilisateur | ✅ | ✅ |
++| Attribuer des rôles, gérer les permissions | ✅ | ✅ |
++| Contrôle d'accès selon le rôle | ✅ | 🟡 le routeur ne vérifie que le rôle principal : les rôles personnalisés sont ignorés |
++| **Historique des actions** | ❌ | ❌ |
++
++### §7 Gare routière
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Créer / modifier la gare, informations de contact | ✅ | ✅ |
++| Quais, zones de départ, emplacements | ✅ | 🟡 création et activation uniquement ; ni modification ni suppression dans l'interface |
++| **Horaires** | ❌ aucun champ | ❌ |
++| Consultation de l'activité générale | 🟡 tableau de bord global, pas par gare | 🟡 |
++
++### §8 Coopératives
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Ajouter / modifier / consulter / activer | ✅ | ✅ (modification réservée à l'admin dans le routeur web) |
++| Responsable, membres | ✅ | ✅ |
++| Associer véhicules et chauffeurs | ✅ | ✅ |
++| Historique d'activité | ❌ | ❌ |
++| Statistiques par coopérative | 🟡 restreintes automatiquement pour les membres ; l'admin ne peut pas filtrer par coopérative | 🟡 |
++
++### §9 Véhicules
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Immatriculation, marque, modèle, places, coopérative, état, disponibilité | ✅ | ✅ |
++| **Propriétaire** | ❌ aucun champ | ❌ |
++| Ajouter / modifier / consulter / désactiver ; affecter à une coopérative ou à un chauffeur | ✅ | ✅ |
++| Historique d'utilisation | ❌ | ❌ |
++| Documents (carte grise, assurance, visite technique, autres) | ✅ | ✅ téléversement, téléchargement, activation |
++| Alertes d'expiration | 🟡 endpoints « bientôt expirés » et « expirés » ; aucune notification n'est jamais créée | 🟡 badge « Expiré » seulement ; endpoints non utilisés |
++
++### §10 Chauffeurs
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Identité (via l'utilisateur lié), permis, catégorie, expiration, coopérative, disponibilité | ✅ | ✅ (identité en lecture seule) |
++| CRUD, activation, affectation à une coopérative ou à un véhicule | ✅ | ✅ |
++| Planning du chauffeur, historique des trajets | 🟡 seul le chauffeur voit les siens (`/departs/mes-departs`) | ❌ |
++
++### §11 Destinations et itinéraires — ✅ complet côté backend et web
++
++Ajout, modification et désactivation des destinations ; itinéraires avec point de départ, destination, distance et durée ; association des coopératives ; consultation.
++
++### §12 Départs et planning
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Tous les champs (itinéraire, date, heure, coopérative, véhicule, chauffeur, places, réservées, disponibles, tarif, statut) | ✅ | ✅ |
++| Créer / modifier / annuler / consulter, affectations | ✅ | ✅ |
++| Places disponibles, taux de remplissage | ✅ | ✅ (plan des places caché aux agents et aux responsables de coopérative) |
++| 6 statuts et transitions | ✅ | 🟡 la transition RETARDÉ → EMBARQUEMENT n'est pas proposée |
++| Vue planning (calendrier) | — | ❌ tableau uniquement |
++
++### §13 Tarifs — ✅ complet
++
++Ajout, modification avec historique des versions, désactivation, tarif par itinéraire et par coopérative, historique par itinéraire. Un défaut connu : [I-B26](PROBLEMES.md#i-b26).
++
++### §14 Réservations
++
++| Exigence | Backend | Web | Mobile |
++|---|---|---|---|
++| Rechercher un voyage / choisir destination et date | 🟡 date seulement | 🟡 | ❌ |
++| Choisir départ et places, saisir les infos passagers | ✅ | ✅ (un nom par place) | 🟡 |
++| Confirmer | ✅ | ✅ | ✅ |
++| **Modifier une réservation** | ❌ | ❌ (la page « modifier » est en lecture seule) | ❌ |
++| Annuler | ✅ (sans règles d'annulation) | ✅ | ❌ |
++| Détail, historique | ✅ | ✅ | ❌ |
++| 7 statuts | 🟡 `TERMINEE` n'est jamais appliqué ; `EXPIREE` seulement quand quelqu'un lit la réservation | | |
++
++### §15 Billets et QR code
++
++| Exigence | Backend | Web | Mobile |
++|---|---|---|---|
++| Générer le billet, son numéro, son QR code | ✅ | ✅ | — |
++| Afficher, consulter depuis l'application | ✅ | ✅ | ❌ pas de QR affiché |
++| Vérifier la validité, enregistrer l'utilisation | ✅ | ✅ | — |
++| Impression / PDF | ❌ | ❌ | ❌ |
++
++### §16 Embarquement
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Rechercher une réservation, scanner le QR | ✅ | 🟡 scan par caméra uniquement sous Chrome/Edge (`BarcodeDetector`) ; saisie manuelle ailleurs |
++| Vérifier billet, date, place, utilisation antérieure | ✅ | ✅ |
++| Vérifier que le billet correspond à **ce** départ | ❌ seule la date est vérifiée | ❌ |
++| Valider, refuser, enregistrer l'heure | ✅ (**cassé pour les réservations multi-places**, [I-B04](PROBLEMES.md#i-b04)) | ✅ |
++| Listes des passagers embarqués / non embarqués | 🟡 manifeste CSV uniquement | 🟡 téléchargement CSV uniquement |
++
++### §17 Paiements
++
++| Exigence | Backend | Web | Mobile |
++|---|---|---|---|
++| Enregistrer, associer à une réservation, montant, statut, date, référence | ✅ (espèces uniquement) | ✅ (pas de champ référence) | — |
++| Paiements en gare | ✅ | ✅ | — |
++| **Paiements en ligne** (mobile money, carte) | ❌ les statuts existent, pas le parcours | ❌ | ❌ |
++| Remboursements | ✅ | ✅ | ❌ |
++| Historique | 🟡 pas de filtre par date ni par statut | 🟡 50 premiers seulement | ❌ |
++
++### §18 Caisse
++
++| Exigence | Backend | Web |
++|---|---|---|
++| Ouvrir / clôturer, enregistrer recettes (automatique), dépenses, commissions | ✅ | 🟡 commissions non saisissables ; pas de montant compté à la clôture |
++| Total de caisse, historique | ✅ | ✅ |
++| Recettes journalières | 🟡 jour en cours uniquement, sur le tableau de bord | 🟡 |
++| **Recettes par départ / par coopérative** | ❌ | ❌ |
++
++### §19 Notifications
++
++| Type | Créée par le backend ? | Envoyée ? |
++|---|---|---|
++| Confirmation de réservation | ✅ | En base uniquement |
++| Confirmation de paiement | ✅ | En base uniquement |
++| Rappel avant départ | 🟡 endpoint manuel, pas de planificateur | En base uniquement |
++| Retard | ❌ | — |
++| Annulation | ✅ | En base uniquement |
++| Changement d'horaire | ❌ | — |
++| Confirmation d'embarquement | ✅ | En base uniquement |
++| Expiration de document | ❌ | — |
++
++Aucun push, SMS ni email n'est envoyé. Le web affiche une liste avec une action « marquer comme lu », et la cloche de l'en-tête ne fait rien. Le mobile n'a rien.
++
++### §20 Tableau de bord
++
++| Élément | État |
++|---|---|
++| Départs, réservations, passagers, véhicules, coopératives, chauffeurs, places disponibles, recettes, annulations, retards | ✅ |
++| Places réservées, taux de remplissage | 🟡 affichés par le web via `/statistiques` |
++| Départs imminents / complets / retardés | ✅ / 🟡 (compteurs uniquement) |
++| **Réservations en attente, dernières réservations, alertes administratives** | ❌ |
++
++### §21 Statistiques et rapports
++
++| Élément | État |
++|---|---|
++| Statistiques : réservations, départs, taux de remplissage (avec comparaison à la période précédente) | ✅ |
++| Statistiques : destinations | 🟡 top 10 affiché par identifiant, sans les noms |
++| Statistiques : passagers, véhicules, coopératives, annulations, retards, recettes sur une période | ❌ |
++| Rapports : journalier, mensuel, départs, réservations, embarquement, financier, par coopérative, par destination | ❌ seuls 2 exports CSV existent (réservations, plafonné à 1 000 lignes ; manifeste par départ) |
++| PDF / impression | ❌ |
++
++### §22 Recherche et filtrage — 🟡
++
++La recherche textuelle existe sur la plupart des listes. Les lacunes :
++- La « recherche » des départs ne porte que sur le statut : chercher « Toamasina » ne renvoie rien.
++- Il n'y a pas de filtre par destination, coopérative, véhicule ou période sur la plupart des listes.
++- Les billets et les paiements n'ont presque aucun filtre.
++
++### §23 Sécurité et traçabilité
++
++| Élément | État |
++|---|---|
++| Authentification sécurisée (JWT, hachage PBKDF2, rotation et révocation des jetons de rafraîchissement) | ✅ (avec des défauts de gestion de session, voir I-S et I-W) |
++| Contrôle d'accès par rôle, permissions | ✅ (avec des trous de périmètre) |
++| Protection des données | 🟡 secrets dans git, fichiers téléversés publics |
++| **Journalisation des actions, historique des modifications** | ❌ |
++| Traçabilité des réservations / paiements | 🟡 état courant uniquement, pas d'historique des changements de statut |
++| Traçabilité des embarquements | ✅ (agent, heure, motif de refus) |
++
++### §24 Aide à la décision / IA — ❌ non commencé
++
++La seule fonction approchante est le « top 10 des itinéraires » de `/statistiques`. Il n'y a ni prévision, ni recommandation, ni détection d'anomalies.
++
++### §25–27 Architecture, technologies, contraintes
++
++| Élément | État |
++|---|---|
++| FastAPI + PostgreSQL + Vue.js + Flutter + Docker Compose | ✅ conforme au cahier des charges |
++| Responsive | 🟡 l'`index.html` du web n'a pas de meta `viewport` : les téléphones affichent la mise en page bureau |
++| Sécurisé | ❌ voir les problèmes critiques |
++| Plusieurs coopératives, véhicules et départs ; réservations simultanées | ✅ (double réservation empêchée en base) |
++| « Règles de gestion issues du fonctionnement réel de la gare, pas de valeurs arbitraires » | 🟡 plusieurs valeurs sont codées en dur : expiration à 15 minutes, 20 places maximum, disposition des places devinée |
++
++---
++
++## 3. Reste à faire
++
++Le détail, les priorités, l'ordre et les estimations sont dans **[PLAN_ACTION.md](PLAN_ACTION.md)**. En résumé :
++
++| Priorité | Contenu | Estimation |
++|---|---|---|
++| Phase 0 – Urgences | Secrets, failles critiques, embarquement multi-places, vérification des types | ~4 jours |
++| Phase 1 – Fondations | Planificateur, fuseau horaire, périmètre par gare, tests, CI | ~1,5 semaine |
++| Phase 2 – Corrections fonctionnelles | Règles de réservation et de paiement, droits du web, erreurs | ~1,5 semaine |
++| Phase 3 – Parcours passager mobile | Recherche, récapitulatif, QR code, historique, annulation, notifications | ~2,5 semaines |
++| Phase 4 – Compléments du cahier des charges | Paiement en ligne, notifications réelles, caisse, rapports, journal des actions, champs manquants | ~3 semaines |
++| Phase 5 – Aide à la décision | Prévisions, recommandations, anomalies | ~1,5 semaine |
++| Phase 6 – Production et finitions | Docker de production, mobile release, performance, nettoyage | ~1,5 semaine |
++
++---
++
++## 4. Ce qui fonctionne déjà bien
++
++Ces points sont solides et doivent être conservés :
++
++- **Intégrité des places en base.** Des triggers génèrent les places, les verrouillent à la réservation, les libèrent à l'annulation ou à l'expiration et tiennent les compteurs à jour. Un index unique partiel empêche un véhicule ou un chauffeur d'avoir deux départs actifs sur le même créneau.
++- **Historique des versions de tarifs** par itinéraire.
++- **Rotation des jetons de rafraîchissement** avec révocation persistante ; mots de passe hachés en PBKDF2 avec 300 000 itérations.
++- **Traçabilité de l'embarquement** : chaque contrôle enregistre l'agent, l'heure et le motif de refus.
++- **Architecture backend propre** (contrôleur → service → modèle), documentée dans `ARCHITECTURE.md`.
++- **Données de démonstration** : `python -m app.db.seed_dev --reset` remplit toutes les tables avec des données cohérentes (voir le README).
+diff --git a/docs/PROBLEMES.md b/docs/PROBLEMES.md
+new file mode 100644
+index 0000000..b17f2c5
+--- /dev/null
++++ b/docs/PROBLEMES.md
+@@ -0,0 +1,997 @@
++# Problèmes relevés lors de l'audit
++
++Problèmes fonctionnels et techniques relevés en comparant le code (`main`, commit `0179f01`) au cahier des charges, au 8 octobre 2026.
++
++Chaque problème a un identifiant stable, utilisable depuis [ETAT_DU_PROJET.md](ETAT_DU_PROJET.md), [PLAN_ACTION.md](PLAN_ACTION.md), [GUIDE_DE_TEST.md](GUIDE_DE_TEST.md), les tickets ou les commits.
++
++**Préfixes des identifiants :**
++
++| Préfixe | Domaine |
++|---|---|
++| `I-S` | Sécurité (transverse) |
++| `I-B` | Backend |
++| `I-W` | Application web |
++| `I-M` | Application mobile |
++| `I-D` | DevOps |
++
++**Gravité :**
++
++| Gravité | Signification |
++|---|---|
++| 🔴 Critique | Exploitable, ou bloque un parcours essentiel |
++| 🟠 Élevée | Fonction majeure cassée pour un rôle ou un cas courant |
++| 🟡 Moyenne | Comportement incorrect dans certains cas, ou lacune de qualité importante |
++| ⚪ Faible | Finitions, maintenabilité |
++
++**Vérifié** signifie que le problème a été reproduit sur l'application en marche, avec les données de démonstration. Les autres problèmes viennent de la lecture du code.
++
++Les chemins de fichiers sont relatifs à la racine du dépôt.
++
++---
++
++## Synthèse
++
++| Domaine | 🔴 | 🟠 | 🟡 | ⚪ | Total |
++|---|---|---|---|---|---|
++| Sécurité | 2 | 6 | 4 | 1 | 13 |
++| Backend | 4 | 7 | 15 | 6 | 32 |
++| Web | 0 | 8 | 9 | 3 | 20 |
++| Mobile | 2 | 7 | 8 | 3 | 20 |
++| DevOps | 0 | 2 | 2 | 1 | 5 |
++| **Total** | **8** | **30** | **38** | **14** | **90** |
++
++**Les 8 problèmes critiques, à traiter en premier :**
++- [I-S01](#i-s01) : secrets dans le dépôt public
++- [I-S02](#i-s02) : lien de réinitialisation renvoyé par l'API
++- [I-B01](#i-b01) : blocage de places
++- [I-B02](#i-b02) : fichiers téléversés publics
++- [I-B03](#i-b03) : réservation payée sans billets
++- [I-B04](#i-b04) : embarquement des réservations multi-places
++- [I-M01](#i-m01) : pas de QR code dans l'application mobile
++- [I-M02](#i-m02) : réservation sans paiement ni récapitulatif
++
++---
++
++## 1. Sécurité (transverse)
++
++<a id="i-s01"></a>
++### I-S01 🔴 Secrets et mot de passe admin versionnés dans un dépôt public — Vérifié
++
++- **Où :**
++  - `.env`, `backend/.env` et `web/.env` sont suivis par git, alors que `.gitignore` les exclut.
++  - Le dépôt `fitahiana33/cooperative` est **public**.
++  - `web/src/views/authentication/LoginView.vue:10-11` pré-remplit le formulaire de connexion avec `VITE_DEFAULT_ADMIN_EMAIL` / `VITE_DEFAULT_ADMIN_PASSWORD`.
++- **Problème :**
++  - Ces fichiers contiennent la clé JWT `SECRET_KEY`, le mot de passe de la base et le mot de passe admin par défaut.
++  - Les variables `VITE_*` sont compilées dans le bundle JavaScript : la page de connexion déployée expose donc aussi les identifiants admin.
++  - N'importe qui peut se connecter en admin, ou signer des JWT valides si la production utilise les mêmes valeurs.
++  - Le `skip-worktree` posé sur le `.env` racine masque seulement les modifications locales ; le fichier reste versionné.
++- **Correction :**
++  - `git rm --cached .env backend/.env web/.env`, puis commit.
++  - Changer la `SECRET_KEY`, le mot de passe de la base et le mot de passe admin dans tous les environnements déployés.
++  - Supprimer le pré-remplissage et les variables `VITE_DEFAULT_ADMIN_*`.
++  - Faire refuser le démarrage de l'API, hors développement, quand `SECRET_KEY` ou le mot de passe admin ont leur valeur par défaut.
++  - Éventuellement purger l'historique (`git filter-repo`). Le changement des valeurs reste l'essentiel : les anciennes doivent être considérées comme compromises.
++
++<a id="i-s02"></a>
++### I-S02 🔴 Lien de réinitialisation du mot de passe renvoyé dans la réponse de l'API
++
++- **Où :** `backend/app/services/authentication/service.py:183-186`
++- **Problème :**
++  - Quand `ENVIRONMENT=development` et que le SMTP n'est pas configuré, `POST /auth/forgot-password` renvoie `reset_url`, qui contient un jeton de réinitialisation valide.
++  - Les fichiers `.env` versionnés ont exactement cette configuration.
++  - Si la production tourne avec, il suffit d'envoyer l'email de l'admin pour réinitialiser son mot de passe.
++- **Correction :** ne jamais renvoyer le jeton. Le conditionner à un indicateur explicite `DEBUG_RETURN_RESET_URL=true`, désactivé par défaut.
++
++<a id="i-s03"></a>
++### I-S03 🟠 `POST /system/reset-business-data` se déclenche trop facilement et réactive les jetons révoqués
++
++- **Où :** `backend/app/api/controllers/system/controller.py:12-18`, `backend/app/services/system/service.py:14-40`
++- **Problème :**
++  - Une seule requête admin vide toutes les tables métier. La confirmation `RESET` n'existe que dans l'interface web.
++  - L'endpoint fonctionne dans tous les environnements.
++  - Il vide `revoked_tokens` : des jetons déconnectés redeviennent valides.
++  - Il supprime les utilisateurs non admin et laisse les fichiers téléversés orphelins.
++- **Correction :**
++  - Le désactiver hors développement.
++  - Exiger une confirmation côté serveur (ressaisie du mot de passe).
++  - Conserver `revoked_tokens`.
++  - Journaliser l'action et nettoyer les fichiers téléversés.
++
++<a id="i-s04"></a>
++### I-S04 🟠 Web : jetons dans `localStorage`, la déconnexion envoie un jeton de rafraîchissement périmé
++
++- **Où :** `web/src/services/api.ts:17,71-93`, `web/src/stores/authentication/store.ts:16-17,42-43,132`, `web/src/main.ts:10`
++- **Problème :**
++  - N'importe quelle faille XSS peut lire les jetons, et il n'y a pas de CSP.
++  - Après un rafraîchissement silencieux, le store garde l'ancien jeton de rafraîchissement. La déconnexion révoque donc un jeton déjà remplacé, et le vrai reste valide 7 jours.
++  - À l'expiration de la session, l'état est vidé mais l'utilisateur n'est pas redirigé vers `/login`.
++- **Correction :**
++  - Mettre le jeton de rafraîchissement dans un cookie httpOnly, ou au minimum le relire depuis le stockage à la déconnexion.
++  - Ajouter une CSP.
++  - Rediriger vers `/login` à l'expiration de la session.
++
++<a id="i-s05"></a>
++### I-S05 🟠 Un responsable de coopérative peut étendre son propre périmètre et lire les données personnelles de tous les utilisateurs
++
++- **Où :**
++  - `backend/app/api/controllers/itineraire/controller.py:59-66` : le responsable de coopérative a `ITINERAIRE_COOPERATIVE_MANAGE`.
++  - `backend/app/api/controllers/cooperative/controller.py:139-153` : rattachement à une gare.
++  - `backend/app/services/cooperative/service.py:143-158` : membres éligibles.
++- **Problème :**
++  - Un responsable de coopérative peut rattacher sa coopérative à n'importe quel itinéraire ou n'importe quelle gare.
++  - `GET /cooperatives/{la sienne}/eligible-members` renvoie tous les utilisateurs actifs, avec email, téléphone, adresse, rôles et permissions.
++- **Correction :**
++  - Réserver les rattachements à l'admin et aux responsables de gare.
++  - Renvoyer un minimum de champs et exiger un terme de recherche.
++
++<a id="i-s06"></a>
++### I-S06 🟠 La réinitialisation du mot de passe ne coupe pas les sessions ; politique de mot de passe faible ; énumération des comptes
++
++- **Où :** `backend/app/services/authentication/service.py:175,206-212,231`, `backend/app/services/user/service.py:63-64`, `backend/app/schemas/authentication/schema.py:17,30`
++- **Problème :**
++  - Changer ou réinitialiser un mot de passe laisse valides les jetons d'accès et de rafraîchissement existants.
++  - La seule règle est une longueur minimale de 8 caractères.
++  - Une erreur SMTP renvoie une 500 uniquement pour les emails existants, ce qui révèle que le compte existe.
++  - L'email est envoyé de façon synchrone, pendant la requête.
++- **Correction :**
++  - Ajouter une revendication `password_changed_at` (ou une version de jeton) vérifiée à chaque requête.
++  - Renforcer la politique de mot de passe.
++  - Intercepter les erreurs SMTP, toujours répondre 200 et envoyer l'email en tâche de fond.
++
++<a id="i-s07"></a>
++### I-S07 🟠 Des permissions déléguables permettent une élévation de privilèges
++
++- **Où :** `backend/app/services/user/service.py:38-42,57-64`, `backend/app/services/role/service.py:157-168`
++- **Problème :**
++  - Avec `USER_UPDATE`, on peut changer l'email ou le mot de passe d'un admin.
++  - Avec `USER_CREATE`, on peut créer un admin.
++  - Avec `ROLE_MANAGE`, on peut attribuer le rôle admin.
++  - Aujourd'hui seul l'admin a ces permissions, mais l'écran des rôles permet de les déléguer.
++- **Correction :** interdire aux non-admins de modifier un admin ou d'attribuer le rôle admin.
++
++<a id="i-s08"></a>
++### I-S08 🟠 Fichiers téléversés contrôlés uniquement par leur extension
++
++- **Où :** `backend/app/api/controllers/vehicule/controller.py:136-184`
++- **Problème :**
++  - Aucun contrôle du type MIME ou du contenu, ni de la taille de la requête.
++  - L'endpoint est `async def` mais fait des entrées/sorties bloquantes (fichier et base).
++  - Les chemins sont calculés depuis `__file__` au lieu de `settings.uploads_dir`.
++- **Correction :**
++  - Vérifier les octets de signature du fichier et limiter la taille.
++  - En faire un `def` normal.
++  - Utiliser le dossier de téléversement configuré.
++
++<a id="i-s09"></a>
++### I-S09 🟡 La limitation de débit ne fonctionne pas derrière un proxy et ne couvre que l'authentification
++
++- **Où :** `backend/app/core/rate_limiter.py:4`, `backend/Dockerfile`
++- **Problème :**
++  - La limite est calculée par adresse IP du client, mais uvicorn tourne sans `--proxy-headers`. Sur Render, tous les clients partagent l'IP du proxy.
++  - Les compteurs sont en mémoire, par processus.
++  - Les réservations et les paiements n'ont aucune limite.
++- **Correction :**
++  - Lancer uvicorn avec `--proxy-headers --forwarded-allow-ips`.
++  - Stocker les compteurs dans Redis.
++  - Limiter la création de réservations.
++
++<a id="i-s10"></a>
++### I-S10 🟡 CORS autorise n'importe quel port `localhost` avec identifiants, dans tous les environnements
++
++- **Où :** `backend/app/main.py:45-55`
++- **Correction :** construire la liste des origines autorisées à partir de `ENVIRONMENT`, et valider `JWT_ALGORITHM`.
++
++<a id="i-s11"></a>
++### I-S11 🟡 Le mobile autorise le HTTP en clair en version release
++
++- **Où :** `mobile/android/app/src/main/AndroidManifest.xml:8` (`usesCleartextTraffic="true"` dans le manifeste **principal**)
++- **Correction :** le déplacer dans `src/debug/AndroidManifest.xml`, ou utiliser une `network_security_config` limitée aux hôtes de développement.
++
++<a id="i-s12"></a>
++### I-S12 🟡 Le mobile garde le profil utilisateur en clair
++
++- **Où :** `mobile/lib/core/storage/token_storage.dart:37-39` enregistre le nom, l'email, le téléphone, l'adresse et les permissions dans `SharedPreferences`. Les jetons, eux, sont bien dans le stockage sécurisé.
++- **Correction :** stocker le profil dans `flutter_secure_storage`, ou ne garder que l'identifiant.
++
++<a id="i-s13"></a>
++### I-S13 ⚪ Les jetons révoqués ne sont jamais purgés ; la réutilisation d'un jeton de rafraîchissement n'est pas détectée
++
++- **Où :** `backend/app/services/authentication/service.py:124-166`
++- **Correction :**
++  - Purger régulièrement les lignes expirées de `revoked_tokens`.
++  - Quand un jeton de rafraîchissement révoqué est réutilisé, révoquer toute sa famille.
++
++---
++
++## 2. Backend
++
++<a id="i-b01"></a>
++### I-B01 🔴 N'importe quel passager peut bloquer gratuitement toutes les places de tous les départs — Vérifié
++
++- **Où :**
++  - `backend/app/services/reservation/service.py:167-215` : la date d'expiration est fournie par le client (ligne 172).
++  - `backend/app/schemas/reservation/schema.py:40`
++  - `backend/app/db/seed.py:172` : le rôle passager a `RESERVATION_UPDATE`.
++- **Problème :**
++  - Un passager peut créer une réservation avec `date_expiration: "2099-01-01T00:00:00Z"`, jusqu'à 20 places par requête.
++  - Il peut aussi la confirmer lui-même sans payer, et une réservation `CONFIRMEE` **n'expire jamais**.
++  - Reproduit : réservation créée avec l'expiration 2099 (201), puis confirmée par le passager sans paiement (200 `CONFIRMEE`).
++  - Un simple script peut vider toute la grille de départs.
++- **Correction :**
++  - Ignorer la `date_expiration` du client ; la fixer côté serveur (15 minutes).
++  - Retirer `RESERVATION_UPDATE` aux passagers, ou exiger le paiement avant la confirmation, ou donner une expiration à `CONFIRMEE` tant qu'elle n'est pas payée.
++  - Limiter le nombre de réservations actives par utilisateur.
++  - Ajouter une tâche planifiée d'expiration ([I-B05](#i-b05)).
++
++<a id="i-b02"></a>
++### I-B02 🔴 Documents des véhicules et QR codes téléchargeables sans authentification — Vérifié pour les QR codes
++
++- **Où :** `backend/app/main.py:31-32` sert tout le dossier `uploads/` en fichiers statiques. Les documents sont écrits dans `uploads/vehicules/<uuid>.<ext>` (`backend/app/api/controllers/vehicule/controller.py:34,165-168`).
++- **Problème :**
++  - Le commentaire de `vehicule/controller.py:177-178` affirme que les documents sont privés. Ce n'est pas le cas.
++  - `GET /uploads/vehicules/<fichier>` renvoie une carte grise ou une attestation d'assurance sans jeton.
++  - `GET /uploads/qr_codes/TKT-….png` a répondu 200 sans jeton.
++  - Les noms de fichiers sont exposés par le champ `fichier_path`.
++- **Correction :**
++  - Sortir les documents du dossier statique et les servir uniquement par `/vehicules/documents/{id}/download`.
++  - Servir aussi les QR codes par un endpoint authentifié, ou au minimum avec des noms impossibles à deviner.
++
++<a id="i-b03"></a>
++### I-B03 🔴 Payer avant de confirmer donne une réservation payée sans billets
++
++- **Où :**
++  - `backend/app/services/finance/service.py:166,175` accepte les réservations `EN_ATTENTE` et les passe en `PAYEE`.
++  - Les billets ne sont créés que dans `confirm()`, qui exige `EN_ATTENTE` (`backend/app/services/reservation/service.py:219`).
++- **Problème :**
++  - Un caissier encaisse une réservation non confirmée. Elle devient `PAYEE` sans aucun billet, définitivement : le passager ne peut pas embarquer.
++  - Le paiement est aussi accepté pour une réservation dont la date d'expiration est dépassée mais qui n'a pas encore été marquée expirée.
++- **Correction :**
++  - Générer les billets au paiement s'ils n'existent pas (fonction partagée).
++  - Appeler `_expire_if_needed` avant d'accepter un paiement.
++
++<a id="i-b04"></a>
++### I-B04 🔴 Réservation multi-places : seul le premier passager peut embarquer — Vérifié
++
++- **Où :**
++  - `backend/app/services/embarquement/service.py:75-76` exige que la réservation soit `PAYEE`.
++  - Le premier embarquement passe la réservation en `EMBARQUEE` (trigger `fn_embarquement_valide`, migration 0019).
++- **Problème :**
++  - Une famille réserve 2 places ou plus. Le premier billet est accepté, tous les suivants sont refusés avec « Le paiement de la réservation doit être validé avant l'embarquement ».
++  - Reproduit sur une réservation payée de 2 places : billet 1 `VALIDE`, billet 2 `REFUSE`.
++- **Correction :**
++  - Valider sur le statut du billet, en acceptant une réservation `PAYEE` **ou** `EMBARQUEE`.
++  - Ne passer la réservation en `EMBARQUEE` que lorsque tous ses billets sont utilisés.
++
++<a id="i-b05"></a>
++### I-B05 🟠 Aucun planificateur : les réservations n'expirent pas, rappels et alertes jamais envoyés
++
++- **Où :** `backend/app/services/reservation/service.py:49,52-61,101-102`, `backend/app/services/dashboard/service.py:118-135`, `backend/app/services/chauffeur/service.py:21-68`
++- **Problème :**
++  - Le passage `EN_ATTENTE → EXPIREE` n'a lieu que lorsque quelqu'un lit cette réservation. D'ici là, ses places restent bloquées.
++  - Les rappels de départ demandent un appel manuel à `POST /notifications/reminders`.
++  - Les alertes d'expiration de documents et les avis de retard n'existent pas.
++  - Des requêtes GET écrivent en base (expiration paresseuse, synchronisation des affectations).
++- **Correction :**
++  - Ajouter un exécuteur de tâches (APScheduler, conteneur cron ou `pg_cron`). Il doit expirer les réservations en masse, clore les affectations terminées, et envoyer les rappels et les alertes d'expiration de documents.
++  - Supprimer les écritures des handlers GET.
++
++<a id="i-b06"></a>
++### I-B06 🟠 Fuseau horaire : le serveur est en UTC, l'activité en heure de Madagascar (UTC+3)
++
++- **Où :** `date.today()` et `datetime.now(timezone.utc).date()` dans `reservation/service.py:155`, `depart/service.py:124`, `dashboard/service.py:30,46,119-121`, `embarquement/service.py:22,77` (tous sous `backend/app/services/`).
++- **Problème :**
++  - Entre 00 h et 03 h, heure locale, « aujourd'hui » est encore la veille pour le serveur.
++  - Exemple : un passager qui embarque à 01 h 30 pour un départ daté du jour est refusé.
++  - Un départ dont l'heure est déjà passée aujourd'hui reste réservable, car seule la date est comparée.
++- **Correction :**
++  - Ajouter un réglage `TIMEZONE=Indian/Antananarivo`.
++  - Combiner `date_depart` et `heure_depart` en une seule date-heure avec fuseau, et l'utiliser pour toutes les comparaisons.
++
++<a id="i-b07"></a>
++### I-B07 🟠 Un agent de gare ne voit rien s'il n'est pas membre d'une coopérative
++
++- **Où :** `backend/app/api/controllers/authentication/dependencies.py:105-152` ; les fonctions `_scope` des contrôleurs `reservation`, `billet`, `depart` et `dashboard` ; `finance/controller.py:25-28,50`.
++- **Problème :**
++  - Le périmètre est calculé à partir de l'appartenance aux coopératives, et il n'existe aucun lien entre un utilisateur et une gare.
++  - Un agent nouvellement créé ne voit aucun départ, aucune réservation ni aucun billet. La recherche de billet renvoie 404, le manifeste et l'ouverture de caisse renvoient 403.
++  - Le jeu de démonstration contourne le problème en rendant les agents membres des coopératives de leur gare.
++- **Correction :** ajouter une table `gare_agents(id_user, id_gare)`, utilisée aussi pour les responsables de gare, et définir le périmètre des agents par gare.
++
++<a id="i-b08"></a>
++### I-B08 🟠 Le rôle passager prend le pas sur les périmètres du personnel
++
++- **Où :** `backend/app/api/controllers/reservation/controller.py:23-24`, `backend/app/api/controllers/billet/controller.py:17-18`, `backend/app/api/controllers/depart/controller.py:25-26`, `backend/app/api/controllers/reservation/controller.py:50`
++- **Problème :**
++  - Tout utilisateur inscrit par lui-même a le rôle passager. `create_chauffeur` ajoute le rôle chauffeur sans le retirer.
++  - Un chauffeur ou un responsable de coopérative qui s'était inscrit comme passager ne voit plus que ses propres réservations et billets.
++  - Sur `/departs`, au contraire, le rôle passager donne une vue sans restriction.
++- **Correction :** calculer le périmètre à partir du rôle de personnel le plus élevé ; n'utiliser le périmètre passager que si l'utilisateur n'a aucun rôle de personnel.
++
++<a id="i-b09"></a>
++### I-B09 🟠 L'embarquement n'est pas lié à un départ, et l'heure du contrôle est choisie par le client
++
++- **Où :** `backend/app/services/embarquement/service.py:69-82`, `backend/app/schemas/embarquement/schema.py:8`
++- **Problème :**
++  - Seule la date est vérifiée. Un agent qui embarque le départ A accepte un billet payé du départ B le même jour.
++  - Le client peut envoyer `date_heure` pour antidater le contrôle et contourner la vérification de date.
++- **Correction :** envoyer `id_depart` depuis l'écran d'embarquement et le vérifier côté serveur ; ignorer l'horodatage du client.
++
++<a id="i-b10"></a>
++### I-B10 🟠 La confirmation et l'annulation ignorent le statut du départ ; aucune règle d'annulation
++
++- **Où :** `backend/app/services/reservation/service.py:217-264`
++- **Problème :**
++  - Une réservation sur un départ annulé ou déjà parti peut encore être confirmée, et reçoit des billets valides.
++  - Une réservation payée peut être annulée après le départ du véhicule (`PARTI`), ce qui libère sa place.
++  - Aucun délai limite d'annulation n'existe.
++  - Le passager ne peut pas du tout annuler une réservation payée, car l'annulation exige une caisse dans son périmètre.
++- **Correction :**
++  - Vérifier le statut et l'heure du départ à la confirmation et à l'annulation.
++  - Définir les règles d'annulation avec la gare : délai limite et pourcentage remboursé.
++
++<a id="i-b11"></a>
++### I-B11 🟠 Double paiement possible en cas de requêtes simultanées
++
++- **Où :** `backend/app/services/finance/service.py:168-174`
++- **Problème :** deux `POST /paiements` simultanés pour la même réservation réussissent tous les deux, car rien ne verrouille la réservation.
++- **Correction :** verrouiller la réservation avec `SELECT … FOR UPDATE`, ou ajouter un index unique partiel sur `paiements(id_reservation) WHERE statut='VALIDE'`.
++
++<a id="i-b12"></a>
++### I-B12 🟡 Des utilisateurs sans droit sur la caisse peuvent rembourser depuis une caisse de gare
++
++- **Où :** `backend/app/services/reservation/service.py:255-264`, `backend/app/services/depart/service.py:330-339`
++- **Problème :** un responsable de coopérative, qui n'a aucune permission `CAISSE_*`, peut annuler une réservation payée et faire sortir le remboursement de n'importe quelle caisse ouverte de son périmètre.
++- **Correction :** exiger `PAIEMENT_REFUND` et `CAISSE_MANAGE` quand un paiement existe ; sinon marquer le remboursement « en attente » pour un caissier.
++
++<a id="i-b13"></a>
++### I-B13 🟡 Plusieurs erreurs renvoient une 500 au lieu d'une 4xx claire
++
++- **Où et comment :**
++  - `GET /caisses/{id}/operations?page_size=200` : le contrôleur accepte jusqu'à 500, mais le schéma de réponse plafonne à 100 (`backend/app/api/controllers/finance/controller.py:42` contre `backend/app/schemas/common.py:10`).
++  - Réduire le nombre de places d'un départ sous le nombre de places utilisées : l'exception levée par le trigger n'est pas gérée.
++  - `delete_gare` et `DELETE /tarifs/{id}` : les violations de clé étrangère ne sont pas interceptées.
++  - `delete_chauffeur` transforme toute erreur en 500.
++  - Champs texte sans longueur maximale, et `email: str` au lieu de `EmailStr`, dans les schémas gare et coopérative.
++  - Les erreurs non gérées renvoient `{message}` au lieu de `{detail}`, probablement sans en-têtes CORS : le web affiche alors une « erreur réseau » (`backend/app/main.py:35-43`).
++- **Correction :**
++  - Aligner les limites entre contrôleurs et schémas.
++  - Intercepter `psycopg.errors.RaiseException` et `IntegrityError` et renvoyer 409 ou 422.
++  - Ajouter `max_length` et `EmailStr` dans les schémas.
++
++<a id="i-b14"></a>
++### I-B14 🟡 Modifier un départ ne prévient personne
++
++- **Où :** `backend/app/services/depart/service.py:237-285`
++- **Problème :** passer un départ en `RETARDE`, ou changer son heure, sa date, son véhicule ou son tarif, ne crée aucune notification `RETARD` ou `MODIFICATION_HORAIRE`. Les montants des réservations existantes ne changent pas.
++- **Correction :** prévenir les passagers des réservations actives à chaque changement pertinent.
++
++<a id="i-b15"></a>
++### I-B15 🟡 Conflits de planning détectés seulement à l'heure exacte
++
++- **Où :** `backend/app/services/depart/service.py:205-216` et les index uniques
++- **Problème :**
++  - Un véhicule ou un chauffeur peut être programmé à 8 h 00 et à 8 h 05 le même jour : la durée du trajet est ignorée.
++  - Des documents de véhicule expirés (assurance, visite technique) n'empêchent pas la programmation.
++- **Correction :** vérifier le chevauchement des créneaux (départ plus durée estimée) et la validité des documents.
++
++<a id="i-b16"></a>
++### I-B16 🟡 Un chauffeur ne peut pas consulter son propre profil ni son véhicule
++
++- **Où :** `backend/app/api/controllers/chauffeur/controller.py:36`
++- **Problème :** `GET /chauffeurs/me` et `GET /vehicules/{id}` renvoient 403 quand le chauffeur n'est pas membre de la coopérative. `create_chauffeur` n'ajoute jamais cette appartenance.
++- **Correction :** autoriser le chauffeur à lire son propre profil et son véhicule affecté ; ajouter l'appartenance à la création du chauffeur.
++
++<a id="i-b17"></a>
++### I-B17 🟡 Un passager ne peut pas filtrer les départs par coopérative
++
++- **Où :** `backend/app/api/controllers/depart/controller.py:44-45`
++- **Problème :** `GET /departs?id_cooperative=X` renvoie 403 pour un passager, alors que le cahier des charges (§4.6) prévoit qu'il puisse choisir une coopérative.
++- **Correction :** ne pas appliquer le contrôle d'accès coopérative aux recherches en lecture d'un passager.
++
++<a id="i-b18"></a>
++### I-B18 🟡 Les affectations chauffeur–véhicule ne sont jamais clôturées à leur date de fin
++
++- **Où :** `backend/app/services/chauffeur/service.py:41-68`
++- **Problème :** la synchronisation ne fait qu'activer des affectations. Une affectation dont la `date_fin` est passée reste active et bloque toute nouvelle affectation.
++- **Correction :** désactiver aussi les affectations échues, de préférence dans la tâche planifiée ([I-B05](#i-b05)).
++
++<a id="i-b19"></a>
++### I-B19 🟡 L'initialisation au démarrage écrase les modifications de rôles et de permissions faites dans l'interface
++
++- **Où :** `backend/app/main.py:20-24`, `backend/app/db/seed.py:29,132,177-187`
++- **Problème :** à chaque redémarrage, l'initialisation réactive les rôles et permissions et rétablit les permissions par défaut ; les changements de l'admin sont perdus. Avec plusieurs workers, elle s'exécute aussi en parallèle.
++- **Correction :** l'exécuter une seule fois (migration ou commande CLI), en n'insérant que ce qui manque.
++
++<a id="i-b20"></a>
++### I-B20 🟡 Un admin ne peut jamais être rétrogradé
++
++- **Où :** `backend/app/services/role/service.py:176-181`
++- **Problème :** le retrait du rôle admin est bloqué dès que l'utilisateur a un rôle admin ou moins, ce qui est toujours le cas.
++- **Correction :** ne le bloquer que s'il s'agit du dernier admin actif du système.
++
++<a id="i-b21"></a>
++### I-B21 🟡 Requêtes N+1 sur les listes principales
++
++- **Où :**
++  - `/users` : rôles et permissions par utilisateur.
++  - `/vehicules` : documents, modèle et coopérative par véhicule.
++  - `/chauffeurs` : utilisateur, coopérative et véhicule par chauffeur.
++  - `/gares` : quais, zones et emplacements.
++  - `/billets` : au moins 6 chargements différés par billet (`backend/app/services/billet/service.py:36-69`).
++  - Manifeste : une requête par billet.
++  - Rappels : une requête par réservation.
++- **Correction :** utiliser `selectinload` / `joinedload`.
++
++<a id="i-b22"></a>
++### I-B22 🟡 `/statistiques` accepte n'importe quelle période
++
++- **Où :** `backend/app/services/dashboard/service.py:85-114`
++- **Problème :**
++  - `date_from=0001-01-01` construit environ 740 000 entrées en mémoire.
++  - La requête des réservations est exécutée deux fois.
++  - La capacité de la période précédente est calculée jusqu'à 3 fois.
++- **Correction :** limiter la période (par exemple 366 jours) et supprimer les requêtes en double.
++
++<a id="i-b23"></a>
++### I-B23 🟡 Le tableau de bord renvoie des objets bruts de la base
++
++- **Où :** `backend/app/services/dashboard/service.py:50-54,71`
++- **Problème :** `departs_imminents` contient des objets ORM et l'endpoint n'a pas de schéma de réponse. Leur sérialisation peut échouer ou renvoyer des données incohérentes.
++- **Correction :** définir un schéma de réponse pour le tableau de bord.
++
++<a id="i-b24"></a>
++### I-B24 🟡 La recherche de départs ne porte que sur le statut — Vérifié
++
++- **Où :** `backend/app/services/depart/service.py:82-84`
++- **Problème :**
++  - `GET /departs?search=Toamasina` renvoie 0 résultat.
++  - Aucun filtre par point de départ, destination, itinéraire, véhicule ou chauffeur. Le service gère un filtre chauffeur, mais le contrôleur ne l'expose pas.
++  - La recherche de voyage (cahier des charges §5.2, §14) est donc impossible.
++- **Correction :**
++  - Ajouter les filtres `id_destination_depart`, `id_destination_arrivee`, `id_itineraire`, `id_vehicule` et `id_chauffeur`.
++  - Faire porter `search` sur les noms de destination et l'immatriculation.
++
++<a id="i-b25"></a>
++### I-B25 🟡 La clôture de caisse exige un montant exact
++
++- **Où :** `backend/app/services/finance/service.py:95-96`
++- **Problème :**
++  - `montant_cloture` doit être égal au solde calculé : impossible d'enregistrer un vrai écart de caisse.
++  - N'importe quel détenteur de `CAISSE_CLOSE` dans le périmètre peut clôturer la caisse d'un autre agent.
++- **Correction :** enregistrer le montant compté et l'écart ; réserver la clôture au titulaire de la caisse ou à un responsable.
++
++<a id="i-b26"></a>
++### I-B26 🟡 La gestion des versions de tarifs laisse des trous
++
++- **Où :** `backend/app/services/tarif/service.py:114-131`
++- **Problème :**
++  - Un nouveau tarif qui commence dans le futur désactive immédiatement le tarif en cours : la ligne n'a plus de tarif actif jusqu'au début du nouveau.
++  - Les départs existants gardent l'ancien prix.
++- **Correction :** garder le tarif en cours actif jusqu'à la date de début du nouveau (renseigner `date_fin` au lieu de le désactiver).
++
++<a id="i-b27"></a>
++### I-B27 ⚪ Les statuts `TERMINEE` (réservation) et `EXPIRE` (billet) ne sont jamais appliqués
++
++- **Problème :** aucun traitement ne passe une réservation en `TERMINEE` à la fin du départ, ni un billet en `EXPIRE` pour les passagers absents.
++- **Correction :** quand un départ passe à `TERMINE`, clore ses réservations et ses billets.
++
++<a id="i-b28"></a>
++### I-B28 ⚪ La suppression d'un départ est réservée à l'admin par accident
++
++- **Où :** `backend/app/api/controllers/depart/controller.py:143`
++- **Problème :** l'endpoint exige `DEPART_DELETE`, une permission absente de l'initialisation.
++- **Correction :** ajouter la permission à l'initialisation, ou supprimer l'endpoint.
++
++<a id="i-b29"></a>
++### I-B29 ⚪ Hygiène des migrations
++
++- **Où :** migrations 0019 et 0021
++- **Problème :**
++  - La migration 0021 recrée une fonction identique à celle de la 0019, qui a visiblement été modifiée après coup.
++  - Le downgrade de la 0021 restaure un autre corps de fonction.
++- **Correction :** ne jamais modifier une migration déjà appliquée ; vérifier `alembic check` / l'autogénération en CI.
++
++<a id="i-b30"></a>
++### I-B30 ⚪ Code mort
++
++- **Où et quoi :**
++  - Tous les repositories sauf `user` (environ 570 lignes).
++  - `require_admin` et `require_staff`.
++  - `decode_refresh_token` et `decode_password_reset_token`.
++  - `RoleService.user_has_permission`.
++  - `UserService.list_users`.
++  - `ReservationService._sync_depart_place_status`.
++  - `schemas/management.py`.
++  - `.where(Billet.id == Billet.id)` (`embarquement/service.py:25`).
++  - `cancel_depart` utilise un identifiant de chauffeur comme identifiant d'utilisateur (`depart/service.py:336`).
++- **Correction :** supprimer le code inutilisé et corriger la confusion entre identifiants.
++
++<a id="i-b31"></a>
++### I-B31 ⚪ Textes français mal encodés dans des messages d'erreur
++
++- **Où :** `backend/app/services/cooperative/service.py:147,178`, `backend/app/services/vehicule/service.py:205` (par exemple « coopÃ©rative »)
++- **Correction :** réenregistrer les fichiers en UTF-8 et corriger les chaînes.
++
++<a id="i-b32"></a>
++### I-B32 ⚪ Presque aucun test
++
++- **Où :** `backend/tests/test_business_rules.py` contient 2 tests unittest avec une fausse session.
++- **Problème :**
++  - Aucun test d'API, d'autorisation ou de trigger.
++  - `pytest` n'est pas dans les dépendances.
++  - Pas d'intégration continue.
++- **Correction :**
++  - Ajouter pytest avec une base PostgreSQL de test.
++  - Couvrir d'abord les périmètres par rôle, puis [I-B01](#i-b01), [I-B03](#i-b03), [I-B04](#i-b04), [I-B07](#i-b07) et [I-B08](#i-b08).
++
++---
++
++## 3. Application web (Vue)
++
++<a id="i-w01"></a>
++### I-W01 🟠 La page HTML n'est pas responsive sur téléphone
++
++- **Où :** `web/index.html` tient sur une ligne, sans `<!DOCTYPE html>`, sans `<meta name="viewport">`, sans `<meta charset>`, sans `lang` et sans `<title>`.
++- **Problème :**
++  - Sans doctype, la page s'affiche en mode de compatibilité (quirks).
++  - Sans meta viewport, les téléphones affichent une page bureau d'environ 980 px, et le CSS responsive ne s'applique jamais.
++  - La contrainte « responsive » du cahier des charges (§27) n'est donc pas respectée.
++- **Correction :** reprendre l'`index.html` standard de Vite, avec `lang="fr"`.
++
++<a id="i-w02"></a>
++### I-W02 🟠 La vérification des types du build ne vérifie rien ; 21 erreurs de type masquées — Vérifié
++
++- **Où :** `web/package.json` (`"build": "vue-tsc --noEmit && vite build"`) et `web/tsconfig.json` (`"files": []` avec une référence à `tsconfig.app.json`)
++- **Problème :**
++  - Sans `-b`, `vue-tsc --noEmit` vérifie la configuration racine, qui est vide : il réussit toujours.
++  - `vue-tsc --noEmit -p tsconfig.app.json` trouve **21 erreurs dans 13 fichiers**, dont :
++    - des appels à des fonctions inexistantes (`financeService.operations`)
++    - un mauvais nombre d'arguments (`NotificationsView.vue:10`)
++    - des types incompatibles (`GareFormView`, `RouteFormView`, `CooperativeFormView`, `ForgotPasswordView`, `DepartFormView`)
++- **Correction :** remplacer le script par `vue-tsc -b && vite build` (ou `-p tsconfig.app.json`) et corriger les 21 erreurs.
++
++<a id="i-w03"></a>
++### I-W03 🟠 Les routes sont protégées par rôle, le menu par permission
++
++- **Où :** `web/src/router/index.ts:95-209,386-395`, `web/src/components/layout/AppSidebar.vue`
++- **Problème :** l'utilisateur clique sur une entrée visible du menu et se retrouve renvoyé sur l'accueil, sans explication.
++  - Le responsable de gare ne peut pas ouvrir Véhicules, Chauffeurs, Marques ni Modèles.
++  - Le responsable de coopérative ne peut pas modifier sa coopérative ni ajouter un véhicule, alors que les boutons sont affichés.
++  - Le chauffeur voit des entrées qu'il ne peut pas ouvrir.
++  - Les rôles personnalisés créés dans « Rôles & permissions » ne passent jamais le contrôle, car seul le rôle principal est comparé.
++- **Correction :** protéger les routes uniquement par permission (les mêmes règles que le backend) et afficher une page 403 au lieu d'une redirection silencieuse.
++
++<a id="i-w04"></a>
++### I-W04 🟠 Les agents et les responsables de coopérative ne voient pas le plan des places
++
++- **Où :** `web/src/router/index.ts:376` : la route `/departs/:id/places` exige `PLACE_MANAGE`.
++- **Problème :** seuls l'admin et le responsable de gare peuvent l'ouvrir, alors que le lien est affiché à tout le monde.
++- **Correction :** autoriser la lecture avec `DEPART_READ` et garder la modification derrière `PLACE_MANAGE`.
++
++<a id="i-w05"></a>
++### I-W05 🟠 Le tableau de bord d'accueil échoue pour les agents et les chauffeurs — Vérifié
++
++- **Où :** `web/src/views/dashboard/HomeView.vue:126-145`
++- **Problème :**
++  - Le tableau de bord charge `/dashboard/summary` et `/statistiques` ensemble avec `Promise.all`.
++  - Un agent reçoit 403 sur `/statistiques`, un chauffeur 403 sur les deux. Leur page d'accueil affiche une erreur, répétée toutes les 30 s par le rafraîchissement automatique.
++- **Correction :** utiliser `Promise.allSettled`, n'appeler chaque endpoint que si l'utilisateur a la permission correspondante, et donner aux chauffeurs leur propre page d'accueil.
++
++<a id="i-w06"></a>
++### I-W06 🟠 Des pages de détail échouent à cause d'une liste facultative
++
++- **Où :** `web/src/views/operations/CaisseDetailView.vue:31-40`, `web/src/views/management/RouteDetailView.vue:52-62`
++- **Problème :**
++  - La page de détail d'une caisse charge la liste des coopératives, que les agents ne peuvent pas lire : toute la page échoue.
++  - La page de détail d'un itinéraire échoue de la même façon pour les agents, les chauffeurs et les passagers.
++- **Correction :** utiliser `Promise.allSettled` et traiter les listes de référence comme facultatives.
++
++<a id="i-w07"></a>
++### I-W07 🟠 La vente au guichet se fait en plusieurs étapes qui peuvent échouer à mi-chemin
++
++- **Où :** `web/src/views/operations/ReservationFormView.vue:113-114`
++- **Problème :**
++  - La page crée la réservation, puis la confirme par un second appel.
++  - Si la confirmation échoue, les places restent bloquées par une réservation `EN_ATTENTE`, et une nouvelle tentative provoque un conflit de place.
++  - Le paiement oblige à passer par une autre page (Paiements & caisse).
++- **Correction :** en faire une seule opération côté backend (création, confirmation et éventuellement paiement), ou rediriger vers la réservation créée quand une étape échoue.
++
++<a id="i-w08"></a>
++### I-W08 🟠 Écran d'embarquement : pas de choix du départ ; caméra seulement dans Chrome et Edge
++
++- **Où :** `web/src/views/operations/BoardingView.vue:29-67,86`
++- **Problème :**
++  - Seul le code est envoyé : le contrôle n'est pas lié au départ en cours d'embarquement ([I-B09](#i-b09)).
++  - Le scan par caméra repose sur `BarcodeDetector`, que Firefox et Safari ne gèrent pas, et un nouveau détecteur est créé à chaque image.
++  - La liste des passagers embarqués et non embarqués n'existe qu'en téléchargement CSV.
++- **Correction :**
++  - Ajouter un sélecteur de départ.
++  - Utiliser une bibliothèque de lecture QR, comme `@zxing/browser` ou `html5-qrcode`.
++  - Afficher la liste des passagers à l'écran.
++
++<a id="i-w09"></a>
++### I-W09 🟡 Classes CSS utilisées mais jamais définies
++
++- **Problème :**
++  - `.status-badge`, `.error-banner`, `.status-msg`, `.filter-row`, `.qr-camera` et `.scanner-actions` ne sont définies nulle part.
++  - Conséquences : les messages d'erreur ressemblent à du texte ordinaire, les badges actif et inactif sont identiques, et la vidéo de la caméra n'a pas de taille.
++  - `tailwind.config.js` existe, mais Tailwind n'est pas installé.
++- **Correction :** définir ces classes et supprimer la configuration Tailwind.
++
++<a id="i-w10"></a>
++### I-W10 🟡 Listes tronquées sans avertissement à 50 ou 100 éléments
++
++- **Où :**
++  - Listes de sélection plafonnées à `page_size: 100` : formulaire de départ, formulaires de flotte, formulaire d'itinéraire, formulaire de réservation, embarquement.
++  - Liste des utilisateurs dans « Rôles & permissions » : seuls les 100 premiers peuvent recevoir un rôle.
++  - Aucune pagination : billets, notifications, paiements.
++- **Correction :** ajouter la pagination, ou des sélecteurs avec recherche.
++
++<a id="i-w11"></a>
++### I-W11 🟡 Modifier un départ peut être impossible
++
++- **Où :** `web/src/views/management/DepartFormView.vue:78-79,123-129`
++- **Problème :** le formulaire ne propose que les véhicules et chauffeurs disponibles, et les tarifs actifs. Le véhicule, le chauffeur ou le tarif déjà affecté peut manquer dans la liste, ce qui empêche d'enregistrer.
++- **Correction :** toujours inclure les valeurs actuellement affectées.
++
++<a id="i-w12"></a>
++### I-W12 🟡 Le véhicule est créé même si le téléversement des documents échoue
++
++- **Où :** `web/src/views/management/FleetFormView.vue:138-139`, `web/src/services/api.ts:10`
++- **Problème :**
++  - Le véhicule est enregistré avant le téléversement de ses documents. Soumettre à nouveau crée un doublon ou une erreur 409 sur l'immatriculation.
++  - Le délai d'attente de 10 secondes s'applique aussi aux téléversements et aux exports CSV.
++- **Correction :** après la création, passer le formulaire en mode modification, et utiliser un délai plus long pour les téléversements.
++
++<a id="i-w13"></a>
++### I-W13 🟡 « Aujourd'hui » calculé en UTC
++
++- **Où :** `new Date().toISOString().slice(0,10)` dans `ReservationFormView.vue:30`, `FinanceView.vue:55`, `BoardingView.vue:100`, `StatisticsView.vue:12-13`, `DepartFormView.vue:28`, `FleetDetailView.vue:52`
++- **Problème :** entre 00 h et 03 h, heure de Madagascar, la date est encore celle de la veille : les départs du jour sont masqués.
++- **Correction :** calculer la date locale, par exemple avec `toLocaleDateString('sv-SE')` ou une petite fonction utilitaire.
++
++<a id="i-w14"></a>
++### I-W14 🟡 Boutons affichés sans la permission correspondante
++
++- **Où :**
++  - Ajouter / Modifier / Supprimer dans `ManagementView.vue:146,187-201` et `FleetListView.vue:169-193`.
++  - « Modifier » dans `ReservationDetailView.vue:70`.
++  - « Nouvelle réservation » dans `HomeView.vue:165`.
++- **Problème :** un clic sur l'un d'eux provoque une redirection ou une erreur 403.
++- **Correction :** n'afficher chaque bouton que si l'utilisateur a la permission correspondante.
++
++<a id="i-w15"></a>
++### I-W15 🟡 Identifiants bruts affichés au lieu des noms
++
++- **Où :**
++  - « Gare #id » : `FinanceView.vue:153,164`, `DepartListView.vue:29`
++  - « Départ #id » : `ReservationsView.vue:44`, où les deux branches du ternaire sont identiques
++  - « Coopérative #id » : `ReservationFormView.vue:205`
++  - « Itinéraire #id » : `StatisticsView.vue:82`
++  - Un chauffeur affiché « Permis X » au lieu de son nom
++- **Correction :** afficher les noms. Le backend renvoie déjà la plupart d'entre eux.
++
++<a id="i-w16"></a>
++### I-W16 🟡 Code mort qui appelle des endpoints inexistants
++
++- **Problème :**
++  - 18 stores Pinia sont inutilisés, et plusieurs appellent des endpoints inexistants (`PATCH /notifications/read-all`, `DELETE /notifications/{id}`) ou des méthodes de service inexistantes (`departService.remove`, `financeService.operations`).
++  - `DashboardView.vue`, `controllers/user`, `BaseAvatar`, `BaseBadge`, `BaseButton` et `EmptyState` sont inutilisés.
++  - Le bouton « Paramètres » et la cloche de notifications de l'en-tête ne font rien ; la cloche affiche toujours un point rouge.
++- **Correction :**
++  - Supprimer le code inutilisé.
++  - Relier la cloche au nombre de notifications non lues.
++
++<a id="i-w17"></a>
++### I-W17 🟡 Fonctionnalités manquantes (voir l'état du projet)
++
++- **Problème :** aucun écran pour :
++  - les rapports
++  - le journal des actions
++  - l'aide à la décision
++  - l'espace chauffeur
++  - les recettes par coopérative
++  - la saisie des commissions
++  - le montant compté à la clôture de caisse
++  - la référence de paiement
++  - la modification d'une réservation
++  - l'impression des billets
++  - les alertes de documents bientôt expirés
++  - la modification et la suppression des quais, zones et emplacements
++  - la transition RETARDÉ → EMBARQUEMENT
++  - une vue planning de type calendrier
++- **Correction :** voir [ETAT_DU_PROJET.md](ETAT_DU_PROJET.md) et [PLAN_ACTION.md](PLAN_ACTION.md).
++
++<a id="i-w18"></a>
++### I-W18 ⚪ Textes, accents et formatage
++
++- **Problème :**
++  - Beaucoup de libellés n'ont pas d'accents (« Itineraires », « Reservations », « RESEAU », « Detail de la gare », « Quai ajoute avec succes »).
++  - Les montants s'affichent « 15000.00 », sans formatage ; ils sont typés `number` alors que l'API envoie des chaînes.
++  - Les dates s'affichent au format ISO.
++  - Le message de succès après la création d'un départ est perdu (`DepartListView` ne lit jamais `?success`).
++- **Correction :**
++  - Corriger les libellés.
++  - Utiliser une seule fonction de formatage pour les montants (`Intl.NumberFormat('fr-MG')`) et une pour les dates.
++  - Afficher le message de succès.
++
++<a id="i-w19"></a>
++### I-W19 ⚪ Accessibilité
++
++- **Problème :**
++  - Les notifications sont des `<article>` cliquables, inutilisables au clavier.
++  - Sur la page des places, les états ne sont indiqués que par la couleur, sans légende.
++  - Certains libellés n'ont pas d'attribut `for`.
++  - Le menu déroulant n'a pas d'`aria-expanded` et ne se ferme pas avec Échap.
++- **Correction :** utiliser des boutons, ajouter une légende textuelle, relier chaque libellé à son champ et corriger le menu déroulant.
++
++<a id="i-w20"></a>
++### I-W20 ⚪ Configuration de production
++
++- **Où :** `web/Dockerfile`, `web/src/services/api.ts:4-6`, routeur
++- **Problème :**
++  - L'image Docker lance le **serveur de développement** Vite.
++  - Aucun script de lint ni de test.
++  - L'URL de l'API de production (`onrender.com`) est codée en dur comme valeur de repli.
++  - Aucune route 404.
++- **Correction :**
++  - Build en plusieurs étapes : `npm ci && npm run build`, puis service par nginx.
++  - Ajouter ESLint et Vitest.
++  - Ajouter une route 404 générique.
++
++---
++
++## 4. Application mobile (Flutter)
++
++<a id="i-m01"></a>
++### I-M01 🔴 Le billet n'a pas de QR code
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:246-249`, `mobile/pubspec.yaml` (aucune bibliothèque QR)
++- **Problème :**
++  - « Mes billets » affiche une icône fixe. Ni `qr_code_uuid` ni `qr_code_path` ne sont utilisés.
++  - Le passager n'a rien à présenter à l'embarquement : le parcours principal des §15–16 échoue.
++- **Correction :** ajouter une page de détail du billet qui affiche le QR avec `qr_flutter`, à partir de `qr_code_uuid`.
++
++<a id="i-m02"></a>
++### I-M02 🔴 La réservation est confirmée immédiatement, sans récapitulatif ni paiement
++
++- **Où :** `mobile/lib/data/repositories/reservation/reservation_repository_impl.dart:38-42`
++- **Problème :**
++  - Un seul appui crée **et** confirme la réservation. Aucun montant n'est affiché et aucun paiement n'a lieu.
++  - Combiné à [I-B01](#i-b01), cela permet de bloquer des places gratuitement.
++  - Le cahier des charges demande un récapitulatif (§5.6) et un paiement (§17).
++- **Correction :**
++  - Ajouter un écran de récapitulatif avec le total (prix × nombre de places).
++  - Laisser la réservation `EN_ATTENTE` jusqu'au paiement, en ligne ou en gare.
++
++<a id="i-m03"></a>
++### I-M03 🟠 Pas de recherche de voyage ; des départs non réservables sont proposés
++
++- **Où :** `mobile/lib/data/repositories/reservation/reservation_repository_impl.dart:16-22`, `mobile/lib/presentation/pages/operations/reservations_page.dart:221-224`
++- **Problème :**
++  - La page affiche les 100 premiers départs à partir d'aujourd'hui.
++  - Aucun choix du point de départ, de la destination ni de la date.
++  - Les départs annulés, partis ou complets sont listés et sélectionnables ; en réserver un renvoie une erreur 422.
++- **Correction :**
++  - Ajouter un formulaire de recherche (destinations, date) une fois les filtres backend disponibles ([I-B24](#i-b24)).
++  - Filtrer par statut et par places disponibles.
++  - Paginer.
++
++<a id="i-m04"></a>
++### I-M04 🟠 Fonctionnalités passager manquantes
++
++- **Problème :** l'application ne propose rien de ce qui suit, alors que les endpoints existent (sauf pour la modification du profil) :
++  - l'historique des réservations et leur statut (`GET /reservations`)
++  - le détail d'une réservation
++  - l'annulation (`POST /reservations/{id}/cancel`)
++  - l'écran des notifications (`GET /notifications`)
++  - la modification du profil (pas d'endpoint backend)
++  - l'affichage de la coopérative, du véhicule et du statut du départ
++- **Correction :** ajouter ces écrans, ainsi que `PUT /users/me` côté backend.
++
++<a id="i-m05"></a>
++### I-M05 🟠 Plan des places non rafraîchi ; un conflit de place affiche le mauvais message
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:97-101`, `mobile/lib/core/errors/user_error.dart:12`
++- **Problème :**
++  - Après une réservation, les places réservées apparaissent encore libres.
++  - Un conflit 409 affiche « Cette donnée existe déjà… » au lieu du message du serveur (« place n'est plus disponible »).
++- **Correction :** recharger le départ et ses places après un succès ou une erreur 409, et afficher le `detail` renvoyé par le backend.
++
++<a id="i-m06"></a>
++### I-M06 🟠 Le formulaire de connexion est vidé pendant la requête
++
++- **Où :** `mobile/lib/app.dart:30-31`, `mobile/lib/presentation/controllers/auth/auth_controller.dart:94-98`
++- **Problème :**
++  - L'état de chargement global remplace la page de connexion par un indicateur de chargement.
++  - Après un mauvais mot de passe, le formulaire revient vide.
++  - L'état de chargement du bouton et le message de succès ne sont jamais visibles.
++- **Correction :** utiliser un indicateur `isSubmitting` propre aux formulaires, et garder l'état global pour la vérification au démarrage.
++
++<a id="i-m07"></a>
++### I-M07 🟠 Réservation en attente laissée derrière si la confirmation échoue
++
++- **Où :** `mobile/lib/data/repositories/reservation/reservation_repository_impl.dart:39-41`
++- **Problème :** si la création réussit mais que la confirmation échoue, les places restent bloquées. Une nouvelle tentative provoque un conflit 409 sur les propres places de l'utilisateur.
++- **Correction :** garder l'identifiant de la réservation et ne relancer que la confirmation, ou en faire une seule opération côté serveur.
++
++<a id="i-m08"></a>
++### I-M08 🟠 La déconnexion ne coupe pas la session quand le jeton d'accès a expiré
++
++- **Où :** `mobile/lib/data/datasources/auth/auth_remote_datasource.dart:90-99`, `mobile/lib/core/network/api_client.dart:50`
++- **Problème :** au-delà de 60 minutes, `/auth/logout` renvoie 401 et l'erreur est ignorée. Le jeton de rafraîchissement reste valide 7 jours.
++- **Correction :** rafraîchir le jeton avant de se déconnecter, ou faire accepter à `/auth/logout` le seul jeton de rafraîchissement.
++
++<a id="i-m09"></a>
++### I-M09 🟠 Version release impossible à publier ; pas de projet iOS
++
++- **Où :** `mobile/android/app/build.gradle.kts:19,36` ; il n'y a pas de dossier `ios/`
++- **Problème :**
++  - L'`applicationId` est `com.example.cooperative_mobile`, refusé par Google Play.
++  - La version release est signée avec la clé de debug.
++  - L'application ne peut pas être compilée pour iPhone.
++- **Correction :**
++  - Définir un vrai identifiant d'application et une configuration de signature release.
++  - Lancer `flutter create --platforms=ios .`.
++
++<a id="i-m10"></a>
++### I-M10 🟡 Mauvaises places affichées quand on change vite de départ
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:70-80`
++- **Problème :**
++  - Appuyer sur le départ A puis sur le B peut afficher les places de A sous B, si la réponse de A arrive en dernier.
++  - La réservation échoue alors avec une erreur 422 « ne correspond pas ».
++- **Correction :** ignorer les réponses qui concernent un autre départ que celui sélectionné.
++
++<a id="i-m11"></a>
++### I-M11 🟡 Un seul nom pour toutes les places
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:91-95`, `mobile/lib/presentation/pages/home/home_page.dart:65`
++- **Problème :**
++  - Réserver 3 places enregistre le même nom sur les 3 billets : la vérification par nom à l'embarquement échoue.
++  - Le nom n'est pas pré-rempli depuis le profil.
++- **Correction :** un formulaire nom et téléphone par place, le premier pré-rempli depuis le profil.
++
++<a id="i-m12"></a>
++### I-M12 🟡 Messages d'erreur du serveur masqués
++
++- **Où :** `mobile/lib/data/datasources/auth/auth_remote_datasource.dart:101-123`, `mobile/lib/core/errors/user_error.dart`
++- **Problème :**
++  - S'inscrire avec un email existant affiche un message générique.
++  - Toute erreur 401 s'affiche « Email ou mot de passe incorrect ».
++- **Correction :** afficher le `detail` du backend, et associer les erreurs de validation 422 aux champs concernés.
++
++<a id="i-m13"></a>
++### I-M13 🟡 À l'expiration de la session, l'utilisateur reste sur la page en cours
++
++- **Où :** `mobile/lib/app.dart:16-20`
++- **Problème :** quand la session expire sur la page des réservations ou du pointage, l'utilisateur y reste et ne voit que des erreurs.
++- **Correction :** revenir au premier écran (`popUntil`), ou utiliser `go_router` avec une redirection d'authentification.
++
++<a id="i-m14"></a>
++### I-M14 🟡 Réglages réseau
++
++- **Où :** `mobile/lib/core/config/env.dart`, `mobile/lib/core/network/api_client.dart:26-27,60-61,130-135`
++- **Problème :**
++  - Les délais de 10 secondes sont trop courts pour un démarrage à froid de l'offre gratuite de Render.
++  - L'appel de rafraîchissement du jeton n'a aucun délai d'attente.
++  - Après l'échec d'une nouvelle tentative, c'est l'erreur d'origine qui est remontée, pas celle de la tentative.
++  - En debug, l'URL par défaut est `10.0.2.2`, qui ne fonctionne que dans l'émulateur.
++  - `.env.example` n'est jamais lu.
++- **Correction :**
++  - Allonger les délais, ajouter des nouvelles tentatives, et un délai sur le rafraîchissement.
++  - Documenter `--dart-define-from-file`.
++
++<a id="i-m15"></a>
++### I-M15 🟡 La réinitialisation du mot de passe est inutilisable sur mobile
++
++- **Où :** `mobile/lib/presentation/pages/auth/forgot_password_page.dart`
++- **Problème :**
++  - L'email contient un lien vers le **web**. L'utilisateur doit en extraire le jeton à la main.
++  - La page annonce toujours qu'un code a été généré, même quand rien n'a été envoyé.
++  - `setState` est appelé après un `await` sans vérifier `mounted`.
++- **Correction :** gérer le lien comme un lien profond (`app_links`), ou accepter le lien entier et en extraire le jeton ; ajouter les vérifications `mounted`.
++
++<a id="i-m16"></a>
++### I-M16 🟡 Onglet des billets : erreurs et chargement non affichés
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:61-68,246-247`
++- **Problème :** pendant le chargement ou après une erreur, l'onglet affiche « Aucun billet enregistré ». Il n'y a ni indicateur de chargement, ni « tirer pour rafraîchir » quand la liste est vide.
++- **Correction :** donner à l'onglet ses propres états de chargement et d'erreur, et placer l'état vide dans un `RefreshIndicator` défilable.
++
++<a id="i-m17"></a>
++### I-M17 🟡 Dates et montants non localisés ; fuseau de l'appareil utilisé
++
++- **Problème :**
++  - Les dates s'affichent `2026-10-08`, les heures `08:00:00`, les montants `15000.00`.
++  - Ni bibliothèque `intl`, ni locale française.
++  - `date_from` est calculé à partir de la date de l'appareil.
++- **Correction :** ajouter `intl` et `flutter_localizations`, et tout formater en `fr_FR`.
++
++<a id="i-m18"></a>
++### I-M18 ⚪ Lacunes de la page chauffeur
++
++- **Où :** `mobile/lib/presentation/pages/operations/driver_pointage_page.dart`
++- **Problème :**
++  - Le pointage n'a pas de confirmation : un appui par erreur passe le départ en `PARTI`.
++  - Les statuts s'affichent bruts (« PROGRAMME »).
++  - Le véhicule et la liste des passagers ne sont pas affichés.
++- **Correction :** ajouter une boîte de confirmation, des libellés de statut lisibles, le véhicule et la liste des passagers.
++
++<a id="i-m19"></a>
++### I-M19 ⚪ Disposition des places devinée
++
++- **Où :** `mobile/lib/presentation/pages/operations/reservations_page.dart:114-129,189-196`
++- **Problème :** la disposition est inventée à partir du nombre de places. Elle ne correspond pas aux vrais véhicules, par exemple un Sprinter avec strapontin.
++- **Correction :** déduire la disposition du modèle de véhicule, par exemple avec un champ dédié dans `modeles`.
++
++<a id="i-m20"></a>
++### I-M20 ⚪ Code mort, données non typées, dépendances
++
++- **Problème :**
++  - `vehicules_page.dart` (1 060 lignes) est inaccessible.
++  - Plusieurs providers et classes sont inutilisés.
++  - Les données circulent en `Map<String, dynamic>`, avec des conversions forcées partout.
++  - La contrainte de SDK (`>=3.4.0`) ne correspond pas au fichier de verrouillage (Dart 3.13 ou plus).
++  - `.widget_preview/` est versionné alors que `.gitignore` l'exclut.
++  - Gradle est configuré avec `-Xmx8G`, ce qui peut échouer sur une machine de 8 Go.
++  - L'icône est celle par défaut, et les libellés n'ont pas d'accents.
++- **Correction :**
++  - Supprimer le code mort.
++  - Ajouter des modèles typés.
++  - Aligner la contrainte de SDK sur le fichier de verrouillage.
++  - Retirer `.widget_preview/` de git.
++  - Réduire la mémoire allouée à Gradle.
++
++---
++
++## 5. DevOps
++
++<a id="i-d01"></a>
++### I-D01 🟠 Seule une configuration Docker de développement existe
++
++- **Où :** `docker-compose.yml`, `backend/Dockerfile`, `web/Dockerfile`
++- **Problème :**
++  - L'API tourne avec `--reload` et un dossier source monté.
++  - Le web lance le serveur de développement Vite.
++  - Les conteneurs tournent en root.
++  - Le port de l'API est 10000 dans le Dockerfile, 8000 dans compose.
++  - `alembic upgrade head` s'exécute à chaque démarrage, ce qui crée une concurrence avec plusieurs instances.
++  - Le port de la base est exposé sur l'hôte.
++- **Correction :**
++  - Ajouter un fichier compose de production (ou une surcharge) : images construites, utilisateur non root, migrations dans une tâche ponctuelle séparée.
++  - Servir le web avec nginx.
++
++<a id="i-d02"></a>
++### I-D02 🟠 Pas d'intégration continue, pas de tests automatisés sur le web et le mobile
++
++- **Problème :** rien n'exécute le lint, la vérification des types, les tests ni les builds sur les pull requests.
++- **Correction :** ajouter un workflow GitHub Actions :
++  - backend : lint et pytest avec un service PostgreSQL
++  - web : `vue-tsc -b`, `vite build`, Vitest
++  - mobile : `flutter analyze`, `flutter test`
++
++<a id="i-d03"></a>
++### I-D03 🟡 Fichiers téléversés copiés dans l'image Docker et stockés sur un disque éphémère
++
++- **Où :** `backend/.dockerignore` n'exclut pas `uploads/`
++- **Problème :**
++  - Environ 1 900 images de QR codes se retrouvent dans l'image.
++  - Sur Render, le disque local est effacé à chaque déploiement : documents et QR codes téléversés sont perdus.
++- **Correction :**
++  - Exclure `uploads/` dans `.dockerignore`.
++  - Stocker les fichiers dans un stockage objet (S3/R2) ou sur un disque persistant.
++  - Générer les QR codes à la demande à partir de `qr_code_uuid`.
++
++<a id="i-d04"></a>
++### I-D04 🟡 URLs de production codées en dur
++
++- **Où :** `web/src/services/api.ts:4-6` (`onrender.com`), `backend/app/main.py:45-55` (origine Vercel), `mobile/lib/core/config/env.dart`
++- **Correction :** configurer les URLs uniquement par variables d'environnement.
++
++<a id="i-d05"></a>
++### I-D05 ⚪ L'initialisation des données s'exécute dans le processus de l'API
++
++- **Problème :** voir [I-B19](#i-b19). L'exécuter à chaque démarrage ralentit le démarrage et crée une concurrence quand plusieurs workers démarrent ensemble.
++- **Correction :** en faire une commande ponctuelle du déploiement.
+diff --git a/docs/PLAN_ACTION.md b/docs/PLAN_ACTION.md
+new file mode 100644
+index 0000000..04fcef5
+--- /dev/null
++++ b/docs/PLAN_ACTION.md
+@@ -0,0 +1,348 @@
++# Plan d'action
++
++Plan pour traiter l'ensemble des problèmes de [PROBLEMES.md](PROBLEMES.md) (90 problèmes) et compléter les fonctionnalités manquantes décrites dans [ETAT_DU_PROJET.md](ETAT_DU_PROJET.md). Établi le 8 octobre 2026, sur la base du commit `0179f01`.
++
++**Principes :**
++- **Sécurité d'abord.** Les failles exploitables (phase 0) passent avant toute nouvelle fonctionnalité.
++- **Fondations avant fonctionnalités.** Les tests, le planificateur de tâches et le fuseau horaire (phase 1) conditionnent la fiabilité de tout le reste.
++- **Une phase = un ou plusieurs lots livrables.** Chaque lot fait l'objet d'une branche et d'une pull request, avec ses tests et la mise à jour du [guide de test](GUIDE_DE_TEST.md).
++- **Les identifiants `I-xxx`** renvoient à [PROBLEMES.md](PROBLEMES.md). L'[annexe A](#annexe-a--correspondance-problèmes--phases) garantit que chaque problème est rattaché à une phase.
++
++---
++
++## 1. Vue d'ensemble
++
++| Phase | Objectif | Durée estimée (1 dev) | Dépend de |
++|---|---|---|---|
++| [0 – Urgences](#phase-0--urgences-4-jours) | Fermer les failles critiques et débloquer l'embarquement | 4 jours | — |
++| [1 – Fondations](#phase-1--fondations-15-semaine) | Tests, CI, planificateur, fuseau horaire, périmètres par gare | 1,5 semaine | 0 |
++| [2 – Corrections fonctionnelles](#phase-2--corrections-fonctionnelles-15-semaine) | Règles métier, droits et erreurs du backend et du web | 1,5 semaine | 1 |
++| [3 – Parcours passager mobile](#phase-3--parcours-passager-mobile-25-semaines) | Recherche, récapitulatif, QR code, historique, notifications | 2,5 semaines | 1 (2 en partie) |
++| [4 – Compléments du cahier des charges](#phase-4--compléments-du-cahier-des-charges-3-semaines) | Paiement en ligne, notifications réelles, caisse, rapports, journal des actions | 3 semaines | 2 |
++| [5 – Aide à la décision](#phase-5--aide-à-la-décision-15-semaine) | Prévisions, recommandations, détection d'anomalies | 1,5 semaine | 4 (rapports) |
++| [6 – Production et finitions](#phase-6--production-et-finitions-15-semaine) | Docker de production, publication mobile, performance, nettoyage | 1,5 semaine | — (en continu) |
++
++**Total :** environ **12 semaines pour une personne**, ou **7 à 8 semaines à deux**. Une organisation à deux est proposée en [section 3](#3-organisation-à-deux-développeurs).
++
++```text
++Semaine     1    2    3    4    5    6    7    8    9   10   11   12
++Phase 0   ███
++Phase 1     ░████████
++Phase 2              ████████
++Phase 3              ██████████████
++Phase 4                             ███████████████
++Phase 5                                            ████████
++Phase 6        ·    ·    ·    ·    ·    ·    ·    ·    ·   ██████
++```
++
++(Une personne seule enchaîne les phases 2 et 3 au lieu de les mener en parallèle. Les points de la phase 6 sont des tâches de nettoyage traitées au fil de l'eau.)
++
++---
++
++## 2. Décisions à prendre avant de commencer
++
++Ces choix relèvent du fonctionnement réel de la gare (cahier des charges §27 : « les règles de gestion devront être définies à partir du fonctionnement réel de la gare »). Il faut les trancher avec le propriétaire du projet, idéalement avant la phase 2.
++
++| # | Décision | Proposition par défaut | Bloque |
++|---|---|---|---|
++| D1 | Délai pour payer une réservation faite depuis le mobile | 30 minutes, paramétrable par gare | Phase 0 (I-B01), Phase 3 |
++| D2 | Une réservation non payée peut-elle être « confirmée » ? | Non : la confirmation se fait au paiement (en gare ou en ligne) | Phase 0, 3 |
++| D3 | Règles d'annulation : délai limite et pourcentage remboursé | Gratuit jusqu'à 2 h avant le départ ; ensuite non remboursable | Phase 2 (I-B10) |
++| D4 | Fournisseur de paiement en ligne | MVola en priorité, puis Orange Money et Airtel Money | Phase 4 |
++| D5 | Canal de notification | Push (Firebase Cloud Messaging) + SMS pour le rappel de départ | Phase 4 |
++| D6 | Commission de la gare | Pourcentage par coopérative, paramétrable | Phase 4 |
++| D7 | Disposition des places par modèle de véhicule | Champ « plan de places » sur le modèle (rangées × colonnes, couloir, strapontin) | Phase 3 (I-M19) |
++| D8 | Un agent est-il rattaché à une seule gare ? | Oui (une gare par agent, plusieurs pour un responsable de gare) | Phase 1 (I-B07) |
++
++---
++
++## Phase 0 – Urgences (4 jours)
++
++**Objectif :** plus aucune faille critique exploitable, et l'embarquement fonctionne pour toutes les réservations.
++
++| Lot | Tâches | Problèmes | Couche | Durée |
++|---|---|---|---|---|
++| 0.1 Secrets | Retirer `.env`, `backend/.env` et `web/.env` de git. Changer `SECRET_KEY`, le mot de passe de la base et celui de l'admin dans tous les environnements. Supprimer le pré-remplissage de la page de connexion. Refuser le démarrage hors développement avec des valeurs par défaut. | I-S01 | Tous | 0,5 j |
++| 0.2 Réinitialisation | Ne plus jamais renvoyer `reset_url` (indicateur explicite de debug). Désactiver `/system/reset-business-data` hors développement, exiger le mot de passe, conserver `revoked_tokens`. | I-S02, I-S03 | Backend | 0,5 j |
++| 0.3 Blocage de places | Expiration fixée côté serveur (décision D1). Confirmation réservée au paiement ou au personnel (D2). Plafond de réservations actives par utilisateur. Le mobile affiche « à payer avant HH:MM » en attendant la phase 3. | I-B01, I-M02 (partiel) | Backend, mobile | 1 j |
++| 0.4 Fichiers privés | Sortir les documents de `uploads/` statique, les servir uniquement par l'endpoint authentifié. QR codes servis par un endpoint authentifié (ou générés côté client à partir de `qr_code_uuid`). | I-B02 | Backend, web | 0,5 j |
++| 0.5 Paiement et embarquement | Créer les billets au paiement s'ils manquent. Vérifier l'expiration avant d'encaisser. Embarquement validé sur le statut du billet ; réservation `EMBARQUEE` seulement quand tous les billets sont utilisés. | I-B03, I-B04 | Backend | 1 j |
++| 0.6 Correctifs rapides du web | Vraie vérification des types dans le build (`vue-tsc -b`) et correction des 21 erreurs. `index.html` standard avec viewport et `lang="fr"`. | I-W02, I-W01 | Web | 0,5 j |
++
++**Critères de fin :**
++- Les tests AUTH-03, AUTH-09, RES-10, RES-11, FLEET-06, TKT-04, BRD-09 et CASH-05 du [guide de test](GUIDE_DE_TEST.md) passent.
++- `npm run build` échoue en cas d'erreur de type.
++- Les anciens secrets ne fonctionnent plus en production.
++
++---
++
++## Phase 1 – Fondations (1,5 semaine)
++
++**Objectif :** pouvoir modifier le code sans régression, et des règles de date et de périmètre justes partout.
++
++| Lot | Tâches | Problèmes | Couche | Durée |
++|---|---|---|---|---|
++| 1.1 Tests backend | pytest + base PostgreSQL de test (migrations appliquées, triggers compris). Données de test réutilisant `seed_dev`. Premiers tests : périmètre par rôle, plus les correctifs de la phase 0. | I-B32 | Backend | 2 j |
++| 1.2 Intégration continue | GitHub Actions : backend (lint, pytest), web (`vue-tsc -b`, build), mobile (`flutter analyze`). Bloquant sur les pull requests. | I-D02 | DevOps | 0,5 j |
++| 1.3 Planificateur | APScheduler (ou conteneur cron). Tâches : expirer les réservations en masse, clore les affectations échues, passer en `TERMINEE` les réservations et en `EXPIRE` les billets des départs terminés, purger `revoked_tokens`. Suppression des écritures dans les handlers GET. | I-B05, I-B18, I-B27, I-S13 | Backend | 1,5 j |
++| 1.4 Fuseau horaire | Réglage `TIMEZONE=Indian/Antananarivo`. Fonction unique « maintenant / aujourd'hui local ». Comparaison sur date + heure du départ. Côté web, date locale au lieu de `toISOString()`. | I-B06, I-W13 | Backend, web | 1 j |
++| 1.5 Périmètres | Table `gare_agents` (décision D8), écran d'affectation des agents à une gare. Périmètre calculé à partir du rôle de personnel le plus élevé, le rôle passager en dernier. | I-B07, I-B08 | Backend, web | 2 j |
++| 1.6 Initialisation | Initialisation des rôles et permissions en commande ponctuelle (n'insère que ce qui manque), retirée du démarrage de l'API. | I-B19, I-D05 | Backend | 0,5 j |
++
++**Critères de fin :**
++- La CI est verte et bloque les fusions en échec.
++- Un agent créé sans coopérative voit les départs de sa gare (test ACL-05).
++- Une réservation non payée libère ses places à l'heure prévue, sans que personne ne la lise (test RES-12).
++- Les tests BRD-12 et RES-13 passent.
++
++---
++
++## Phase 2 – Corrections fonctionnelles (1,5 semaine)
++
++**Objectif :** chaque rôle peut utiliser tous ses écrans, et les règles métier sont cohérentes.
++
++### 2.A Backend (≈ 4 jours)
++
++| Lot | Tâches | Problèmes |
++|---|---|---|
++| 2.1 Règles de réservation | Vérification du statut et de l'heure du départ à la confirmation et à l'annulation. Règles d'annulation (décision D3). Annulation d'une réservation payée par le passager, avec remboursement « en attente » traité par un caissier. | I-B10, I-B12 |
++| 2.2 Paiements et caisse | Verrou contre le double paiement (index unique partiel). Montant compté et écart à la clôture ; clôture réservée au titulaire ou à un responsable. | I-B11, I-B25 |
++| 2.3 Embarquement | `id_depart` obligatoire dans le contrôle ; horodatage serveur uniquement. | I-B09 |
++| 2.4 Départs | Détection des chevauchements (heure + durée estimée), contrôle des documents valides du véhicule. Notifications de retard et de changement d'horaire. Permission `DEPART_DELETE` dans l'initialisation. | I-B14, I-B15, I-B28 |
++| 2.5 Tarifs | Le tarif courant reste actif jusqu'au début du nouveau. | I-B26 |
++| 2.6 Droits | Lecture de son propre profil et véhicule pour le chauffeur. Filtre par coopérative pour les passagers. Rattachements gare/itinéraire réservés à l'admin et au responsable de gare. Membres éligibles : champs minimaux + recherche obligatoire. Protection des comptes admin. Rétrogradation d'un admin sauf le dernier. | I-B16, I-B17, I-S05, I-S07, I-B20 |
++| 2.7 Sécurité des comptes | Jetons invalidés au changement de mot de passe, politique de mot de passe, SMTP en tâche de fond sans fuite. Contrôle des fichiers téléversés (signature, taille). Limitation de débit derrière proxy (Redis) et sur les réservations. CORS selon l'environnement. | I-S06, I-S08, I-S09, I-S10 |
++| 2.8 Erreurs | Plus aucune 500 sur les cas connus : limites de pagination alignées, exceptions de trigger et de clé étrangère traduites en 409/422, `max_length` et `EmailStr` dans les schémas, format d'erreur `{detail}` avec CORS. | I-B13 |
++
++### 2.B Web (≈ 4 jours)
++
++| Lot | Tâches | Problèmes |
++|---|---|---|
++| 2.9 Droits dans l'interface | Routes protégées par permission uniquement, page 403. Plan des places en lecture avec `DEPART_READ`. Boutons affichés selon les permissions. | I-W03, I-W04, I-W14 |
++| 2.10 Robustesse | `Promise.allSettled` sur l'accueil, le détail de caisse et le détail d'itinéraire ; endpoints appelés seulement avec la permission. | I-W05, I-W06 |
++| 2.11 Guichet | Vente au guichet en une opération (nouvel endpoint backend : créer + confirmer + encaisser), avec reprise en cas d'échec. | I-W07 |
++| 2.12 Embarquement | Sélecteur de départ ; lecture QR avec `@zxing/browser` (tous navigateurs) ; listes embarqués / non embarqués à l'écran. | I-W08 |
++| 2.13 Formulaires et listes | Valeurs affectées toujours présentes dans le formulaire de départ. Formulaire véhicule en mode modification après création ; délai plus long pour les téléversements. Pagination ou sélecteurs avec recherche à la place des listes tronquées. Noms au lieu des identifiants. Session expirée : redirection vers `/login` et jeton de rafraîchissement à jour. | I-W10, I-W11, I-W12, I-W15, I-S04 |
++
++**Critères de fin :**
++- Le tableau d'accès par rôle (section 17 du [guide de test](GUIDE_DE_TEST.md)) est entièrement conforme.
++- Les tests BRD-08, RES-14, DEP-05, DEP-08, DEP-11, CASH-12, NET-10, COOP-06 et FLEET-08 passent.
++
++---
++
++## Phase 3 – Parcours passager mobile (2,5 semaines)
++
++**Objectif :** un passager peut faire tout le parcours du cahier des charges §5 depuis son téléphone.
++
++| Lot | Tâches | Problèmes | Durée |
++|---|---|---|---|
++| 3.1 Recherche (backend) | Filtres `/departs` : point de départ, destination, itinéraire, véhicule, chauffeur ; recherche textuelle sur les noms et l'immatriculation. | I-B24 | 1 j |
++| 3.2 Recherche (mobile) | Formulaire départ / destination / date, liste paginée des seuls départs réservables, écran de détail du départ (coopérative, véhicule, places, tarif, statut). | I-M03 | 2 j |
++| 3.3 Réservation | Plan des places issu du modèle (D7), légende complète, rafraîchissement après succès ou conflit, protection contre les réponses désordonnées. Un formulaire par place (premier pré-rempli). Récapitulatif avec montant total. Reprise de la confirmation en cas d'échec. | I-M19, I-M05, I-M10, I-M11, I-M02, I-M07 | 3 j |
++| 3.4 Billets | Page de détail du billet avec QR code (`qr_flutter`), n° de réservation, passager, place, montant. États de chargement et d'erreur. | I-M01, I-M16 | 1,5 j |
++| 3.5 Historique et annulation | Mes réservations (liste, statut, détail), annulation selon les règles (D3). | I-M04 | 2 j |
++| 3.6 Profil et notifications | `PUT /users/me` (backend) + écran profil. Écran des notifications, marquer comme lu, compteur. | I-M04 | 1,5 j |
++| 3.7 Authentification | État de soumission propre aux formulaires. Messages d'erreur du serveur. Retour à l'accueil à l'expiration de session. Déconnexion fiable. Lien de réinitialisation ouvert dans l'application (`app_links`). | I-M06, I-M12, I-M13, I-M08, I-M15 | 1,5 j |
++| 3.8 Réseau, sécurité, présentation | Délais et nouvelles tentatives, délai sur le rafraîchissement, URL par `--dart-define-from-file`. HTTP en clair seulement en debug. Profil en stockage sécurisé. Formatage `fr_FR` des dates et montants. | I-M14, I-S11, I-S12, I-M17 | 1 j |
++| 3.9 Chauffeur | Confirmation avant pointage, statuts lisibles, véhicule affecté, liste des passagers du trajet. | I-M18 | 1 j |
++
++**Critères de fin :**
++- Les tests MOB-01 à MOB-18 et DRV-01 à DRV-06 du [guide de test](GUIDE_DE_TEST.md) passent, sauf MOB-13 (paiement en ligne, phase 4).
++- Des tests de widgets couvrent la recherche, le plan des places et le billet.
++
++---
++
++## Phase 4 – Compléments du cahier des charges (3 semaines)
++
++**Objectif :** couvrir les sections du cahier des charges encore absentes. Ces tâches correspondent pour l'essentiel à [I-W17](PROBLEMES.md#i-w17) et aux points ❌ de l'[état du projet](ETAT_DU_PROJET.md).
++
++| Lot | Tâches | Section | Durée |
++|---|---|---|---|
++| 4.1 Paiement en ligne | Intégration du fournisseur choisi (D4) : initiation depuis le mobile, rappel (webhook) signé, statuts `EN_ATTENTE → VALIDE / ECHOUE`, idempotence, remboursement. Référence de paiement saisissable au guichet. | §17 | 4 j |
++| 4.2 Notifications réelles | Envoi push (FCM) et SMS/email (D5) depuis une file traitée par le planificateur. Rappel automatique la veille, alertes d'expiration des documents (J-30, J-7, J), retard, changement d'horaire. Cloche du web reliée au nombre de non lues. | §19, §9 | 3 j |
++| 4.3 Caisse et finances | Saisie des commissions (D6), recettes par jour, par départ et par coopérative, suivi des recettes pour le responsable de coopérative. | §18 | 2 j |
++| 4.4 Rapports | Rapports journalier, mensuel, départs, réservations, embarquement, financier, par coopérative, par destination. Export PDF et CSV. Impression du billet. | §21, §15 | 3 j |
++| 4.5 Journal des actions | Table `audit_log` (qui, quoi, quand, avant/après) alimentée sur chaque création, modification et suppression ; historique des statuts des réservations et paiements ; écran de consultation et de filtrage. | §6, §23 | 2 j |
++| 4.6 Champs et vues manquants | Propriétaire du véhicule, horaires de la gare, historique d'utilisation d'un véhicule, planning des chauffeurs pour les responsables, vue planning de type calendrier, modification et suppression des quais, zones et emplacements, transition RETARDÉ → EMBARQUEMENT. | §7, §9, §10, §12 | 2 j |
++| 4.7 Modification de réservation | Changement de place, de départ ou de nom du passager, selon les règles (D3), avec recalcul du montant. | §14 | 1,5 j |
++| 4.8 Espace chauffeur (web) | Profil, véhicule affecté, planning, passagers par trajet. | §4.5 | 1 j |
++| 4.9 Tableau de bord et recherche | Réservations en attente, dernières réservations, alertes administratives. Filtres par date, destination, coopérative, véhicule, statut et période sur toutes les listes. | §20, §22 | 1,5 j |
++
++**Critères de fin :**
++- Tous les points « Manquant » du [guide de test](GUIDE_DE_TEST.md) (ADM-08, GARE-07, FLEET-05, FLEET-07, TKT-03, CASH-06, CASH-10, CASH-13, CASH-15, DASH-03, DASH-07, MOB-13, NOTIF-03, NOTIF-04) passent.
++
++---
++
++## Phase 5 – Aide à la décision (1,5 semaine)
++
++**Objectif :** couvrir le §24 avec des méthodes simples et explicables, à partir de l'historique des réservations.
++
++| Lot | Tâches | Durée |
++|---|---|---|
++| 5.1 Données | Vue ou table d'agrégats quotidiens : réservations, passagers et remplissage par itinéraire, coopérative et jour de semaine. | 1 j |
++| 5.2 Prévisions | Demande par itinéraire et jour : moyenne mobile pondérée + saisonnalité hebdomadaire (et jours fériés malgaches). Prévision des passagers et du taux de remplissage à 7 et 30 jours. | 2 j |
++| 5.3 Recommandations | Détection des périodes de forte demande (au-delà de la moyenne + 2 écarts-types). Nombre de départs recommandé = passagers prévus ÷ (capacité moyenne × taux cible). Horaires recommandés d'après les créneaux les plus remplis. | 1,5 j |
++| 5.4 Anomalies | Écart (z-score) par jour et par coopérative sur les réservations, annulations et recettes ; écarts de caisse répétés. | 1 j |
++| 5.5 Écran « Aide à la décision » | Pour le responsable de gare et le responsable de coopérative : prévisions, recommandations avec leur justification, anomalies à vérifier. | 1,5 j |
++
++**Critères de fin :**
++- Le test DASH-08 passe.
++- Les prévisions sont validées sur les données de démonstration (comparaison prévu/réel sur les 7 derniers jours).
++
++---
++
++## Phase 6 – Production et finitions (1,5 semaine)
++
++**Objectif :** une application déployable, publiable et maintenable. Les tâches de nettoyage peuvent être faites au fil de l'eau, dès qu'un fichier concerné est modifié.
++
++| Lot | Tâches | Problèmes |
++|---|---|---|
++| 6.1 Docker de production | Images construites, utilisateur non root, API sans `--reload`, web servi par nginx (build en plusieurs étapes), migrations dans une tâche séparée, base non exposée. | I-D01, I-W20 |
++| 6.2 Stockage et configuration | Fichiers dans un stockage persistant (S3/R2 ou disque persistant), `uploads/` exclu de l'image, URLs uniquement par variables d'environnement. | I-D03, I-D04 |
++| 6.3 Publication mobile | Vrai identifiant d'application, signature release, projet iOS, icône et nom de l'application. | I-M09 |
++| 6.4 Performance | Suppression des requêtes N+1, période de statistiques bornée, schéma de réponse du tableau de bord. | I-B21, I-B22, I-B23 |
++| 6.5 Nettoyage | Code mort backend, web et mobile ; migrations ; textes mal encodés ; dépendances mobiles. | I-B29, I-B30, I-B31, I-W16, I-M20 |
++| 6.6 Interface | Classes CSS manquantes, accents et formatage, accessibilité. | I-W09, I-W18, I-W19 |
++
++**Critères de fin :**
++- La section 21 (tests non fonctionnels) du [guide de test](GUIDE_DE_TEST.md) passe.
++- Le déploiement de production se fait sans le fichier compose de développement.
++
++---
++
++## 3. Organisation à deux développeurs
++
++| Semaine | Développeur A (backend + web) | Développeur B (mobile + web) |
++|---|---|---|
++| 1 | Phase 0 (0.1 à 0.5) | Phase 0 (0.3 côté mobile, 0.6) puis 1.2 (CI) |
++| 2 | Phase 1 (1.1, 1.3, 1.4) | Phase 1 (1.5 côté web) puis 3.4 (QR code), 3.7 |
++| 3 | Phase 1 (1.5, 1.6) puis 2.A | Phase 3 (3.1 avec A, 3.2, 3.3) |
++| 4 | Phase 2.A | Phase 3 (3.5, 3.6, 3.8, 3.9) |
++| 5 | Phase 2.B | Phase 2.B (2.12, 2.13) |
++| 6 | Phase 4 (4.1, 4.3) | Phase 4 (4.2 côté mobile, 4.6, 4.8) |
++| 7 | Phase 4 (4.4, 4.5, 4.7) | Phase 4 (4.9) puis phase 5 (5.5) |
++| 8 | Phase 5 (5.1 à 5.4) | Phase 6 (6.1 à 6.3, 6.6) |
++
++---
++
++## 4. Définition de « terminé »
++
++Un lot est terminé quand :
++1. Le code est fusionné dans `main` par pull request, avec la CI verte.
++2. Des tests automatisés couvrent le comportement corrigé ou ajouté (pytest pour le backend, Vitest pour le web, `flutter test` pour le mobile).
++3. Les tests correspondants du [guide de test](GUIDE_DE_TEST.md) passent, et le guide est mis à jour (suppression de la mention « Problème connu »).
++4. Le problème est marqué corrigé dans [PROBLEMES.md](PROBLEMES.md), avec la référence de la pull request.
++5. Le README et `ARCHITECTURE.md` sont à jour si le fonctionnement ou la configuration change.
++6. Les données de démonstration (`seed_dev.py`) couvrent la nouvelle fonctionnalité.
++
++---
++
++## 5. Risques
++
++| Risque | Effet | Parade |
++|---|---|---|
++| Les décisions métier (section 2) tardent | Phases 2 à 4 bloquées | Démarrer avec les valeurs par défaut proposées, rendues paramétrables |
++| Accès au fournisseur de paiement (compte marchand, environnement de test) | Phase 4.1 retardée | Lancer la demande dès la phase 0 ; prévoir un faux fournisseur pour les tests |
++| Les anciens secrets ont déjà été utilisés | Compromission de la production | Changer les secrets immédiatement (phase 0.1), vérifier les comptes admin et les journaux |
++| Les modifications des triggers PostgreSQL cassent l'existant | Places ou paiements incohérents | Tests d'intégration sur une vraie base (phase 1.1) avant toute modification de trigger |
++| Hébergement gratuit (démarrages à froid, disque éphémère) | Lenteurs, fichiers perdus | Phase 6.2 ; offre payante ou disque persistant avant la mise en service |
++| Une seule personne sur tout le périmètre | Délai doublé | Suivre l'ordre des phases ; les phases 5 et 6.6 peuvent être réduites si nécessaire |
++
++---
++
++## Annexe A – Correspondance problèmes → phases
++
++Chacun des 90 problèmes de [PROBLEMES.md](PROBLEMES.md) est rattaché à une phase et à un lot.
++
++| Problème | Gravité | Phase | Lot |
++|---|---|---|---|
++| [I-S01](PROBLEMES.md#i-s01) | 🔴 | 0 | 0.1 Secrets |
++| [I-S02](PROBLEMES.md#i-s02) | 🔴 | 0 | 0.2 Réinitialisation |
++| [I-S03](PROBLEMES.md#i-s03) | 🟠 | 0 | 0.2 Réinitialisation |
++| [I-S04](PROBLEMES.md#i-s04) | 🟠 | 2 | 2.13 Formulaires et listes |
++| [I-S05](PROBLEMES.md#i-s05) | 🟠 | 2 | 2.6 Droits |
++| [I-S06](PROBLEMES.md#i-s06) | 🟠 | 2 | 2.7 Sécurité des comptes |
++| [I-S07](PROBLEMES.md#i-s07) | 🟠 | 2 | 2.6 Droits |
++| [I-S08](PROBLEMES.md#i-s08) | 🟠 | 2 | 2.7 Sécurité des comptes |
++| [I-S09](PROBLEMES.md#i-s09) | 🟡 | 2 | 2.7 Sécurité des comptes |
++| [I-S10](PROBLEMES.md#i-s10) | 🟡 | 2 | 2.7 Sécurité des comptes |
++| [I-S11](PROBLEMES.md#i-s11) | 🟡 | 3 | 3.8 Réseau, sécurité, présentation |
++| [I-S12](PROBLEMES.md#i-s12) | 🟡 | 3 | 3.8 Réseau, sécurité, présentation |
++| [I-S13](PROBLEMES.md#i-s13) | ⚪ | 1 | 1.3 Planificateur |
++| [I-B01](PROBLEMES.md#i-b01) | 🔴 | 0 | 0.3 Blocage de places |
++| [I-B02](PROBLEMES.md#i-b02) | 🔴 | 0 | 0.4 Fichiers privés |
++| [I-B03](PROBLEMES.md#i-b03) | 🔴 | 0 | 0.5 Paiement et embarquement |
++| [I-B04](PROBLEMES.md#i-b04) | 🔴 | 0 | 0.5 Paiement et embarquement |
++| [I-B05](PROBLEMES.md#i-b05) | 🟠 | 1 | 1.3 Planificateur |
++| [I-B06](PROBLEMES.md#i-b06) | 🟠 | 1 | 1.4 Fuseau horaire |
++| [I-B07](PROBLEMES.md#i-b07) | 🟠 | 1 | 1.5 Périmètres |
++| [I-B08](PROBLEMES.md#i-b08) | 🟠 | 1 | 1.5 Périmètres |
++| [I-B09](PROBLEMES.md#i-b09) | 🟠 | 2 | 2.3 Embarquement |
++| [I-B10](PROBLEMES.md#i-b10) | 🟠 | 2 | 2.1 Règles de réservation |
++| [I-B11](PROBLEMES.md#i-b11) | 🟠 | 2 | 2.2 Paiements et caisse |
++| [I-B12](PROBLEMES.md#i-b12) | 🟡 | 2 | 2.1 Règles de réservation |
++| [I-B13](PROBLEMES.md#i-b13) | 🟡 | 2 | 2.8 Erreurs |
++| [I-B14](PROBLEMES.md#i-b14) | 🟡 | 2 | 2.4 Départs |
++| [I-B15](PROBLEMES.md#i-b15) | 🟡 | 2 | 2.4 Départs |
++| [I-B16](PROBLEMES.md#i-b16) | 🟡 | 2 | 2.6 Droits |
++| [I-B17](PROBLEMES.md#i-b17) | 🟡 | 2 | 2.6 Droits |
++| [I-B18](PROBLEMES.md#i-b18) | 🟡 | 1 | 1.3 Planificateur |
++| [I-B19](PROBLEMES.md#i-b19) | 🟡 | 1 | 1.6 Initialisation |
++| [I-B20](PROBLEMES.md#i-b20) | 🟡 | 2 | 2.6 Droits |
++| [I-B21](PROBLEMES.md#i-b21) | 🟡 | 6 | 6.4 Performance |
++| [I-B22](PROBLEMES.md#i-b22) | 🟡 | 6 | 6.4 Performance |
++| [I-B23](PROBLEMES.md#i-b23) | 🟡 | 6 | 6.4 Performance |
++| [I-B24](PROBLEMES.md#i-b24) | 🟡 | 3 | 3.1 Recherche (backend) |
++| [I-B25](PROBLEMES.md#i-b25) | 🟡 | 2 | 2.2 Paiements et caisse |
++| [I-B26](PROBLEMES.md#i-b26) | 🟡 | 2 | 2.5 Tarifs |
++| [I-B27](PROBLEMES.md#i-b27) | ⚪ | 1 | 1.3 Planificateur |
++| [I-B28](PROBLEMES.md#i-b28) | ⚪ | 2 | 2.4 Départs |
++| [I-B29](PROBLEMES.md#i-b29) | ⚪ | 6 | 6.5 Nettoyage |
++| [I-B30](PROBLEMES.md#i-b30) | ⚪ | 6 | 6.5 Nettoyage |
++| [I-B31](PROBLEMES.md#i-b31) | ⚪ | 6 | 6.5 Nettoyage |
++| [I-B32](PROBLEMES.md#i-b32) | ⚪ | 1 | 1.1 Tests backend |
++| [I-W01](PROBLEMES.md#i-w01) | 🟠 | 0 | 0.6 Correctifs rapides du web |
++| [I-W02](PROBLEMES.md#i-w02) | 🟠 | 0 | 0.6 Correctifs rapides du web |
++| [I-W03](PROBLEMES.md#i-w03) | 🟠 | 2 | 2.9 Droits dans l'interface |
++| [I-W04](PROBLEMES.md#i-w04) | 🟠 | 2 | 2.9 Droits dans l'interface |
++| [I-W05](PROBLEMES.md#i-w05) | 🟠 | 2 | 2.10 Robustesse |
++| [I-W06](PROBLEMES.md#i-w06) | 🟠 | 2 | 2.10 Robustesse |
++| [I-W07](PROBLEMES.md#i-w07) | 🟠 | 2 | 2.11 Guichet |
++| [I-W08](PROBLEMES.md#i-w08) | 🟠 | 2 | 2.12 Embarquement |
++| [I-W09](PROBLEMES.md#i-w09) | 🟡 | 6 | 6.6 Interface |
++| [I-W10](PROBLEMES.md#i-w10) | 🟡 | 2 | 2.13 Formulaires et listes |
++| [I-W11](PROBLEMES.md#i-w11) | 🟡 | 2 | 2.13 Formulaires et listes |
++| [I-W12](PROBLEMES.md#i-w12) | 🟡 | 2 | 2.13 Formulaires et listes |
++| [I-W13](PROBLEMES.md#i-w13) | 🟡 | 1 | 1.4 Fuseau horaire |
++| [I-W14](PROBLEMES.md#i-w14) | 🟡 | 2 | 2.9 Droits dans l'interface |
++| [I-W15](PROBLEMES.md#i-w15) | 🟡 | 2 | 2.13 Formulaires et listes |
++| [I-W16](PROBLEMES.md#i-w16) | 🟡 | 6 | 6.5 Nettoyage |
++| [I-W17](PROBLEMES.md#i-w17) | 🟡 | 4 | 4.1 à 4.9 (compléments) |
++| [I-W18](PROBLEMES.md#i-w18) | ⚪ | 6 | 6.6 Interface |
++| [I-W19](PROBLEMES.md#i-w19) | ⚪ | 6 | 6.6 Interface |
++| [I-W20](PROBLEMES.md#i-w20) | ⚪ | 6 | 6.1 Docker de production |
++| [I-M01](PROBLEMES.md#i-m01) | 🔴 | 3 | 3.4 Billets |
++| [I-M02](PROBLEMES.md#i-m02) | 🔴 | 0, 3 | 0.3 Blocage de places; 3.3 Réservation |
++| [I-M03](PROBLEMES.md#i-m03) | 🟠 | 3 | 3.2 Recherche (mobile) |
++| [I-M04](PROBLEMES.md#i-m04) | 🟠 | 3 | 3.5 Historique et annulation; 3.6 Profil et notifications |
++| [I-M05](PROBLEMES.md#i-m05) | 🟠 | 3 | 3.3 Réservation |
++| [I-M06](PROBLEMES.md#i-m06) | 🟠 | 3 | 3.7 Authentification |
++| [I-M07](PROBLEMES.md#i-m07) | 🟠 | 3 | 3.3 Réservation |
++| [I-M08](PROBLEMES.md#i-m08) | 🟠 | 3 | 3.7 Authentification |
++| [I-M09](PROBLEMES.md#i-m09) | 🟠 | 6 | 6.3 Publication mobile |
++| [I-M10](PROBLEMES.md#i-m10) | 🟡 | 3 | 3.3 Réservation |
++| [I-M11](PROBLEMES.md#i-m11) | 🟡 | 3 | 3.3 Réservation |
++| [I-M12](PROBLEMES.md#i-m12) | 🟡 | 3 | 3.7 Authentification |
++| [I-M13](PROBLEMES.md#i-m13) | 🟡 | 3 | 3.7 Authentification |
++| [I-M14](PROBLEMES.md#i-m14) | 🟡 | 3 | 3.8 Réseau, sécurité, présentation |
++| [I-M15](PROBLEMES.md#i-m15) | 🟡 | 3 | 3.7 Authentification |
++| [I-M16](PROBLEMES.md#i-m16) | 🟡 | 3 | 3.4 Billets |
++| [I-M17](PROBLEMES.md#i-m17) | 🟡 | 3 | 3.8 Réseau, sécurité, présentation |
++| [I-M18](PROBLEMES.md#i-m18) | ⚪ | 3 | 3.9 Chauffeur |
++| [I-M19](PROBLEMES.md#i-m19) | ⚪ | 3 | 3.3 Réservation |
++| [I-M20](PROBLEMES.md#i-m20) | ⚪ | 6 | 6.5 Nettoyage |
++| [I-D01](PROBLEMES.md#i-d01) | 🟠 | 6 | 6.1 Docker de production |
++| [I-D02](PROBLEMES.md#i-d02) | 🟠 | 1 | 1.2 Intégration continue |
++| [I-D03](PROBLEMES.md#i-d03) | 🟡 | 6 | 6.2 Stockage et configuration |
++| [I-D04](PROBLEMES.md#i-d04) | 🟡 | 6 | 6.2 Stockage et configuration |
++| [I-D05](PROBLEMES.md#i-d05) | ⚪ | 1 | 1.6 Initialisation |
+diff --git a/docs/GUIDE_DE_TEST.md b/docs/GUIDE_DE_TEST.md
+new file mode 100644
+index 0000000..21db227
+--- /dev/null
++++ b/docs/GUIDE_DE_TEST.md
+@@ -0,0 +1,459 @@
++# Guide de test manuel
++
++Campagne complète de tests manuels de l'application web (gestion), de l'application mobile (passager et chauffeur) et des règles de l'API qui les sous-tendent. La campagne suit le cahier des charges (`cahier_des_charges-ETU003314.pdf`). À exécuter après chaque changement important, ou avant une démonstration.
++
++- **Durée :** environ 4 à 5 heures pour la campagne complète, 45 minutes pour le test rapide (section 2).
++- **Quand un test doit échouer aujourd'hui :** l'étape porte la mention **Problème connu : I-xxx**, avec un lien vers [PROBLEMES.md](PROBLEMES.md). Notez le résultat quand même : le test devra passer une fois le problème corrigé (voir [PLAN_ACTION.md](PLAN_ACTION.md)).
++
++---
++
++## 1. Préparation
++
++### 1.1 Démarrer l'application et charger les données de démonstration
++
++```bash
++docker compose up -d --build
++docker compose exec backend python -m app.db.seed_dev --reset --yes
++```
++
++| Service | Adresse |
++|---|---|
++| Application web | http://localhost:5173 |
++| API (Swagger) | http://localhost:8000/docs |
++| Mobile, émulateur Android | `cd mobile && flutter run --dart-define=MOBILE_API_BASE_URL=http://10.0.2.2:8000/api/v1` |
++| Mobile, vrai téléphone (même Wi-Fi) | Remplacer `10.0.2.2` par l'adresse IP locale du PC (voir `mobile/README.md`) |
++
++Réinitialisez les données **avant chaque campagne complète**. Plusieurs tests modifient l'état des données de démonstration : paiements, embarquements, annulations.
++
++### 1.2 Comptes de démonstration
++
++Tous les comptes de démonstration ont le mot de passe `Demo123!`. L'admin utilise `DEFAULT_ADMIN_PASSWORD` du `.env`.
++
++| Rôle | Compte | Périmètre dans les données de démonstration |
++|---|---|---|
++| Admin | `admin@cooperative.com` | Tout |
++| Responsable de gare | `responsable.gare1@cooperative.com` | Toutes les gares |
++| Agent de gare | `agent.ampasampito@cooperative.com` | Gare routière d'Ampasampito (Antananarivo, lignes vers l'est) |
++| Agent de gare | `agent.toamasina@cooperative.com` | Gare routière de Toamasina |
++| Responsable de coopérative | `responsable.fte@cooperative.com` | Coopérative Fitahiana Express (FTE) |
++| Responsable de coopérative | `responsable.mdt@cooperative.com` | Coopérative Mendrika Trans (MDT) |
++| Chauffeur | `chauffeur01@cooperative.com` | Véhicule FTE, Antananarivo ↔ Toamasina |
++| Passager | `passager01@cooperative.com` … `passager25@cooperative.com` | Ses propres réservations |
++| Passager désactivé | `passager.inactif@cooperative.com` | La connexion doit être refusée |
++
++**Contenu des données de démonstration :**
++- 10 gares, 4 coopératives (FTE, MDT, SMR, ZAV), 9 lignes dans les deux sens.
++- 14 véhicules, dont un hors service et un en réparation.
++- 14 chauffeurs, dont un avec un permis expiré.
++- Environ 200 départs de J-10 à J+7, dans tous les statuts.
++- Des réservations dans tous les statuts.
++- Des caisses clôturées pour les jours passés et une caisse ouverte par gare aujourd'hui.
++
++### 1.3 Noter les résultats
++
++Pour chaque test, notez **OK / KO / Bloqué**. Pour un KO, ajoutez le résultat obtenu, une capture d'écran et l'identifiant du problème s'il existe. Tableau de résultats suggéré :
++
++| Test | Résultat | Commentaire / problème |
++|---|---|---|
++| AUTH-01 | OK | |
++
++Conseils :
++- Utilisez **une fenêtre de navigation privée par rôle**, pour garder plusieurs sessions ouvertes en même temps.
++- Gardez ouvert l'onglet **Outils de développement → Réseau**. Le code HTTP (401, 403, 409, 422, 500) est souvent le moyen le plus rapide de classer un échec.
++- Une erreur **500** est toujours un défaut, même quand l'action devait être refusée.
++
++---
++
++## 2. Test rapide (45 min)
++
++Le parcours minimal qui doit fonctionner avant tout le reste : un passager réserve, paie, embarque et voyage.
++
++| # | Qui | Action | Résultat attendu |
++|---|---|---|---|
++| S1 | Admin (web) | Se connecter | Tableau de bord « Vue d'ensemble » avec des chiffres, sans bandeau d'erreur |
++| S2 | Passager (mobile) | Se connecter en `passager02`. Ouvrir la page des réservations, choisir un départ **d'aujourd'hui ou de demain**, sélectionner 2 places, confirmer | Message de succès. 2 nouveaux billets dans « Mes billets » |
++| S3 | Agent (web) | Se connecter avec l'agent de la gare de départ. Paiements & caisse → « Encaisser une réservation » → choisir la réservation → « Enregistrer le paiement en espèces » | Paiement enregistré. La réservation passe à PAYÉE. Une opération RECETTE apparaît dans la caisse du jour |
++| S4 | Agent (web) | Embarquement. Saisir le numéro du **premier** billet (ou scanner son QR depuis Billets & QR Code) | « Embarquement validé » |
++| S5 | Agent (web) | Saisir le numéro du **second** billet de la même réservation | Doit être accepté. **Problème connu : [I-B04](PROBLEMES.md#i-b04)** (refusé aujourd'hui) |
++| S6 | Responsable de gare (web) | Ouvrir le départ → le passer à « Parti », puis « Terminé » | Le statut change. Les heures sont enregistrées |
++| S7 | Responsable de gare (web) | Statistiques sur la semaine en cours | La réservation et le départ du jour apparaissent |
++
++---
++
++## 3. Authentification et compte (AUTH)
++
++| ID | Où | Étapes | Résultat attendu |
++|---|---|---|---|
++| AUTH-01 | Web | Se connecter en admin | Tableau de bord affiché. Le menu montre toutes les sections |
++| AUTH-02 | Web | Se connecter avec un mauvais mot de passe | Message d'erreur clair. Pas de session |
++| AUTH-03 | Web | Ouvrir la page de connexion dans une nouvelle fenêtre privée | Les champs sont **vides**. **Problème connu : [I-S01](PROBLEMES.md#i-s01)** (pré-remplis avec les identifiants admin) |
++| AUTH-04 | Web, mobile | Se connecter avec `passager.inactif` | Refusé, avec un message de type « compte désactivé » |
++| AUTH-05 | Web, mobile | Créer un compte (« inscription ») avec un nouvel email | Compte créé, connexion possible. Rôle = passager |
++| AUTH-06 | Web, mobile | S'inscrire à nouveau avec le même email | Refusé avec « email déjà utilisée ». **Problème connu : [I-M12](PROBLEMES.md#i-m12)** sur mobile (message générique) |
++| AUTH-07 | Web | « Mot de passe oublié » avec un email existant | Message de confirmation neutre. En développement sans SMTP, le formulaire de réinitialisation s'ouvre directement |
++| AUTH-08 | Web | Terminer la réinitialisation avec un nouveau mot de passe, puis se connecter | Le nouveau mot de passe fonctionne ; l'ancien est refusé |
++| AUTH-09 | API | `POST /api/v1/auth/forgot-password` avec l'email de l'admin (Swagger) | La réponse ne doit **pas** contenir de `reset_url`. **Problème connu : [I-S02](PROBLEMES.md#i-s02)** en configuration de développement |
++| AUTH-10 | Web | Se déconnecter, puis appuyer sur le bouton Retour du navigateur | Les pages protégées ne sont plus accessibles ; redirection vers la connexion |
++| AUTH-11 | Web | Rester connecté plus de 60 minutes (ou supprimer le jeton d'accès dans Outils de développement → Local Storage), puis cliquer sur une entrée du menu | Session rafraîchie sans rien voir, ou redirection vers la connexion. Jamais une page blanche |
++| AUTH-12 | Mobile | Se connecter, avec un mauvais mot de passe une fois | Erreur affichée. **Le champ email est conservé.** **Problème connu : [I-M06](PROBLEMES.md#i-m06)** |
++| AUTH-13 | Mobile | Profil : consulter et modifier son nom et son téléphone | Modification possible. **Problème connu : [I-M04](PROBLEMES.md#i-m04)** (lecture seule) |
++| AUTH-14 | API | Appeler `POST /auth/login` 25 fois en une minute | Les requêtes au-delà de la 20e reçoivent 429 (limitation de débit) |
++
++---
++
++## 4. Utilisateurs, rôles, permissions (ADM) — admin, web
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| ADM-01 | Utilisateurs → rechercher « passager0 » | Liste filtrée |
++| ADM-02 | Créer un utilisateur avec le rôle « agent_gare » | L'utilisateur apparaît et peut se connecter |
++| ADM-03 | Modifier son numéro de téléphone | Enregistré et visible dans le détail |
++| ADM-04 | Désactiver l'utilisateur, puis essayer de se connecter avec | Connexion refusée. Après réactivation, la connexion fonctionne |
++| ADM-05 | Rôles & permissions → donner à un passager le rôle « responsable_cooperative » | Rôle visible pour l'utilisateur. Après reconnexion, le menu change |
++| ADM-06 | Créer un rôle personnalisé « controleur » avec `DEPART_READ` et `EMBARQUEMENT_MANAGE`, l'attribuer à un utilisateur, se connecter avec | Accès à Départs et Embarquement. **Problème connu : [I-W03](PROBLEMES.md#i-w03)** (rôles personnalisés bloqués par le routeur) |
++| ADM-07 | Retirer une permission à un rôle, puis redémarrer l'API (`docker compose restart backend`) | Le changement doit être conservé. **Problème connu : [I-B19](PROBLEMES.md#i-b19)** (annulé au démarrage) |
++| ADM-08 | Chercher un historique des actions (qui a modifié quoi) | Cahier des charges §6 : **manquant** ([état du projet, §6](ETAT_DU_PROJET.md#6-gestion-des-utilisateurs)) |
++| ADM-09 | Réinitialiser les données : taper autre chose que `RESET` | Bouton désactivé / action refusée |
++
++---
++
++## 5. Gares (GARE) — admin et responsable de gare, web
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| GARE-01 | Gares → liste | 10 gares, avec ville et statut |
++| GARE-02 | Créer une gare (nom, adresse, ville, région, téléphone, email, coordonnées GPS) | Créée, visible dans la liste |
++| GARE-03 | Modifier son téléphone et son email | Enregistré |
++| GARE-04 | Ouvrir une gare → ajouter un quai, une zone, et un emplacement dans la zone | Les trois apparaissent dans le détail |
++| GARE-05 | Désactiver puis réactiver un quai, une zone, un emplacement | Le statut change à chaque fois |
++| GARE-06 | Modifier ou supprimer un quai | Possible depuis l'interface. **Problème connu : [I-W17](PROBLEMES.md#i-w17)** |
++| GARE-07 | Chercher les horaires de la gare | Cahier des charges §7 : **manquant** |
++| GARE-08 | Essayer de supprimer une gare qui a des caisses | Refus avec un message clair (409), pas une 500. **Problème connu : [I-B13](PROBLEMES.md#i-b13)** |
++| GARE-09 | Se connecter en agent → Gares | Liste visible en lecture seule. Pas de bouton créer / modifier / supprimer |
++
++---
++
++## 6. Coopératives (COOP)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| COOP-01 | Admin | Coopératives → en créer une, avec un responsable choisi dans la liste | Créée ; le responsable la voit après connexion |
++| COOP-02 | Admin | Ouvrir FTE → membres, véhicules, chauffeurs, gares associées | FTE a 4 véhicules et ses chauffeurs |
++| COOP-03 | Admin | Ajouter puis retirer un membre | Liste mise à jour |
++| COOP-04 | Admin | Rattacher FTE à une nouvelle gare, puis la détacher | Liste mise à jour |
++| COOP-05 | Admin | Désactiver une coopérative, puis la réactiver | Le statut change |
++| COOP-06 | `responsable.fte` | Ouvrir « sa » coopérative → modifier le téléphone | Autorisé (le rôle a `COOPERATIVE_UPDATE`). **Problème connu : [I-W03](PROBLEMES.md#i-w03)** |
++| COOP-07 | `responsable.fte` | Liste des coopératives | Seule FTE est visible |
++| COOP-08 | `responsable.fte` | Par l'API, rattacher FTE à la gare de Toliara (`POST /cooperatives/{id}/attach-gare/{gare}`) | Doit être refusé. **Problème connu : [I-S05](PROBLEMES.md#i-s05)** |
++
++---
++
++## 7. Flotte : marques, modèles, véhicules, documents, chauffeurs (FLEET)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| FLEET-01 | Admin | Marques → créer, modifier, désactiver une marque. Modèles → idem | OK. Une marque désactivée n'est plus proposée pour les nouveaux véhicules |
++| FLEET-02 | Admin | Véhicules → créer un véhicule (immatriculation, modèle, places, coopérative, état) avec une attestation d'assurance (PDF) | Véhicule et document enregistrés |
++| FLEET-03 | Admin | Créer un véhicule avec l'immatriculation d'un véhicule existant | Refusé avec un message clair |
++| FLEET-04 | Admin | Ouvrir un véhicule → téléverser une visite technique expirée hier | Document marqué « Expiré » |
++| FLEET-05 | Admin | Chercher des alertes « documents bientôt expirés » (tableau de bord ou notifications) | Prévu au §9. **Problèmes connus : [I-W17](PROBLEMES.md#i-w17), [I-B05](PROBLEMES.md#i-b05)** |
++| FLEET-06 | Tout le monde | Copier l'adresse du fichier d'un document (`/uploads/vehicules/...`) et l'ouvrir dans une fenêtre privée **sans être connecté** | Doit être refusé. **Problème connu : [I-B02](PROBLEMES.md#i-b02)** |
++| FLEET-07 | Admin | Chercher le champ propriétaire du véhicule et l'historique d'utilisation | Cahier des charges §9 : **manquant** |
++| FLEET-08 | `responsable.fte` | Véhicules → seulement ceux de FTE. Créer un véhicule | Autorisé. **Problème connu : [I-W03](PROBLEMES.md#i-w03)** (route réservée à l'admin) |
++| FLEET-09 | `responsable.gare1` | Cliquer sur Véhicules dans le menu | Liste visible. **Problème connu : [I-W03](PROBLEMES.md#i-w03)** (renvoyé à l'accueil) |
++| FLEET-10 | Admin | Chauffeurs → créer un chauffeur à partir d'un utilisateur existant (permis, catégorie D, expiration, coopérative) | Chauffeur créé |
++| FLEET-11 | Admin | Affecter un véhicule à ce chauffeur, puis clore l'affectation | L'historique des affectations montre les dates de début et de fin |
++| FLEET-12 | Admin | Essayer d'affecter un véhicule qui a déjà un chauffeur actif | Refusé avec un message clair |
++| FLEET-13 | Admin | Chauffeur au permis expiré (issu des données de démonstration) | Affiché comme expiré et indisponible |
++
++---
++
++## 8. Réseau : destinations, itinéraires, tarifs (NET) — admin, web
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| NET-01 | Destinations → créer « Ambatondrazaka » | Créée |
++| NET-02 | Créer une destination avec un nom existant | Refusé |
++| NET-03 | « Morondava » est inactive dans les données de démonstration : elle ne doit pas être proposée pour un nouvel itinéraire | OK |
++| NET-04 | Itinéraires → créer Antananarivo → Ambatondrazaka (distance, durée) | Créé |
++| NET-05 | Créer un itinéraire dont le départ et la destination sont identiques | Refusé |
++| NET-06 | Ouvrir un itinéraire → autoriser une coopérative, puis la retirer | Liste mise à jour |
++| NET-07 | Tarifs → créer un tarif général pour le nouvel itinéraire | Créé et actif |
++| NET-08 | Modifier le prix du tarif | Une nouvelle version est créée ; l'historique (dans le détail de l'itinéraire) montre les deux |
++| NET-09 | Créer un tarif propre à une coopérative pour le même itinéraire | Les départs de cette coopérative l'utilisent |
++| NET-10 | Créer un nouveau tarif qui commence **la semaine prochaine** | Le tarif actuel reste actif jusque-là. **Problème connu : [I-B26](PROBLEMES.md#i-b26)** |
++| NET-11 | Se connecter en passager → Destinations (web) | Liste en lecture seule |
++
++---
++
++## 9. Départs et planning (DEP)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| DEP-01 | Responsable de gare | Départs → filtrer par statut, par période | Liste filtrée. Taux de remplissage affiché |
++| DEP-02 | Responsable de gare | Rechercher « Toamasina » | Départs depuis ou vers Toamasina. **Problème connu : [I-B24](PROBLEMES.md#i-b24)** (0 résultat) |
++| DEP-03 | Responsable de gare | « Programmer un départ » : itinéraire, date, heure, coopérative, véhicule, chauffeur, tarif | Créé, avec places = capacité du véhicule. Places générées (voir SEAT-01) |
++| DEP-04 | Responsable de gare | Même véhicule, même date, même heure | Refusé (véhicule déjà programmé) |
++| DEP-05 | Responsable de gare | Même véhicule, même date, **5 minutes plus tard** | Doit être refusé (chevauchement). **Problème connu : [I-B15](PROBLEMES.md#i-b15)** |
++| DEP-06 | Responsable de gare | Plus de places que le véhicule n'en a | Refusé |
++| DEP-07 | Responsable de gare | Date de départ dans le passé | Refusé |
++| DEP-08 | Responsable de gare | Modifier un départ qui a des réservations : réduire ses places sous le nombre réservé | Refus clair (409/422), pas une 500. **Problème connu : [I-B13](PROBLEMES.md#i-b13)** |
++| DEP-09 | Responsable de gare | Modifier un départ existant sans rien changer, puis enregistrer | Enregistré. **Problème connu : [I-W11](PROBLEMES.md#i-w11)** (le véhicule affecté peut manquer) |
++| DEP-10 | Responsable de gare | Enchaînement des statuts : Programmé → Embarquement → Retardé → Embarquement → Parti → Terminé | Chaque transition est autorisée. **Problème connu : [I-W17](PROBLEMES.md#i-w17)** (Retardé → Embarquement non proposé) |
++| DEP-11 | Responsable de gare | Passer un départ à « Retardé » | Les passagers reçoivent une notification de retard. **Problème connu : [I-B14](PROBLEMES.md#i-b14)** |
++| DEP-12 | Responsable de gare | « Annuler le départ » sur un départ avec des réservations payées, en choisissant une caisse ouverte | Départ ANNULÉ. Réservations payées remboursées (DÉPENSE dans la caisse), billets annulés, passagers prévenus |
++| DEP-13 | `responsable.fte` | Départs | Seulement les départs de FTE |
++| DEP-14 | `chauffeur01` (web) | Se connecter | Voit ses départs et son planning. **Problème connu : [I-W05](PROBLEMES.md#i-w05)** (erreur sur le tableau de bord), pas de page chauffeur |
++
++---
++
++## 10. Plan des places (SEAT)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| SEAT-01 | Responsable de gare | Ouvrir un départ → « Gérer les places du départ » | Une case par place, avec 4 états distincts : disponible, réservée, occupée, bloquée |
++| SEAT-02 | Responsable de gare | Bloquer une place disponible | Statut « bloquée » ; elle disparaît des écrans de réservation ; places disponibles −1 |
++| SEAT-03 | Responsable de gare | La débloquer | De nouveau disponible |
++| SEAT-04 | Agent | Ouvrir le plan des places d'un départ | Accès en lecture. **Problème connu : [I-W04](PROBLEMES.md#i-w04)** |
++| SEAT-05 | Deux navigateurs | Deux passagers sélectionnent **la même place** du même départ et confirment en même temps | Un seul réussit ; l'autre reçoit un message clair « place n'est plus disponible ». Aucune double réservation |
++
++---
++
++## 11. Réservations (RES)
++
++### 11.1 Au guichet (web)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| RES-01 | Admin ou responsable de coopérative | Réservations → Nouvelle réservation → choisir un départ PROGRAMMÉ → 3 places → un nom et un téléphone différents pour chacune → confirmer | Réservation créée et confirmée ; 3 billets avec QR code |
++| RES-02 | Idem | Liste des départs du formulaire | Affiche les noms de la ligne et de la coopérative. **Problème connu : [I-W15](PROBLEMES.md#i-w15)** (identifiants affichés) |
++| RES-03 | Idem | Réserver une place sur un départ ANNULÉ ou TERMINÉ | Refusé |
++| RES-04 | Idem | Ouvrir le détail de la réservation | Numéro, départ, places, passagers, montant = prix × places, statut |
++| RES-05 | Idem | Modifier la réservation (nom du passager ou place) | Cahier des charges §14. **Problème connu : [I-W17](PROBLEMES.md#i-w17)** (impossible) |
++| RES-06 | Idem | Annuler une réservation confirmée **non payée** | Statut ANNULÉE ; places de nouveau disponibles ; billets ANNULÉS |
++| RES-07 | Idem | Annuler une réservation **payée**, en choisissant une caisse ouverte | Statut ANNULÉE ; paiement REMBOURSÉ ; DÉPENSE dans la caisse |
++| RES-08 | Responsable de gare | Réservations → filtrer par statut, rechercher par numéro, exporter en CSV | Liste filtrée ; le CSV contient les mêmes lignes |
++| RES-09 | Agent | Réservations | Seulement les réservations des départs de sa gare |
++
++### 11.2 Règles métier (API, via Swagger)
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| RES-10 | En passager, `POST /reservations` avec `"date_expiration": "2099-01-01T00:00:00Z"` | Le serveur doit l'ignorer et fixer sa propre expiration (environ 15 minutes). **Problème connu : [I-B01](PROBLEMES.md#i-b01)** |
++| RES-11 | En passager, `POST /reservations/{id}/confirm` sur une réservation non payée | Ne doit pas bloquer les places indéfiniment sans paiement. **Problème connu : [I-B01](PROBLEMES.md#i-b01)** |
++| RES-12 | Créer une réservation, attendre 16 minutes **sans la consulter**, puis regarder le plan des places | Les places doivent être de nouveau disponibles. **Problème connu : [I-B05](PROBLEMES.md#i-b05)** (libérées seulement à la lecture de la réservation) |
++| RES-13 | Réserver un départ prévu aujourd'hui à une heure **déjà passée** | Refusé. **Problème connu : [I-B06](PROBLEMES.md#i-b06)** |
++| RES-14 | Annuler une réservation payée après le passage de son départ à PARTI | Refusé. **Problème connu : [I-B10](PROBLEMES.md#i-b10)** |
++
++---
++
++## 12. Billets et QR codes (TKT)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| TKT-01 | Admin | Billets & QR Code → rechercher un numéro de billet | Billet trouvé |
++| TKT-02 | Admin | Ouvrir le billet | Numéro de billet, numéro de réservation, passager, place, voyage, montant, **image du QR**, statut |
++| TKT-03 | Admin | Imprimer le billet / le télécharger en PDF | **Manquant** ([I-W17](PROBLEMES.md#i-w17)) |
++| TKT-04 | Tout le monde | Ouvrir l'adresse d'une image QR (`/uploads/qr_codes/TKT-….png`) dans une fenêtre privée **sans être connecté** | Doit être refusé. **Problème connu : [I-B02](PROBLEMES.md#i-b02)** |
++| TKT-05 | Passager (mobile) | Mes billets → ouvrir un billet | Billet complet avec **QR code**. **Problème connu : [I-M01](PROBLEMES.md#i-m01)** |
++
++---
++
++## 13. Paiements et caisse (CASH) — agent `agent.ampasampito`, web
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| CASH-01 | Paiements & caisse → la caisse ouverte du jour est listée | Statut OUVERTE |
++| CASH-02 | Essayer d'ouvrir une seconde caisse pour la même gare | Refusé (une seule caisse ouverte par gare) |
++| CASH-03 | « Encaisser une réservation » → une réservation CONFIRMÉE de cette gare → paiement en espèces | Paiement VALIDÉ ; réservation PAYÉE ; RECETTE dans la caisse ; passager prévenu |
++| CASH-04 | Encaisser à nouveau la même réservation | Refusé (déjà payée) |
++| CASH-05 | Encaisser une réservation EN_ATTENTE (non confirmée) | Doit être refusé, ou générer les billets. **Problème connu : [I-B03](PROBLEMES.md#i-b03)** |
++| CASH-06 | Saisir une référence de paiement (numéro de reçu mobile money) | Champ disponible. **Problème connu : [I-W17](PROBLEMES.md#i-w17)** |
++| CASH-07 | Rembourser un paiement | REMBOURSÉ ; réservation ANNULÉE ; opération DÉPENSE |
++| CASH-08 | Ouvrir le détail de la caisse | Opérations listées. **Problème connu : [I-W06](PROBLEMES.md#i-w06)** (la page échoue pour les agents) |
++| CASH-09 | « Ajouter une dépense » | DÉPENSE ajoutée ; le solde diminue |
++| CASH-10 | Ajouter une commission | Possible depuis l'interface. **Problème connu : [I-W17](PROBLEMES.md#i-w17)** |
++| CASH-11 | Solde = montant d'ouverture + recettes − dépenses − commissions | Vérifier à la main sur une caisse |
++| CASH-12 | Clôturer la caisse avec un montant compté **différent** du solde | Écart enregistré. **Problème connu : [I-B25](PROBLEMES.md#i-b25)** |
++| CASH-13 | En responsable de gare : consulter les recettes par jour, par départ, par coopérative | Cahier des charges §18. **Manquant** |
++| CASH-14 | Historique des caisses : les jours passés sont CLÔTURÉS avec un montant de clôture | OK |
++| CASH-15 | Paiement en ligne depuis l'application mobile (mobile money) | Cahier des charges §17. **Manquant** |
++
++---
++
++## 14. Embarquement (BRD) — agent, web
++
++Avant de commencer, ouvrez Départs et repérez un **départ d'aujourd'hui** depuis la gare de l'agent, avec des réservations payées (statut EMBARQUEMENT ou PROGRAMMÉ).
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| BRD-01 | Embarquement → saisir le numéro d'un billet payé valide | « Embarquement validé » ; billet UTILISÉ ; place OCCUPÉE ; heure d'embarquement enregistrée |
++| BRD-02 | Saisir à nouveau le même billet | Refusé : « déjà utilisé » |
++| BRD-03 | Scanner le QR code avec la caméra (Chrome ou Edge, webcam du portable face à un téléphone qui affiche le QR) | Billet reconnu et validé |
++| BRD-04 | Idem dans Firefox ou Safari | Le scan par caméra fonctionne. **Problème connu : [I-W08](PROBLEMES.md#i-w08)** (saisie manuelle uniquement) |
++| BRD-05 | Billet d'une réservation **non payée** (CONFIRMÉE) | Refusé : paiement requis, avec le motif affiché |
++| BRD-06 | Billet d'une réservation **annulée** | Refusé |
++| BRD-07 | Billet d'un départ de **demain** | Refusé : mauvaise date |
++| BRD-08 | Billet d'**un autre départ du jour** pendant l'embarquement de celui-ci | Refusé : mauvais départ. **Problème connu : [I-B09](PROBLEMES.md#i-b09)** |
++| BRD-09 | Second billet d'une réservation payée de 2 places | Accepté. **Problème connu : [I-B04](PROBLEMES.md#i-b04)** |
++| BRD-10 | Code inconnu « TKT-XXXX » | « Billet introuvable » |
++| BRD-11 | Listes des passagers embarqués et non embarqués du départ | À l'écran. **Problème connu : [I-W08](PROBLEMES.md#i-w08)** (manifeste CSV uniquement). Télécharger le manifeste : les passagers embarqués y sont marqués |
++| BRD-12 | Embarquer un billet entre 00 h et 03 h, heure locale (ou changer l'horloge du serveur) | Accepté. **Problème connu : [I-B06](PROBLEMES.md#i-b06)** |
++
++---
++
++## 15. Notifications (NOTIF)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| NOTIF-01 | `passager01` (web) | Notifications | Messages de confirmation, de paiement, d'embarquement, d'annulation, de rappel |
++| NOTIF-02 | Idem | Cliquer sur une notification | Marquée comme lue |
++| NOTIF-03 | Idem | Cloche de l'en-tête | Affiche le nombre de non lues. **Problème connu : [I-W16](PROBLEMES.md#i-w16)** (décorative) |
++| NOTIF-04 | Passager (mobile) | Écran des notifications, push sur le téléphone | **Problème connu : [I-M04](PROBLEMES.md#i-m04)** (manquant) ; aucun push envoyé par le backend |
++| NOTIF-05 | Responsable de gare | `POST /notifications/reminders` (Swagger) | Les passagers des départs de demain reçoivent un rappel |
++| NOTIF-06 | `responsable.mdt` | Notification d'expiration de document | Présente dans les données de démonstration. Créée automatiquement en usage réel ? **Non** ([I-B05](PROBLEMES.md#i-b05)) |
++
++---
++
++## 16. Tableau de bord et statistiques (DASH)
++
++| ID | Qui | Étapes | Résultat attendu |
++|---|---|---|---|
++| DASH-01 | Admin | Vue d'ensemble | Départs, réservations, passagers, véhicules, coopératives, chauffeurs, places, taux de remplissage, recettes, annulations, retards, départs imminents |
++| DASH-02 | Admin | Comparer 2 chiffres avec les listes (par exemple les départs du jour dans Départs, filtré sur aujourd'hui) | Mêmes chiffres |
++| DASH-03 | Admin | Réservations en attente, dernières réservations, alertes administratives | Cahier des charges §20. **Manquant** |
++| DASH-04 | Agent | Vue d'ensemble | S'affiche sans erreur. **Problème connu : [I-W05](PROBLEMES.md#i-w05)** |
++| DASH-05 | `responsable.fte` | Vue d'ensemble | Chiffres de FTE uniquement |
++| DASH-06 | Responsable de gare | Statistiques → 7 derniers jours, puis 30 derniers jours | Séries quotidiennes, comparaison avec la période précédente, top des itinéraires **avec leurs noms** ([I-W15](PROBLEMES.md#i-w15)) |
++| DASH-07 | Responsable de gare | Rapports journalier, mensuel, financier, par coopérative, par destination ; export PDF | Cahier des charges §21. **Manquant** |
++| DASH-08 | Tous | Recommandations / prévisions | Cahier des charges §24. **Manquant** |
++
++---
++
++## 17. Contrôle d'accès par rôle (ACL)
++
++Connectez-vous avec chaque rôle et essayez chaque action. Le résultat attendu est ✅ (autorisé) ou ⛔ (refusé). Dans le web, « refusé » signifie que l'entrée est cachée ; par l'API, cela signifie une **403**. Un refus ne doit jamais être une 500, et une action autorisée ne doit jamais rediriger sans explication.
++
++| Action | Admin | Resp. gare | Agent | Resp. coop. | Chauffeur | Passager |
++|---|---|---|---|---|---|---|
++| Gérer les utilisateurs / rôles | ✅ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ |
++| Créer / modifier une gare | ✅ | ✅ | ⛔ | ⛔ | ⛔ | ⛔ |
++| Modifier **sa** coopérative | ✅ | ⛔ | ⛔ | ✅ | ⛔ | ⛔ |
++| Créer un véhicule (sa coopérative) | ✅ | ⛔ | ⛔ | ✅ | ⛔ | ⛔ |
++| Voir véhicules et chauffeurs | ✅ | ✅ | ⛔ | ✅ (les siens) | ✅ (le sien) | ⛔ |
++| Créer des tarifs / itinéraires | ✅ | ⛔ | ⛔ | ⛔ | ⛔ | ⛔ |
++| Créer / annuler un départ | ✅ | ✅ | ⛔ | ✅ (les siens) | ⛔ | ⛔ |
++| Pointer un départ | ⛔ | ⛔ | ⛔ | ⛔ | ✅ (les siens) | ⛔ |
++| Réserver | ✅ | ⛔ | ⛔ | ✅ | ⛔ | ✅ |
++| Voir les réservations | ✅ toutes | ✅ toutes | sa gare | sa coopérative | ⛔ | les siennes |
++| Encaissement / caisse | ✅ | ✅ | ✅ | ⛔ | ⛔ | ⛔ |
++| Embarquer des passagers | ✅ | ✅ | ✅ | ⛔ | ⛔ | ⛔ |
++| Statistiques | ✅ | ✅ | ⛔ | ✅ | ⛔ | ⛔ |
++
++Vérifications complémentaires :
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| ACL-01 | Passager A : `GET /reservations/{id}` avec l'identifiant d'une réservation du passager B (Swagger) | 404 ou 403 |
++| ACL-02 | `responsable.fte` : `GET /departs/{id}` d'un départ de MDT | 403 |
++| ACL-03 | Sans jeton : n'importe quel `GET /api/v1/...` hors authentification | 401 |
++| ACL-04 | `responsable.fte` : `GET /cooperatives/{fte}/eligible-members` | Ne doit pas renvoyer l'email, le téléphone et l'adresse de tous les utilisateurs. **Problème connu : [I-S05](PROBLEMES.md#i-s05)** |
++| ACL-05 | Créer un agent **sans** appartenance à une coopérative, se connecter avec | Doit voir les départs de sa gare. **Problème connu : [I-B07](PROBLEMES.md#i-b07)** |
++
++---
++
++## 18. Application mobile — passager (MOB)
++
++Sur un émulateur Android ou un téléphone, connecté en `passager03`.
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| MOB-01 | Créer un compte depuis l'application | Compte créé ; retour à la connexion |
++| MOB-02 | Se connecter | Page d'accueil avec nom, email, rôle |
++| MOB-03 | Rechercher un voyage : départ Antananarivo, destination Toamasina, demain | Seulement les départs correspondants. **Problème connu : [I-M03](PROBLEMES.md#i-m03)** (pas de formulaire de recherche) |
++| MOB-04 | Liste des départs | Seulement les départs réservables (ni annulés, ni partis, ni complets). **Problème connu : [I-M03](PROBLEMES.md#i-m03)** |
++| MOB-05 | Détail d'un départ | Destination, date, heure, coopérative, véhicule, places, places disponibles, tarif, statut. **Problème connu : [I-M04](PROBLEMES.md#i-m04)** (coopérative, véhicule et statut absents) |
++| MOB-06 | Plan des places | 4 états avec une légende complète. **Problème connu : [I-M19](PROBLEMES.md#i-m19)** (légende incomplète, disposition devinée) |
++| MOB-07 | Sélectionner 2 places, saisir les informations des passagers | Un formulaire par place, le premier pré-rempli. **Problème connu : [I-M11](PROBLEMES.md#i-m11)** |
++| MOB-08 | Récapitulatif avant confirmation | Départ, places, passagers, **montant total**. **Problème connu : [I-M02](PROBLEMES.md#i-m02)** |
++| MOB-09 | Confirmer | Succès ; les places apparaissent aussitôt réservées. **Problème connu : [I-M05](PROBLEMES.md#i-m05)** |
++| MOB-10 | Pendant que l'application affiche une place libre, la réserver depuis le web, puis essayer de la réserver dans l'application | Message clair « place n'est plus disponible » ; plan rafraîchi. **Problème connu : [I-M05](PROBLEMES.md#i-m05)** |
++| MOB-11 | Mes billets → ouvrir un billet | Billet complet avec QR. **Problème connu : [I-M01](PROBLEMES.md#i-m01)** |
++| MOB-12 | Mes réservations, avec leur statut ; en annuler une | **Problème connu : [I-M04](PROBLEMES.md#i-m04)** |
++| MOB-13 | Payer une réservation (mobile money) | **Manquant** ([I-M02](PROBLEMES.md#i-m02)) |
++| MOB-14 | Notifications | **Problème connu : [I-M04](PROBLEMES.md#i-m04)** |
++| MOB-15 | Activer le mode avion, tirer pour rafraîchir | Message d'erreur réseau clair ; l'application ne plante pas |
++| MOB-16 | Se déconnecter, se reconnecter | Fonctionne ; les jetons sont effacés à la déconnexion |
++| MOB-17 | Mot de passe oublié depuis l'application | Utilisable sans copier un jeton à la main. **Problème connu : [I-M15](PROBLEMES.md#i-m15)** |
++| MOB-18 | Tourner le téléphone ; utiliser un petit écran (5 pouces) | L'affichage reste utilisable |
++
++## 19. Application mobile — chauffeur (DRV)
++
++Connecté en `chauffeur01`.
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| DRV-01 | L'accueil affiche la page chauffeur | Liste de ses départs (date, ligne, statut) |
++| DRV-02 | Véhicule affecté et profil | Affichés. **Problème connu : [I-M18](PROBLEMES.md#i-m18)** |
++| DRV-03 | « Pointer le départ » sur le départ du jour | Confirmation demandée ([I-M18](PROBLEMES.md#i-m18)) ; statut PARTI ; heure de départ enregistrée, visible sur le web |
++| DRV-04 | « Pointer l'arrivée » | Statut TERMINÉ ; heure d'arrivée enregistrée |
++| DRV-05 | Pointer le départ d'un autre chauffeur (API) | 403 |
++| DRV-06 | Liste des passagers du trajet | **Manquant** ([I-M18](PROBLEMES.md#i-m18)) |
++| DRV-07 | Se connecter en agent dans l'application mobile | Message « réservée aux clients et aux chauffeurs » (comportement prévu aujourd'hui) |
++
++---
++
++## 20. Recherche et filtres (SRCH)
++
++Pour chaque liste, testez la recherche textuelle, chaque filtre disponible et la pagination (page 2). Le cahier des charges (§22) demande des filtres par date, destination, coopérative, véhicule, statut et période.
++
++| Liste | Recherche | Date / période | Destination | Coopérative | Véhicule | Statut |
++|---|---|---|---|---|---|---|
++| Utilisateurs | | — | — | — | — | |
++| Coopératives | | — | — | — | — | |
++| Véhicules | | — | — | | — | |
++| Chauffeurs | | — | — | | | |
++| Destinations / Itinéraires | | — | | | — | |
++| Départs | ([I-B24](PROBLEMES.md#i-b24)) | | | | | |
++| Réservations | | | | | — | |
++| Billets | | | | | — | |
++
++Remplissez chaque case avec OK / KO / manquant.
++
++---
++
++## 21. Vérifications non fonctionnelles (NF)
++
++| ID | Étapes | Résultat attendu |
++|---|---|---|
++| NF-01 | Ouvrir l'application web sur un téléphone (ou en mode appareil des outils de développement, iPhone SE) | Le menu se replie ; les pages se lisent sans défilement horizontal. **Problème connu : [I-W01](PROBLEMES.md#i-w01)** |
++| NF-02 | Au clavier uniquement : se connecter, ouvrir une liste, ouvrir un détail | Toutes les actions sont accessibles avec Tab et Entrée ([I-W19](PROBLEMES.md#i-w19)) |
++| NF-03 | Accents sur tous les écrans (Réservations, Itinéraires, Détail…) | Français correct ([I-W18](PROBLEMES.md#i-w18)) |
++| NF-04 | Montants et dates | Formatés « 15 000 Ar », « 08/10/2026 07:00 » ([I-W18](PROBLEMES.md#i-w18), [I-M17](PROBLEMES.md#i-m17)) |
++| NF-05 | Arrêter l'API (`docker compose stop backend`) et utiliser l'application web | Message d'erreur clair, pas de page blanche. Au redémarrage de l'API, l'application reprend |
++| NF-06 | Liste de plus de 1 000 réservations, statistiques sur 30 jours | Les pages se chargent en moins de 2 s |
++| NF-07 | `docker compose exec web npx vue-tsc --noEmit -p tsconfig.app.json` | 0 erreur. **Problème connu : [I-W02](PROBLEMES.md#i-w02)** (21 erreurs) |
++| NF-08 | `cd mobile && flutter analyze` | 0 erreur (12 remarques de style aujourd'hui) |
++| NF-09 | `docker compose exec backend python -m unittest discover -s tests` | Tous les tests réussissent (2 aujourd'hui) |
++
++---
++
++## 22. Scénario de bout en bout (E2E) : une journée à la gare
++
++À dérouler à 4 personnes, ou avec 4 fenêtres de navigateur et le téléphone. Il enchaîne les modules comme dans le fonctionnement réel de la gare.
++
++1. **06 h 00, responsable de gare :** ouvre Départs pour aujourd'hui et vérifie les 3 départs de la gare d'Ampasampito.
++2. **06 h 05, agent (Ampasampito) :** vérifie que la caisse du jour est ouverte (CASH-01).
++3. **06 h 10, passager A (mobile) :** réserve 1 place sur le départ de 07 h 00 pour Toamasina (MOB-07 à MOB-09).
++4. **06 h 12, passager B (au guichet) :** l'agent vend 2 places au guichet, avec 2 noms (RES-01), puis encaisse en espèces (CASH-03).
++5. **06 h 15, passager A :** paie au guichet (CASH-03).
++6. **06 h 30, responsable de gare :** passe le départ en Embarquement (DEP-10).
++7. **06 h 35, agent :** scanne les 3 billets (BRD-01, BRD-09). Essaie ensuite un billet du départ de 13 h 00 (BRD-08) et un billet déjà utilisé (BRD-02).
++8. **06 h 55, agent :** télécharge le manifeste ; les 3 passagers y sont marqués embarqués (BRD-11).
++9. **07 h 02, chauffeur (mobile) :** pointe le départ (DRV-03).
++10. **07 h 30, responsable de gare :** un passager du départ de 13 h 00 annule ; remboursement depuis la caisse (RES-07).
++11. **15 h 00, chauffeur :** pointe l'arrivée (DRV-04).
++12. **18 h 45, agent :** ajoute une dépense (CASH-09) et clôture la caisse (CASH-12). Vérifie le solde à la main (CASH-11).
++13. **19 h 00, responsable de gare :** tableau de bord et statistiques de la journée (DASH-01, DASH-06). Les chiffres doivent correspondre aux étapes 3 à 12.
++
++Résultat attendu : chaque étape réussit. Chaque problème connu rencontré en chemin est noté avec son identifiant.

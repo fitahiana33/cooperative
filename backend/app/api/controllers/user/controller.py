@@ -3,14 +3,23 @@ from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy import asc, desc, func, or_, select
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import get_current_user, require_permission
+from app.services.authentication.password import hash_password, verify_password
+from app.api.controllers.authentication.dependencies import ensure_admin_protected, get_current_user, require_permission
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.models.role import Role
-from app.schemas.user import UserCreate, UserRead, UserUpdate
+from app.schemas.user import PasswordChange, ProfileUpdate, UserCreate, UserRead, UserUpdate
 from app.schemas.common import PageResponse
 from app.services.user import UserService
 from app.services.role import RoleService
+
+
+def _guard_admin_role_change(db: Session, current_user: User, user_id: int, role_id: int) -> None:
+    from app.models.role import Role
+    target = db.get(User, user_id)
+    role = db.get(Role, role_id)
+    ensure_admin_protected(current_user, target=target, role_name=role.libelle if role else None)
+
 
 router = APIRouter(prefix="/users", tags=["users"])
 
@@ -32,6 +41,25 @@ def _ensure_admin_account_safety(db: Session, target: User, current_user: User, 
 @router.get("/me", response_model=UserRead)
 def get_my_profile(current_user: User = Depends(get_current_user)):
     return current_user
+
+
+@router.put("/me", response_model=UserRead)
+def update_my_profile(data: ProfileUpdate, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Any signed-in user may update their own name, phone and address."""
+    for field, value in data.model_dump(exclude_unset=True).items():
+        setattr(current_user, field, value.strip() if isinstance(value, str) else value)
+    db.commit()
+    db.refresh(current_user)
+    return current_user
+
+
+@router.post("/me/password", status_code=status.HTTP_204_NO_CONTENT)
+def change_my_password(data: PasswordChange, current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    """Changing the password ends every other session (tokens issued before are refused)."""
+    if not verify_password(data.current_password, current_user.password_hash):
+        raise HTTPException(status_code=403, detail="Mot de passe actuel incorrect.")
+    current_user.set_password(hash_password(data.new_password))
+    db.commit()
 
 
 @router.get("", response_model=PageResponse[UserRead])
@@ -58,9 +86,10 @@ def list_users(
 @router.post("", response_model=UserRead, status_code=status.HTTP_201_CREATED)
 def create_user(
     data: UserCreate,
-    _: User = Depends(require_permission("USER_CREATE")),
+    current_user: User = Depends(require_permission("USER_CREATE")),
     db: Session = Depends(get_db),
 ):
+    ensure_admin_protected(current_user, role_name=data.role)
     return UserService(db).create_user(data)
 
 
@@ -86,6 +115,7 @@ def update_user(
     target = db.get(User, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    ensure_admin_protected(current_user, target=target)
     if data.is_active is False and target.is_active:
         _ensure_admin_account_safety(db, target, current_user, disabling=True)
     return UserService(db).update_user(user_id, **data.model_dump(exclude_unset=True))
@@ -100,6 +130,7 @@ def delete_user(
     target = db.get(User, user_id)
     if not target:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    ensure_admin_protected(current_user, target=target)
     _ensure_admin_account_safety(db, target, current_user, disabling=True)
     UserService(db).delete_user(user_id)
 
@@ -113,6 +144,7 @@ def toggle_user(
     user = db.get(User, user_id)
     if not user:
         raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    ensure_admin_protected(current_user, target=user)
     if user.is_active:
         _ensure_admin_account_safety(db, user, current_user, disabling=True)
     user.is_active = not user.is_active
@@ -124,16 +156,18 @@ def toggle_user(
 def assign_role(
     user_id: int,
     role_id: int,
-    _: User = Depends(require_permission("ROLE_MANAGE")),
+    current_user: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),
 ):
+    _guard_admin_role_change(db, current_user, user_id, role_id)
     return RoleService(db).assign_role_to_user(user_id, role_id)
 
 @router.delete("/{user_id}/roles/{role_id}", response_model=UserRead)
 def revoke_role(
     user_id: int,
     role_id: int,
-    _: User = Depends(require_permission("ROLE_MANAGE")),
+    current_user: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),
 ):
+    _guard_admin_role_change(db, current_user, user_id, role_id)
     return RoleService(db).revoke_role_from_user(user_id, role_id)

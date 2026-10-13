@@ -42,6 +42,7 @@ class TarifRead(TarifBase):
     id: int
     date_debut: date
     is_active: bool
+    activation_programmee: bool = False
     created_at: datetime
     updated_at: datetime | None = None
 

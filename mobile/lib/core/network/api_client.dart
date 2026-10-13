@@ -23,8 +23,9 @@ class ApiClient {
     dio = Dio(
       BaseOptions(
         baseUrl: baseUrl ?? Env.apiBaseUrl,
-        connectTimeout: const Duration(seconds: 10),
-        receiveTimeout: const Duration(seconds: 10),
+        // Generous: a free-tier server can take 20-30 s to wake up.
+        connectTimeout: const Duration(seconds: 30),
+        receiveTimeout: const Duration(seconds: 30),
         headers: {
           'Content-Type': 'application/json',
           'Accept': 'application/json',
@@ -47,7 +48,8 @@ class ApiClient {
               !error.requestOptions.path.contains('/auth/login') &&
               !error.requestOptions.path.contains('/auth/refresh') &&
               !error.requestOptions.path.contains('/auth/register') &&
-              !error.requestOptions.path.contains('/auth/logout')) {
+              !error.requestOptions.path.contains('/auth/logout') &&
+              !error.requestOptions.path.contains('/users/me/password')) {
             final refreshed = await _attemptRefreshToken();
             if (refreshed) {
               final newAccessToken = await tokenStorage.getAccessToken();
@@ -57,8 +59,9 @@ class ApiClient {
               try {
                 final response = await dio.fetch(opts);
                 return handler.resolve(response);
-              } catch (retryError) {
-                return handler.next(error);
+              } on DioException catch (retryError) {
+                // Report what actually failed on the retry, not the original 401.
+                return handler.next(retryError);
               }
             } else {
               await tokenStorage.clear();
@@ -131,6 +134,8 @@ class ApiClient {
         BaseOptions(
           baseUrl: dio.options.baseUrl,
           headers: {'Content-Type': 'application/json'},
+          connectTimeout: const Duration(seconds: 30),
+          receiveTimeout: const Duration(seconds: 30),
         ),
       );
       final response = await refreshDio.post(

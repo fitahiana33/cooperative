@@ -61,7 +61,7 @@ class UserService:
                 raise HTTPException(status_code=400, detail="Cette adresse email est déjà utilisée.")
             user.email = email
         if fields.get("password"):
-            user.password_hash = hash_password(fields["password"])
+            user.set_password(hash_password(fields["password"]))
         for key in ("name", "first_name", "telephone", "address", "is_active"):
             if key in fields and fields[key] is not None:
                 setattr(user, key, fields[key].strip() if isinstance(fields[key], str) else fields[key])

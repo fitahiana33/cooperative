@@ -26,6 +26,8 @@ export const vehiculeService = {
   async uploadDocument(vehiculeId: number, data: FormData): Promise<VehiculeDocument> {
     return (await api.post<VehiculeDocument>(`/vehicules/${vehiculeId}/documents/upload`, data, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      // Documents can weigh up to 10 MB on a slow connection.
+      timeout: 60000,
     })).data
   },
   async toggleDocument(documentId: number): Promise<VehiculeDocument> {
@@ -37,6 +39,7 @@ export const vehiculeService = {
   async downloadDocument(documentId: number): Promise<Blob> {
     return (await api.get<Blob>(`/vehicules/documents/${documentId}/download`, {
       responseType: 'blob',
+      timeout: 60000,
     })).data
   },
 }

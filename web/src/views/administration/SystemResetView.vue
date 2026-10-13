@@ -6,22 +6,24 @@ import { systemService } from '../../services/system/service'
 import { userError } from '../../utils/errors'
 
 const confirmation = ref('')
+const password = ref('')
 const loading = ref(false)
 const error = ref('')
 const success = ref('')
 const result = ref<{ tables_cleared: number; users_deleted: number } | null>(null)
 
 async function resetData() {
-  if (confirmation.value !== 'RESET' || loading.value) return
+  if (confirmation.value !== 'RESET' || !password.value || loading.value) return
   loading.value = true
   error.value = ''
   success.value = ''
   result.value = null
   try {
-    const response = await systemService.resetBusinessData()
+    const response = await systemService.resetBusinessData(password.value)
     result.value = response
     success.value = response.message
     confirmation.value = ''
+    password.value = ''
   } catch (value: unknown) {
     error.value = userError(value, 'La réinitialisation n’a pas pu être effectuée.', 'SYSTEM_RESET_ERROR')
   } finally {
@@ -34,7 +36,7 @@ async function resetData() {
   <AppLayout>
     <template #title>Réinitialisation</template>
     <section class="page-intro">
-      <div><p class="eyebrow">ADMINISTRATION SYSTÈME</p><h2>Réinitialiser les données</h2><p>Supprime les données métier de l’environnement de développement.</p></div>
+      <div><p class="eyebrow">ADMINISTRATION SYSTÈME</p><h2>Réinitialiser les données</h2><p>Supprime les données métier. Disponible uniquement en environnement de développement.</p></div>
     </section>
     <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
     <p v-if="success" class="success-banner" role="status">{{ success }}</p>
@@ -48,7 +50,9 @@ async function resetData() {
       <div class="reset-confirmation">
         <label for="reset-confirmation">Tapez <strong>RESET</strong> pour confirmer</label>
         <input id="reset-confirmation" v-model="confirmation" autocomplete="off" spellcheck="false" placeholder="RESET" :disabled="loading" @keyup.enter="resetData">
-        <button class="danger-button" type="button" :disabled="confirmation !== 'RESET' || loading" @click="resetData">{{ loading ? 'Réinitialisation…' : 'Réinitialiser les données' }}</button>
+        <label for="reset-password">Votre mot de passe administrateur</label>
+        <input id="reset-password" v-model="password" type="password" autocomplete="current-password" :disabled="loading" @keyup.enter="resetData">
+        <button class="danger-button" type="button" :disabled="confirmation !== 'RESET' || !password || loading" @click="resetData">{{ loading ? 'Réinitialisation…' : 'Réinitialiser les données' }}</button>
       </div>
       <div v-if="result" class="reset-result"><span>{{ result.tables_cleared }} tables métier vidées</span><span>{{ result.users_deleted }} utilisateur(s) supprimé(s)</span></div>
     </BaseCard>

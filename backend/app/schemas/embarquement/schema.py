@@ -5,7 +5,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 class EmbarquementControl(BaseModel):
     code: str = Field(min_length=3, max_length=100)
-    date_heure: datetime | None = None
+    # The departure being boarded: a ticket for another departure is refused.
+    id_depart: int
+    # The control time is always the server's clock (any client value is ignored).
 
 
 class EmbarquementRead(BaseModel):

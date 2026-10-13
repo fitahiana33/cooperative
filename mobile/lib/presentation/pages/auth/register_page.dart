@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../core/utils/validators.dart';
 import '../../controllers/auth/auth_controller.dart';
-import '../../controllers/auth/auth_state.dart';
 import '../../widgets/auth/auth_form_card.dart';
 import '../../widgets/common/custom_button.dart';
 import '../../widgets/common/custom_text_field.dart';
@@ -39,9 +38,13 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
     super.dispose();
   }
 
+  bool _submitting = false;
+
   void _submit() async {
+    if (_submitting) return;
     if (_formKey.currentState?.validate() ?? false) {
       FocusScope.of(context).unfocus();
+      setState(() => _submitting = true);
       final success = await ref.read(authControllerProvider.notifier).register(
             name: _nameController.text,
             firstName: _firstNameController.text,
@@ -50,6 +53,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
             address: _addressController.text,
             password: _passwordController.text,
           );
+      if (mounted) setState(() => _submitting = false);
       if (success && mounted) {
         Navigator.pop(context);
       }
@@ -59,7 +63,7 @@ class _RegisterPageState extends ConsumerState<RegisterPage> {
   @override
   Widget build(BuildContext context) {
     final authState = ref.watch(authControllerProvider);
-    final isLoading = authState.status == AuthStatus.loading;
+    final isLoading = _submitting;
 
     return Scaffold(
       body: Container(

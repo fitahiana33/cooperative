@@ -4,6 +4,7 @@ import { RouterLink } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
 import ListToolbar from '../../components/ui/ListToolbar.vue'
+import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { reservationService } from '../../services/reservation/service'
 import type { Reservation, ReservationStatus } from '../../models/reservation/model'
 import { useAuthenticationStore } from '../../stores/authentication/store'
@@ -41,7 +42,11 @@ async function exportCsv() {
     URL.revokeObjectURL(url)
   } catch (value: unknown) { showError(value) }
 }
-function routeName(item: Reservation) { return item.depart ? `Départ #${item.id_depart}` : `Départ #${item.id_depart}` }
+function routeName(item: Reservation) {
+  const route = item.depart?.itineraire
+  if (!route) return `Départ #${item.id_depart}`
+  return `${route.destination_depart?.nom || '?'} → ${route.destination_arrivee?.nom || '?'}${item.depart?.cooperative ? ' · ' + item.depart.cooperative.nom : ''}`
+}
 function formatDate(value?: string) { return value ? new Date(value).toLocaleString('fr-FR') : '—' }
 const canCreate = () => auth.hasPermission('RESERVATION_CREATE')
 onMounted(load)
@@ -53,11 +58,11 @@ onMounted(load)
     <div class="page-intro"><div><p class="eyebrow">VENTES & PLACES</p><h2>Réservations</h2><p>Consultez les réservations et leur cycle jusqu’au billet.</p></div><div class="page-actions"><button class="secondary-button" type="button" @click="exportCsv">Exporter CSV</button><RouterLink v-if="canCreate()" class="primary-button compact-button" to="/reservations/new">+ Nouvelle réservation</RouterLink></div></div>
     <BaseCard>
       <div class="card-heading"><div><h2>Liste des réservations ({{ total }})</h2><p>Les places sont verrouillées par le serveur pour empêcher les doubles réservations.</p></div></div>
-      <ListToolbar v-model="search" :loading="loading" placeholder="N° de réservation" @search="page = 1; load()" />
-      <div class="filter-row"><select v-model="status" aria-label="Filtrer par statut" @change="page = 1; load()"><option value="">Tous les statuts</option><option v-for="(label, value) in statuses" :key="value" :value="value">{{ label }}</option></select><select v-model="sortBy" aria-label="Trier les réservations" @change="page = 1; load()"><option value="created_at">Plus récentes</option><option value="date_depart">Date de départ</option><option value="date_expiration">Expiration</option><option value="montant_total">Montant</option><option value="statut">Statut</option></select><select v-model="sortOrder" aria-label="Ordre du tri" @change="page = 1; load()"><option value="desc">Décroissant</option><option value="asc">Croissant</option></select></div>
+      <ListToolbar v-model="search" :loading="loading" :show-sort="false" placeholder="N° de réservation" @search="page = 1; load()" />
+      <div class="filter-row"><select v-model="status" aria-label="Filtrer par statut" @change="page = 1; load()"><option value="">Tous les statuts</option><option v-for="(label, value) in statuses" :key="value" :value="value">{{ label }}</option></select><select v-model="sortBy" aria-label="Colonne de tri" @change="page = 1; load()"><option value="created_at">Date de création</option><option value="date_depart">Date de départ</option><option value="date_expiration">Expiration</option><option value="montant_total">Montant</option><option value="statut">Statut</option></select><select v-model="sortOrder" aria-label="Ordre du tri" @change="page = 1; load()"><option value="desc">Décroissant</option><option value="asc">Croissant</option></select></div>
       <p v-if="loading" class="status-msg">Chargement des réservations…</p><p v-else-if="error" class="error-banner" role="alert">{{ error }}</p>
       <div v-if="!loading && !error" class="table-scroll"><table class="data-table"><caption>Réservations enregistrées</caption><thead><tr><th>Numéro</th><th>Départ</th><th>Places</th><th>Montant</th><th>Créée le</th><th>Statut</th><th>Actions</th></tr></thead><tbody><tr v-for="item in items" :key="item.id"><td><strong>{{ item.numero_reservation }}</strong></td><td>{{ routeName(item) }}<br><small>{{ item.depart?.date_depart }} {{ item.depart?.heure_depart?.slice(0, 5) }}</small></td><td>{{ item.places?.length || 0 }}</td><td>{{ item.montant_total }}</td><td>{{ formatDate(item.created_at) }}</td><td><span class="status-badge" :class="item.statut === 'ANNULEE' || item.statut === 'EXPIREE' ? 'inactive' : 'active'">{{ statuses[item.statut] || item.statut }}</span></td><td><RouterLink class="table-action table-link" :to="`/reservations/${item.id}`">Détails</RouterLink></td></tr><tr v-if="!items.length"><td colspan="7" class="empty-state">Aucune réservation enregistrée.</td></tr></tbody></table></div>
     </BaseCard>
-    <div v-if="!loading && !error" class="pagination"><button class="secondary-button" :disabled="page <= 1" @click="page--; load()">Précédent</button><span>Page {{ page }} / {{ pages }} — {{ total }} résultat(s)</span><button class="secondary-button" :disabled="page >= pages" @click="page++; load()">Suivant</button></div>
+    <PaginationControls v-if="!loading && !error" :page="page" :pages="pages" :total="total" @change="next => { page = next; load() }" />
   </AppLayout>
 </template>

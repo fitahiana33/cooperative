@@ -2,6 +2,7 @@ from datetime import date, datetime
 from sqlalchemy import BigInteger, Boolean, Date, DateTime, ForeignKey, Index, String, func
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
+from app.core.clock import local_today
 
 class Chauffeur(Base):
     __tablename__ = "chauffeurs"
@@ -29,7 +30,7 @@ class Chauffeur(Base):
 
     @property
     def permis_expire(self) -> bool:
-        return self.date_expiration_permis < date.today()
+        return self.date_expiration_permis < local_today()
 
     @property
     def vehicule_actuel(self):

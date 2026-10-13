@@ -7,7 +7,15 @@ from app.schemas.user import UserRead
 from app.schemas.permission import PermissionRead
 from app.schemas.common import PageResponse
 from app.services.role import RoleService
-from app.api.controllers.authentication.dependencies import require_permission
+from app.api.controllers.authentication.dependencies import ensure_admin_protected, require_permission
+
+
+def _guard_admin_role_change(db: Session, current_user: User, user_id: int, role_id: int) -> None:
+    from app.models.role import Role
+    target = db.get(User, user_id)
+    role = db.get(Role, role_id)
+    ensure_admin_protected(current_user, target=target, role_name=role.libelle if role else None)
+
 
 router = APIRouter(prefix="/roles", tags=["roles"])
 
@@ -78,18 +86,20 @@ def revoke_permission(
 def assign_user_role(
     role_id: int,
     user_id: int,
-    _: User = Depends(require_permission("ROLE_MANAGE")),
+    current_user: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),
 ):
+    _guard_admin_role_change(db, current_user, user_id, role_id)
     return RoleService(db).assign_role_to_user(user_id, role_id)
 
 @router.delete("/{role_id}/users/{user_id}", response_model=UserRead)
 def revoke_user_role(
     role_id: int,
     user_id: int,
-    _: User = Depends(require_permission("ROLE_MANAGE")),
+    current_user: User = Depends(require_permission("ROLE_MANAGE")),
     db: Session = Depends(get_db),
 ):
+    _guard_admin_role_change(db, current_user, user_id, role_id)
     return RoleService(db).revoke_role_from_user(user_id, role_id)
 
 @router.get("/{role_id}/permissions", response_model=list[PermissionRead])

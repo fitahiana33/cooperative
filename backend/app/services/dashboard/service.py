@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session, selectinload
 from app.models.billet import Billet
 from app.models.chauffeur import Chauffeur
 from app.models.cooperative import Cooperative
+from app.models.itineraire import Itineraire
 from app.models.depart import Depart, DepartStatus
 from app.models.finance import Caisse, OperationCaisse, OperationType
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
@@ -15,6 +16,8 @@ from app.models.place import DepartPlace, DepartPlaceStatus
 from app.models.user import User
 from app.models.vehicule import Vehicule
 from app.services.notification import NotificationService
+from app.core.clock import local_date, local_today
+from app.core.config import settings
 
 
 class DashboardService:
@@ -27,7 +30,7 @@ class DashboardService:
         return statement
 
     def summary(self, *, cooperative_ids: set[int] | None = None) -> dict:
-        today = date.today()
+        today = local_today()
         departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today), cooperative_ids)
         reservation_statement = select(func.count()).select_from(Reservation).join(Depart).where(Depart.date_depart == today, Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]))
         reservation_statement = self._depart_scope(reservation_statement, cooperative_ids)
@@ -43,7 +46,7 @@ class DashboardService:
         full_departures = self._depart_scope(select(func.count()).select_from(Depart).where(Depart.date_depart == today, Depart.places_reservees >= Depart.nombre_places), cooperative_ids)
         cancelled_reservations = select(func.count()).select_from(Reservation).join(Depart).where(Depart.date_depart == today, Reservation.statut == ReservationStatus.ANNULEE)
         cancelled_reservations = self._depart_scope(cancelled_reservations, cooperative_ids)
-        revenue_statement = select(func.coalesce(func.sum(OperationCaisse.montant), 0)).where(func.date(OperationCaisse.date_operation) == today, OperationCaisse.type_operation == OperationType.RECETTE)
+        revenue_statement = select(func.coalesce(func.sum(OperationCaisse.montant), 0)).where(func.date(func.timezone(settings.timezone, OperationCaisse.date_operation)) == today, OperationCaisse.type_operation == OperationType.RECETTE)
         if cooperative_ids is not None:
             revenue_statement = revenue_statement.where(OperationCaisse.id_cooperative.in_(cooperative_ids))
         revenue = self.db.scalar(revenue_statement) or Decimal("0")
@@ -72,8 +75,8 @@ class DashboardService:
         }
 
     def statistics(self, *, date_from: date | None = None, date_to: date | None = None, cooperative_ids: set[int] | None = None) -> dict:
-        start = date_from or date.today() - timedelta(days=30)
-        end = date_to or date.today()
+        start = date_from or local_today() - timedelta(days=30)
+        end = date_to or local_today()
         if end < start:
             raise ValueError("La date de fin ne peut pas être antérieure à la date de début.")
         previous_start = start - (end - start) - timedelta(days=1)
@@ -105,7 +108,7 @@ class DashboardService:
             "date_to": end,
             "departs": daily_departs,
             "reservations": daily_reservations,
-            "destinations": [{"id_itineraire": row.id_itineraire, "reservations": row.reservations} for row in self.db.execute(destinations).all()],
+            "destinations": self._label_routes(self.db.execute(destinations).all()),
             "comparison": {
                 "previous_from": previous_start,
                 "previous_to": previous_end,
@@ -115,9 +118,21 @@ class DashboardService:
             },
         }
 
+    def _label_routes(self, rows) -> list[dict]:
+        """Top itineraries with a readable label (origin → destination)."""
+        ids = [row.id_itineraire for row in rows]
+        routes = {
+            item.id: f"{item.destination_depart.nom} → {item.destination_arrivee.nom}"
+            for item in self.db.scalars(
+                select(Itineraire).where(Itineraire.id.in_(ids))
+                .options(selectinload(Itineraire.destination_depart), selectinload(Itineraire.destination_arrivee))
+            )
+        } if ids else {}
+        return [{"id_itineraire": row.id_itineraire, "libelle": routes.get(row.id_itineraire, f"Itinéraire #{row.id_itineraire}"), "reservations": row.reservations} for row in rows]
+
     def generate_reminders(self, *, now: datetime | None = None) -> int:
         moment = now or datetime.now(timezone.utc)
-        target_date = moment.date()
+        target_date = local_date(moment)
         target_limit = target_date + timedelta(days=1)
         rows = self.db.execute(
             select(Reservation, Depart)

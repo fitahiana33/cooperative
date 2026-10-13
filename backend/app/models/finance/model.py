@@ -44,6 +44,7 @@ class Paiement(Base):
         Index("idx_paiements_statut", "statut"),
         Index("idx_paiements_agent", "id_agent"),
         Index("idx_paiements_date", "date_paiement"),
+        Index("uq_paiement_valide_reservation", "id_reservation", unique=True, postgresql_where=text("statut = 'VALIDE'")),
     )
 
     id: Mapped[int] = mapped_column("id_paiement", BigInteger, Identity(always=True), primary_key=True)
@@ -51,9 +52,15 @@ class Paiement(Base):
     montant: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     methode: Mapped[str] = mapped_column(String(30), default=PaiementMethode.ESPECES, server_default=PaiementMethode.ESPECES, nullable=False)
     reference_paiement: Mapped[str | None] = mapped_column(String(100))
+    fournisseur: Mapped[str | None] = mapped_column(String(40))
+    reference_fournisseur: Mapped[str | None] = mapped_column(String(150))
+    cle_idempotence: Mapped[str | None] = mapped_column(String(100), unique=True)
+    webhook_recu_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     statut: Mapped[str] = mapped_column(String(20), default=PaiementStatus.EN_ATTENTE, server_default=PaiementStatus.EN_ATTENTE, nullable=False)
     date_paiement: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     id_agent: Mapped[int | None] = mapped_column(ForeignKey("users.id_user", ondelete="SET NULL"))
+    # Set when the reservation was cancelled but the money is still to be returned by a cashier.
+    remboursement_demande_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 
@@ -79,6 +86,8 @@ class Caisse(Base):
     montant_ouverture: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
     date_cloture: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     montant_cloture: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
+    # Counted cash minus expected balance at closing (negative = missing cash).
+    ecart_cloture: Mapped[Decimal | None] = mapped_column(Numeric(12, 2))
     statut: Mapped[str] = mapped_column(String(20), default=CaisseStatus.OUVERTE, server_default=CaisseStatus.OUVERTE, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)

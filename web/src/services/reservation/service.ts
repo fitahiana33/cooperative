@@ -3,11 +3,13 @@ import type { DepartPlace, Reservation, ReservationPlaceInput } from '../../mode
 
 export const reservationService = {
   async list(params?: Record<string, unknown>) { return (await api.get('/reservations', { params })).data },
-  async exportCsv(params?: Record<string, unknown>): Promise<Blob> { return (await api.get('/reservations/export.csv', { params, responseType: 'blob' })).data },
-  async exportManifest(departId: number): Promise<Blob> { return (await api.get(`/departs/${departId}/manifest.csv`, { responseType: 'blob' })).data },
+  async exportCsv(params?: Record<string, unknown>): Promise<Blob> { return (await api.get('/reservations/export.csv', { params, responseType: 'blob', timeout: 60000 })).data },
+  async exportManifest(departId: number): Promise<Blob> { return (await api.get(`/departs/${departId}/manifest.csv`, { responseType: 'blob', timeout: 60000 })).data },
   async get(id: number): Promise<Reservation> { return (await api.get(`/reservations/${id}`)).data },
   async places(departId: number, availableOnly = false): Promise<DepartPlace[]> { return (await api.get(`/departs/${departId}/places`, { params: { available_only: availableOnly } })).data },
   async create(data: { id_depart: number; places: ReservationPlaceInput[] }): Promise<Reservation> { return (await api.post('/reservations', data)).data },
+  // Counter sale by staff: books, confirms and, when a cash desk is given, takes the cash payment.
+  async counterSale(data: { id_depart: number; places: ReservationPlaceInput[]; id_caisse?: number | null }): Promise<Reservation> { return (await api.post('/reservations/guichet', data)).data },
   async confirm(id: number): Promise<Reservation> { return (await api.post(`/reservations/${id}/confirm`)).data },
   async cancel(id: number, idCaisse?: number): Promise<Reservation> {
     return (await api.post(`/reservations/${id}/cancel`, null, { params: idCaisse ? { id_caisse: idCaisse } : undefined })).data

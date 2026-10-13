@@ -4,6 +4,7 @@ from sqlalchemy import select, and_, or_
 from sqlalchemy.orm import Session
 
 from app.models.tarif import Tarif
+from app.core.clock import local_today
 
 
 class TarifRepository:
@@ -14,7 +15,7 @@ class TarifRepository:
         return self.db.get(Tarif, id_tarif)
 
     def find_active_by_itineraire(self, id_itineraire: int, id_cooperative: int | None = None) -> Tarif | None:
-        today = date.today()
+        today = local_today()
         query = select(Tarif).where(
             Tarif.id_itineraire == id_itineraire,
             Tarif.is_active == True,

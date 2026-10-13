@@ -5,11 +5,15 @@ class ModeleCreate(BaseModel):
     id_marque: int
     nom: str = Field(min_length=1, max_length=100)
     description: str | None = None
+    places_avant: int = Field(default=2, ge=0, le=3)
+    places_par_rangee: int = Field(default=4, ge=2, le=6)
 
 class ModeleUpdate(BaseModel):
     id_marque: int | None = None
     nom: str | None = Field(default=None, min_length=1, max_length=100)
     description: str | None = None
+    places_avant: int | None = Field(default=None, ge=0, le=3)
+    places_par_rangee: int | None = Field(default=None, ge=2, le=6)
     is_active: bool | None = None
 
 class ModeleMarqueRead(BaseModel):

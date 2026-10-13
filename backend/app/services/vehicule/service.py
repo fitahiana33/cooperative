@@ -6,13 +6,15 @@ from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.core.config import settings
 from app.models.vehicule import Vehicule, VehiculeDocument, VehiculeChauffeur
 from app.models.modele import Modele
 from app.models.cooperative import Cooperative
 from app.core.pagination import paginate
+from app.core.clock import local_today
 
 logger = logging.getLogger("cooperative.vehicule")
-DOCUMENT_UPLOAD_DIR = Path(__file__).resolve().parents[3] / "uploads" / "vehicules"
+DOCUMENT_UPLOAD_DIR = settings.uploads_dir / "vehicules"
 
 class VehiculeService:
     def __init__(self, db: Session):
@@ -37,7 +39,7 @@ class VehiculeService:
             .where(
                 VehiculeDocument.id_vehicule == vehicule_id,
                 VehiculeDocument.date_expiration.is_not(None),
-                VehiculeDocument.date_expiration < date.today(),
+                VehiculeDocument.date_expiration < local_today(),
                 VehiculeDocument.is_active.is_(True),
             )
             .order_by(VehiculeDocument.date_expiration)
@@ -45,7 +47,7 @@ class VehiculeService:
 
     def list_expiring_documents(self, vehicule_id: int, *, days: int = 30) -> list[VehiculeDocument]:
         self.get_vehicule(vehicule_id)
-        today = date.today()
+        today = local_today()
         return list(self.db.scalars(
             select(VehiculeDocument)
             .where(
@@ -64,7 +66,7 @@ class VehiculeService:
         cooperative_ids: set[int] | None = None,
     ) -> list[VehiculeDocument]:
         """Return active fleet documents that are expired or close to expiry."""
-        today = date.today()
+        today = local_today()
         statement = select(VehiculeDocument).join(Vehicule)
         statement = statement.where(
             VehiculeDocument.is_active.is_(True),
@@ -248,7 +250,7 @@ class VehiculeService:
             raise HTTPException(status_code=409, detail="Impossible de modifier l'état du véhicule.")
 
     def _close_vehicle_assignments(self, vehicule_id: int) -> None:
-        today = date.today()
+        today = local_today()
         assignments = self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.id_vehicule == vehicule_id,
             VehiculeChauffeur.is_active.is_(True),

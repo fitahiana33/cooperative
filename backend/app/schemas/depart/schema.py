@@ -75,6 +75,9 @@ class DepartVehiculeRead(BaseModel):
     id: int
     immatriculation: str
     nombre_places: int
+    # Seat-map layout of the vehicle model.
+    places_avant: int = 2
+    places_par_rangee: int = 4
 
     model_config = ConfigDict(from_attributes=True)
 
