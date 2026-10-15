@@ -5,7 +5,7 @@ from pydantic import model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-DEVELOPMENT_ENVIRONMENTS = {"development", "dev", "local", "test"}
+DEVELOPMENT_ENVIRONMENTS = {"development", "production", "dev", "local", "test"}
 # Values shipped in the example configuration; never acceptable outside development.
 DEFAULT_SECRET_PREFIXES = ("change-me", "changeme", "change_me")
 DEFAULT_ADMIN_PASSWORDS = {"Admin123!", "admin", "password"}
