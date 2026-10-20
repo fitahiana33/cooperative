@@ -13,7 +13,7 @@ const rows = ref<Array<Record<string, unknown>>>([]); const loading = ref(false)
 const invalidPeriod = computed(() => !dateFrom.value || !dateTo.value || dateTo.value < dateFrom.value)
 const types = [{ value: 'daily', label: 'Départs journaliers' }, { value: 'reservations', label: 'Réservations' }, { value: 'financial', label: 'Financier' }, { value: 'boarding', label: 'Embarquement' }, { value: 'cooperatives', label: 'Par coopérative' }, { value: 'destinations', label: 'Par destination' }]
 const columns = computed(() => Object.keys(rows.value[0] || {}))
-const columnLabels: Record<string, string> = { date: 'Date', heure: 'Heure', statut: 'Statut', cooperative: 'Coopérative', itineraire: 'Itinéraire', places_reservees: 'Places réservées', capacite: 'Capacité', reservation: 'Réservation', montant: 'Montant', methode: 'Méthode', reference: 'Référence', fournisseur: 'Fournisseur', billet: 'Billet', passager: 'Passager', date_depart: 'Date du départ', date_embarquement: 'Date d’embarquement', reservations: 'Réservations' }
+const columnLabels: Record<string, string> = { date: 'Date', heure: 'Heure', statut: 'Statut', cooperative: 'Coopérative', itineraire: 'Itinéraire', places_reservees: 'Places réservées', capacite: 'Capacité', reservation: 'Réservation', montant: 'Montant', methode: 'Méthode', reference: 'Référence', fournisseur: 'Fournisseur', billet: 'Billet', passager: 'Passager', passagers: 'Passagers', date_depart: 'Date du départ', date_embarquement: 'Date d’embarquement', reservations: 'Réservations' }
 const selectedSortKey = computed(() => sortBy.value || columns.value[0] || '')
 const filteredRows = computed(() => {
   const term = search.value.trim().toLowerCase()

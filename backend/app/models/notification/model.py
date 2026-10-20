@@ -16,6 +16,7 @@ class NotificationType(StrEnum):
     MODIFICATION_HORAIRE = "MODIFICATION_HORAIRE"
     CONFIRMATION_EMBARQUEMENT = "CONFIRMATION_EMBARQUEMENT"
     EXPIRATION_DOCUMENT = "EXPIRATION_DOCUMENT"
+    MODIFICATION_RESERVATION = "MODIFICATION_RESERVATION"
 
 
 class NotificationChannel(StrEnum):
@@ -28,7 +29,7 @@ class Notification(Base):
     __tablename__ = "notifications"
     __table_args__ = (
         CheckConstraint("canal IN ('PUSH', 'SMS', 'EMAIL')", name="ck_notification_canal"),
-        CheckConstraint("type_notification IN ('CONFIRMATION_RESERVATION', 'CONFIRMATION_PAIEMENT', 'RAPPEL_DEPART', 'RETARD', 'ANNULATION', 'MODIFICATION_HORAIRE', 'CONFIRMATION_EMBARQUEMENT', 'EXPIRATION_DOCUMENT')", name="ck_notification_type"),
+        CheckConstraint("type_notification IN ('CONFIRMATION_RESERVATION', 'CONFIRMATION_PAIEMENT', 'RAPPEL_DEPART', 'RETARD', 'ANNULATION', 'MODIFICATION_HORAIRE', 'CONFIRMATION_EMBARQUEMENT', 'EXPIRATION_DOCUMENT', 'MODIFICATION_RESERVATION')", name="ck_notification_type"),
         Index("idx_notifications_user", "id_user"),
         Index("idx_notifications_type", "type_notification"),
         Index("idx_notifications_lue", "est_lue"),

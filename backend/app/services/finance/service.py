@@ -205,6 +205,18 @@ class FinanceService:
         # A reservation paid without prior confirmation still needs its tickets.
         BilletService.issue_for_reservation(self.db, reservation)
         self.db.add(OperationCaisse(id_caisse=caisse_id, type_operation=OperationType.RECETTE, montant=amount, id_paiement=item.id, id_cooperative=reservation.depart.id_cooperative, description=f"Paiement {item.reference_paiement}"))
+        commission_rate = Decimal(str(settings.default_commission_rate)) / Decimal("100")
+        if commission_rate > 0:
+            commission = (amount * commission_rate).quantize(Decimal("0.01"))
+            if commission > 0:
+                self.db.add(OperationCaisse(
+                    id_caisse=caisse_id,
+                    type_operation=OperationType.COMMISSION,
+                    montant=commission,
+                    id_paiement=item.id,
+                    id_cooperative=reservation.depart.id_cooperative,
+                    description=f"Commission ({settings.default_commission_rate:g} %) {item.reference_paiement}",
+                ))
         NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
         self.db.commit()
         self.db.refresh(item)

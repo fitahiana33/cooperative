@@ -12,7 +12,7 @@ from app.models.depart import Depart
 from app.models.place import DepartPlace
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
-from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead
+from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead, ReservationUpdate
 from app.services.finance import FinanceService
 from app.services.reservation import ReservationService
 from app.services.audit import AuditService
@@ -118,7 +118,7 @@ def counter_sale(
 
     If a later step fails, the reservation is cancelled so its seats are not left blocked.
     """
-    if not has_permission(current_user, "RESERVATION_UPDATE"):
+    if not is_staff(current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "La vente au guichet est réservée au personnel.")
     if data.id_caisse is not None and not has_permission(current_user, "PAIEMENT_PROCESS"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous ne pouvez pas encaisser de paiement.")
@@ -169,6 +169,36 @@ def get_reservation(
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
     return ReservationService(db)._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+
+
+@router.patch("/reservations/{reservation_id}", response_model=ReservationRead)
+def update_reservation(
+    reservation_id: int,
+    data: ReservationUpdate,
+    current_user: User = Depends(require_permission("RESERVATION_UPDATE")), db: Session = Depends(get_db),
+):
+    owner_id, cooperative_ids = _scope(db, current_user)
+    service = ReservationService(db)
+    before_item = service._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    before = {"id_depart": before_item.id_depart, "places": [row.id_depart_place for row in before_item.places]}
+    item = service.update_reservation(
+        reservation_id,
+        depart_id=data.id_depart,
+        places=[place.model_dump() for place in data.places],
+        owner_id=owner_id,
+        cooperative_ids=cooperative_ids,
+        default_passenger_name=f"{current_user.first_name or ''} {current_user.name or ''}".strip(),
+    )
+    AuditService(db).record(
+        user_id=current_user.id,
+        action="RESERVATION_MODIFIEE",
+        entity_type="reservation",
+        entity_id=item.id,
+        before=before,
+        after={"id_depart": item.id_depart, "places": [row.id_depart_place for row in item.places]},
+    )
+    db.commit()
+    return item
 
 
 @router.post("/reservations/{reservation_id}/confirm", response_model=ReservationRead)

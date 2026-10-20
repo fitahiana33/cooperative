@@ -1,4 +1,4 @@
-package com.example.cooperative_mobile
+package com.cooperative.transport
 
 import io.flutter.embedding.android.FlutterActivity
 

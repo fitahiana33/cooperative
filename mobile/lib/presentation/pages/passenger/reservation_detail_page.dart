@@ -10,6 +10,7 @@ import '../../widgets/common/async_view.dart';
 import '../../widgets/common/error_banner.dart';
 import '../../widgets/travel/status_chip.dart';
 import 'ticket_detail_page.dart';
+import 'reservation_edit_page.dart';
 
 class ReservationDetailPage extends ConsumerStatefulWidget {
   final int reservationId;
@@ -76,6 +77,11 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage> {
     } finally {
       if (mounted) setState(() => _cancelling = false);
     }
+  }
+
+  Future<void> _edit() async {
+    final updated = await Navigator.push<Reservation>(context, MaterialPageRoute(builder: (_) => ReservationEditPage(reservation: _reservation!)));
+    if (mounted && updated != null) setState(() => _reservation = updated);
   }
 
   Widget _row(String label, String value) => Padding(
@@ -145,6 +151,10 @@ class _ReservationDetailPageState extends ConsumerState<ReservationDetailPage> {
                   ),
                 )),
             if (_actionError != null) ...[const SizedBox(height: 12), ErrorBanner(message: _actionError!)],
+            if (reservation.isPending) ...[
+              const SizedBox(height: 12),
+              OutlinedButton.icon(onPressed: _cancelling ? null : _edit, icon: const Icon(Icons.edit_outlined), label: const Text('Modifier les places')),
+            ],
             if (reservation.canBeCancelled) ...[
               const SizedBox(height: 16),
               OutlinedButton.icon(

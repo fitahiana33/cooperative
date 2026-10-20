@@ -5,7 +5,8 @@ from .schema import (
     ReservationCreate,
     ReservationPlaceCreate,
     ReservationRead,
+    ReservationUpdate,
     ReservationStatusUpdate,
 )
 
-__all__ = ["DepartPlaceRead", "DepartPlaceStatusUpdate", "ReservationCreate", "CounterSaleCreate", "ReservationPlaceCreate", "ReservationRead", "ReservationStatusUpdate"]
+__all__ = ["DepartPlaceRead", "DepartPlaceStatusUpdate", "ReservationCreate", "ReservationUpdate", "CounterSaleCreate", "ReservationPlaceCreate", "ReservationRead", "ReservationStatusUpdate"]

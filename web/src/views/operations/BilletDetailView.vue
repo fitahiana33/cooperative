@@ -21,6 +21,9 @@ function showError(value: unknown) {
 // QR images require authentication, so they are fetched as a blob
 // instead of being linked directly.
 const qrSrc = ref("");
+function printTicket() {
+  window.print();
+}
 async function loadQr(id: number) {
   try {
     const response = await api.get<Blob>(`/billets/${id}/qr.png`, { responseType: "blob" });
@@ -53,6 +56,7 @@ onMounted(load);
         <h2>Détail du billet</h2>
         <p>Billet {{ item?.numero_billet || `#${route.params.id}` }}</p>
       </div>
+      <button class="primary-button print-action" type="button" @click="printTicket">Imprimer / enregistrer en PDF</button>
       <RouterLink class="secondary-button" to="/billets"
         >Retour à la liste</RouterLink
       >
@@ -169,5 +173,18 @@ onMounted(load);
   width: 160px;
   height: 160px;
   object-fit: contain;
+}
+
+@media print {
+  .print-action,
+  :deep(.app-header),
+  :deep(.app-sidebar),
+  :deep(.page-intro .secondary-button) {
+    display: none !important;
+  }
+
+  .qr-panel {
+    break-inside: avoid;
+  }
 }
 </style>

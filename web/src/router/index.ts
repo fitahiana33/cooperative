@@ -287,6 +287,12 @@ const router = createRouter({
       meta: { requiresAuth: true, layout: 'default' },
     },
     {
+      path: '/planning',
+      name: 'planning-calendar',
+      component: () => import('../views/operations/PlanningCalendarView.vue'),
+      meta: { requiresAuth: true, layout: 'default' },
+    },
+    {
       path: '/departs/new',
       name: 'depart-create',
       component: () => import('../views/management/DepartFormView.vue'),
@@ -391,7 +397,7 @@ router.beforeEach((to) => {
     destinations: 'DESTINATION_READ', 'destination-detail': 'DESTINATION_READ', 'destination-create': ADMIN_ONLY, 'destination-edit': ADMIN_ONLY,
     itineraires: 'ITINERAIRE_READ', 'itineraire-detail': 'ITINERAIRE_READ', 'itineraire-create': ADMIN_ONLY, 'itineraire-edit': ADMIN_ONLY,
     tarifs: 'TARIF_READ', 'tarif-detail': 'TARIF_READ', 'tarif-create': 'TARIF_CREATE', 'tarif-edit': 'TARIF_UPDATE',
-    departs: 'DEPART_READ', 'depart-detail': 'DEPART_READ', 'depart-create': 'DEPART_CREATE', 'depart-edit': 'DEPART_UPDATE',
+    departs: 'DEPART_READ', 'planning-calendar': 'DEPART_READ', 'depart-detail': 'DEPART_READ', 'depart-create': 'DEPART_CREATE', 'depart-edit': 'DEPART_UPDATE',
     reservations: 'RESERVATION_READ', 'reservation-detail': 'RESERVATION_READ', 'reservation-create': 'RESERVATION_CREATE', 'reservation-edit': 'RESERVATION_UPDATE',
     // Anyone who sees the departure sees its seats; changing a seat needs PLACE_MANAGE (checked in the view).
     'places-depart': 'DEPART_READ',

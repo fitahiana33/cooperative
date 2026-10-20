@@ -64,6 +64,15 @@ class TravelRepositoryImpl implements TravelRepository {
   }
 
   @override
+  Future<Reservation> updateReservation(int id, int departureId, List<Map<String, dynamic>> passengers) async {
+    final response = await _api.patch('/reservations/$id', data: {
+      'id_depart': departureId,
+      'places': passengers,
+    });
+    return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  @override
   Future<Reservation> cancelReservation(int id) async {
     final response = await _api.post('/reservations/$id/cancel');
     return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));

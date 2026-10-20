@@ -1,11 +1,20 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     // The Flutter Gradle Plugin must be applied after the Android and Kotlin Gradle plugins.
     id("dev.flutter.flutter-gradle-plugin")
 }
 
+val signingProperties = Properties()
+val signingPropertiesFile = rootProject.file("key.properties")
+if (signingPropertiesFile.exists()) {
+    signingPropertiesFile.inputStream().use(signingProperties::load)
+}
+val isReleaseBuildRequested = gradle.startParameter.taskNames.any { it.contains("release", ignoreCase = true) }
+
 android {
-    namespace = "com.example.cooperative_mobile"
+    namespace = "com.cooperative.transport"
     compileSdk = 36
     ndkVersion = flutter.ndkVersion
 
@@ -15,8 +24,7 @@ android {
     }
 
     defaultConfig {
-        // TODO: Specify your own unique Application ID (https://developer.android.com/studio/build/application-id.html).
-        applicationId = "com.example.cooperative_mobile"
+        applicationId = "com.cooperative.transport"
         // You can update the following values to match your application needs.
         // For more information, see: https://flutter.dev/to/review-gradle-config.
         minSdk = flutter.minSdkVersion
@@ -31,9 +39,22 @@ android {
 
     buildTypes {
         release {
-            // TODO: Add your own signing config for the release build.
-            // Signing with the debug keys for now, so `flutter run --release` works.
-            signingConfig = signingConfigs.getByName("debug")
+            val storeFilePath = signingProperties.getProperty("storeFile")
+            val hasReleaseSigning = !storeFilePath.isNullOrBlank() &&
+                !signingProperties.getProperty("keyAlias").isNullOrBlank() &&
+                !signingProperties.getProperty("storePassword").isNullOrBlank() &&
+                !signingProperties.getProperty("keyPassword").isNullOrBlank()
+            if (!hasReleaseSigning && isReleaseBuildRequested) {
+                throw GradleException("Release Android non signé : créez mobile/android/key.properties à partir de key.properties.example et fournissez une clé hors du dépôt.")
+            }
+            if (hasReleaseSigning) {
+                signingConfig = signingConfigs.create("releaseExternal") {
+                    storeFile = file(storeFilePath)
+                    storePassword = signingProperties.getProperty("storePassword")
+                    keyAlias = signingProperties.getProperty("keyAlias")
+                    keyPassword = signingProperties.getProperty("keyPassword")
+                }
+            }
         }
     }
 }

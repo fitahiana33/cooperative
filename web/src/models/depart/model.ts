@@ -22,7 +22,7 @@ export interface Depart {
     destination_arrivee?: { id: number; nom: string }
   }
   cooperative?: { id: number; nom: string }
-  vehicule?: { id: number; immatriculation: string; nombre_places: number }
+  vehicule?: { id: number; immatriculation: string; nombre_places: number; places_avant?: number; places_par_rangee?: number }
   chauffeur?: { id: number; id_user: number; numero_permis: string }
   tarif?: { id: number; prix: number; devise: string }
 }

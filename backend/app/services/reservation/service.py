@@ -18,6 +18,7 @@ from app.models.place import DepartPlace, DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.tarif import Tarif
 from app.models.user import User
+from app.models.vehicule import Vehicule
 from app.core.config import settings
 from app.services.notification import NotificationService
 from app.services.billet import BilletService
@@ -38,6 +39,7 @@ class ReservationService:
             selectinload(Reservation.depart).selectinload(Depart.itineraire).selectinload(Itineraire.destination_depart),
             selectinload(Reservation.depart).selectinload(Depart.itineraire).selectinload(Itineraire.destination_arrivee),
             selectinload(Reservation.depart).selectinload(Depart.cooperative),
+            selectinload(Reservation.depart).selectinload(Depart.vehicule).selectinload(Vehicule.modele),
             selectinload(Reservation.places).selectinload(ReservationPlace.depart_place),
             selectinload(Reservation.places).selectinload(ReservationPlace.billet),
         )
@@ -205,13 +207,14 @@ class ReservationService:
         self.db.add(reservation)
         try:
             self.db.flush()
+            fallback_name = self._fallback_passenger_name(places, user)
             by_id = {item["id_depart_place"]: item for item in places}
             for place in locked_places:
                 data = by_id[place.id]
                 self.db.add(ReservationPlace(
                     id_reservation=reservation.id,
                     id_depart_place=place.id,
-                    nom_passager=data["nom_passager"],
+                    nom_passager=self._clean_passenger_name(data.get("nom_passager"), fallback_name),
                     telephone_passager=data.get("telephone_passager"),
                 ))
             self.db.commit()
@@ -222,6 +225,105 @@ class ReservationService:
             if isinstance(exc, IntegrityError):
                 raise HTTPException(409, "Une des places sélectionnées a été réservée entre-temps.")
             raise HTTPException(500, "La réservation n'a pas pu être enregistrée.")
+
+    def update_reservation(
+        self,
+        reservation_id: int,
+        *,
+        depart_id: int,
+        places: list[dict],
+        owner_id: int | None = None,
+        cooperative_ids: set[int] | None = None,
+        default_passenger_name: str | None = None,
+    ) -> Reservation:
+        """Replace an unpaid reservation's trip, seats and passenger details atomically."""
+        item = self._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+        if item.statut != ReservationStatus.EN_ATTENTE:
+            raise HTTPException(409, "Seule une réservation en attente de paiement peut être modifiée.")
+        if not places:
+            raise HTTPException(422, "Sélectionnez au moins une place.")
+
+        depart = self._get_open_depart(depart_id)
+        place_ids = sorted({int(value["id_depart_place"]) for value in places})
+        locked_places = list(self.db.scalars(
+            select(DepartPlace).where(DepartPlace.id.in_(place_ids)).order_by(DepartPlace.id).with_for_update()
+        ))
+        if len(locked_places) != len(place_ids) or any(place.id_depart != depart_id for place in locked_places):
+            raise HTTPException(422, "Une place sélectionnée ne correspond pas à ce départ.")
+
+        if owner_id is not None and len(places) > settings.passenger_max_seats_per_reservation:
+            raise HTTPException(422, f"Vous pouvez rÃ©server au maximum {settings.passenger_max_seats_per_reservation} places Ã  la fois.")
+
+        current_ids = {row.id_depart_place for row in item.places}
+        if any(place.statut != DepartPlaceStatus.DISPONIBLE and place.id not in current_ids for place in locked_places):
+            raise HTTPException(409, "Une des places sélectionnées n'est plus disponible.")
+
+        tarif = self.db.get(Tarif, depart.id_tarif)
+        if not tarif:
+            raise HTTPException(500, "Le tarif du départ est introuvable.")
+
+        old_places = list(item.places)
+        for row in old_places:
+            if row.depart_place and row.depart_place.id not in place_ids:
+                row.depart_place.statut = DepartPlaceStatus.DISPONIBLE
+        # Pending reservations have no issued tickets yet, so replacing their
+        # rows cannot orphan a ticket or change a paid amount retroactively.
+        item.id_depart = depart_id
+        item.montant_total = Decimal(tarif.prix) * len(places)
+        item.date_expiration = datetime.now(timezone.utc) + timedelta(minutes=settings.reservation_hold_minutes)
+        old_by_place_id = {row.id_depart_place: row for row in old_places}
+        for row in old_places:
+            if row.id_depart_place not in place_ids:
+                self.db.delete(row)
+        by_id = {value["id_depart_place"]: value for value in places}
+        fallback_name = self._fallback_passenger_name(places, None, default_passenger_name or next((row.nom_passager for row in old_places if row.nom_passager), None))
+        for place in locked_places:
+            value = by_id[place.id]
+            row = old_by_place_id.get(place.id)
+            if row is None:
+                item.places.append(ReservationPlace(
+                    id_depart_place=place.id,
+                    nom_passager=self._clean_passenger_name(value.get("nom_passager"), fallback_name),
+                    telephone_passager=value.get("telephone_passager"),
+                ))
+            else:
+                row.nom_passager = self._clean_passenger_name(value.get("nom_passager"), fallback_name)
+                row.telephone_passager = value.get("telephone_passager")
+        NotificationService.add(
+            self.db,
+            user_id=item.id_user,
+            type_notification="MODIFICATION_RESERVATION",
+            titre="Réservation modifiée",
+            message=f"Votre réservation {item.numero_reservation} a été modifiée. Vérifiez les nouvelles places et le nouveau montant.",
+            reservation_id=item.id,
+            depart_id=item.id_depart,
+        )
+        try:
+            self.db.commit()
+            return self._get(item.id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+        except (IntegrityError, SQLAlchemyError) as exc:
+            self.db.rollback()
+            logger.exception("Erreur modification réservation", exc_info=exc)
+            if isinstance(exc, IntegrityError):
+                raise HTTPException(409, "Une des places sélectionnées a été réservée entre-temps.")
+            raise HTTPException(500, "La modification de la réservation n'a pas pu être enregistrée.")
+
+    @staticmethod
+    def _clean_passenger_name(value: str | None, fallback: str) -> str:
+        name = " ".join(str(value or "").split())
+        return name if len(name) >= 2 else fallback
+
+    @classmethod
+    def _fallback_passenger_name(cls, places: list[dict], user: User | None, explicit: str | None = None) -> str:
+        candidates = [explicit]
+        candidates.extend(item.get("nom_passager") for item in places)
+        if user is not None:
+            candidates.append(f"{user.first_name or ''} {user.name or ''}")
+        for candidate in candidates:
+            cleaned = " ".join(str(candidate or "").split())
+            if len(cleaned) >= 2:
+                return cleaned[:150]
+        return "Passager"
 
     def _check_passenger_limits(self, user_id: int, seat_count: int, now: datetime) -> None:
         if seat_count > settings.passenger_max_seats_per_reservation:

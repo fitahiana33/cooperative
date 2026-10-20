@@ -1,6 +1,6 @@
 import csv
 import io
-from datetime import date, timedelta
+from datetime import date, time, timedelta, timezone
 from decimal import Decimal
 
 from fastapi import HTTPException
@@ -14,9 +14,15 @@ from app.models.embarquement import Embarquement
 from app.models.finance import OperationCaisse, OperationType, Paiement, PaiementStatus
 from app.models.itineraire import Itineraire
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
+from app.core.clock import local_moment
 
 
 class ReportService:
+    REVENUE_RESERVATION_STATUSES = {
+        ReservationStatus.PAYEE,
+        ReservationStatus.EMBARQUEE,
+        ReservationStatus.TERMINEE,
+    }
     def __init__(self, db: Session):
         self.db = db
 
@@ -56,13 +62,40 @@ class ReportService:
             )
             return [{"billet": row.numero_billet, "reservation": row.numero_reservation, "passager": row.nom_passager, "date_depart": row.date_depart, "statut": self._status_label(row.Embarquement.statut), "date_embarquement": row.Embarquement.date_heure_embarquement} for row in self.db.execute(statement)]
         if report_type in {"financial", "finance"}:
-            statement = select(Paiement, Reservation.numero_reservation).join(Reservation).join(Depart, Depart.id == Reservation.id_depart).where(Depart.date_depart.between(date_from, date_to), Paiement.statut == PaiementStatus.VALIDE)
+            # Financial periods follow the collection date, not the planned
+            # date of the journey. Convert local station days to UTC bounds.
+            start = local_moment(date_from, time.min).astimezone(timezone.utc)
+            end = local_moment(date_to + timedelta(days=1), time.min).astimezone(timezone.utc)
+            statement = select(Paiement, Reservation.numero_reservation).join(Reservation).join(Depart, Depart.id == Reservation.id_depart).where(Paiement.date_paiement >= start, Paiement.date_paiement < end, Paiement.statut == PaiementStatus.VALIDE)
             if cooperative_ids is not None:
                 statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
             return [{"reservation": row.numero_reservation, "date": row.Paiement.date_paiement, "montant": row.Paiement.montant, "methode": "Espèces" if str(row.Paiement.methode) == "ESPECES" else str(row.Paiement.methode), "reference": row.Paiement.reference_paiement, "fournisseur": row.Paiement.fournisseur or ""} for row in self.db.execute(statement.order_by(Paiement.date_paiement))]
         if report_type in {"cooperatives", "destinations"}:
             group_column = Depart.id_cooperative if report_type == "cooperatives" else Depart.id_itineraire
-            statement = scope(select(group_column.label("groupe"), func.count(Reservation.id).label("reservations"), func.sum(Reservation.montant_total).label("montant")).join(Reservation, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(date_from, date_to), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE])).group_by(group_column).order_by(func.count(Reservation.id).desc()))
+            paid_reservations = (
+                select(
+                    Reservation.id.label("reservation_id"),
+                    Reservation.id_depart.label("depart_id"),
+                    Reservation.montant_total.label("montant_total"),
+                    func.count(ReservationPlace.id).label("passagers"),
+                )
+                .join(ReservationPlace, ReservationPlace.id_reservation == Reservation.id)
+                .where(Reservation.statut.in_(self.REVENUE_RESERVATION_STATUSES))
+                .group_by(Reservation.id, Reservation.id_depart, Reservation.montant_total)
+                .subquery()
+            )
+            statement = scope(
+                select(
+                    group_column.label("groupe"),
+                    func.count(func.distinct(paid_reservations.c.reservation_id)).label("reservations"),
+                    func.sum(paid_reservations.c.passagers).label("passagers"),
+                    func.sum(paid_reservations.c.montant_total).label("montant"),
+                )
+                .join(paid_reservations, paid_reservations.c.depart_id == Depart.id)
+                .where(Depart.date_depart.between(date_from, date_to))
+                .group_by(group_column)
+                .order_by(func.count(func.distinct(paid_reservations.c.reservation_id)).desc())
+            )
             grouped_rows = self.db.execute(statement).all()
             if report_type == "cooperatives":
                 labels = dict(self.db.execute(select(Cooperative.id, Cooperative.nom)).all())
@@ -71,7 +104,7 @@ class ReportService:
                 routes = self.db.scalars(select(Itineraire).where(Itineraire.id.in_([row.groupe for row in grouped_rows])).options(selectinload(Itineraire.destination_depart), selectinload(Itineraire.destination_arrivee))).all()
                 labels = {route.id: self._route_label(route) for route in routes}
                 field_name = "itineraire"
-            return [{field_name: labels.get(row.groupe, "Libellé non renseigné"), "reservations": row.reservations, "montant": row.montant or Decimal("0")} for row in grouped_rows]
+            return [{field_name: labels.get(row.groupe, "Libellé non renseigné"), "reservations": row.reservations, "passagers": row.passagers, "montant": row.montant or Decimal("0")} for row in grouped_rows]
         raise HTTPException(422, "Type de rapport inconnu.")
 
     @staticmethod
@@ -95,21 +128,33 @@ class ReportService:
 
         keys = list(rows[0].keys()) if rows else []
         lines = [title, " | ".join(keys) if keys else "Aucune donnee pour cette periode."]
-        lines.extend(" | ".join(safe(row.get(key, "")) for key in keys) for row in rows[:55])
-        stream_lines = ["BT", "/F1 8 Tf", "40 800 Td"]
-        for index, line in enumerate(lines):
-            if index:
-                stream_lines.append("0 -13 Td")
-            stream_lines.append(f"({safe(line)}) Tj")
-        stream_lines.append("ET")
-        stream = "\n".join(stream_lines).encode("ascii")
+        lines.extend(" | ".join(safe(row.get(key, "")) for key in keys) for row in rows)
+        lines_per_page = 42
+        pages = [lines[index:index + lines_per_page] for index in range(0, len(lines), lines_per_page)] or [[]]
+        page_ids = [3 + index * 2 for index in range(len(pages))]
+        content_ids = [page_id + 1 for page_id in page_ids]
+        kids = " ".join(f"{page_id} 0 R" for page_id in page_ids)
         objects = [
             b"<< /Type /Catalog /Pages 2 0 R >>",
-            b"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
-            b"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 4 0 R >> >> /Contents 5 0 R >>",
-            b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
-            b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+            f"<< /Type /Pages /Kids [{kids}] /Count {len(pages)} >>".encode("ascii"),
         ]
+        for page_id, content_id, page_lines in zip(page_ids, content_ids, pages):
+            stream_lines = ["BT", "/F1 8 Tf", "40 555 Td"]
+            for index, line in enumerate(page_lines):
+                if index:
+                    stream_lines.append("0 -13 Td")
+                stream_lines.append(f"({safe(line)}) Tj")
+            stream_lines.append("ET")
+            stream = "\n".join(stream_lines).encode("ascii")
+            objects.extend([
+                f"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 842 595] /Resources << /Font << /F1 0 0 R >> >> /Contents {content_id} 0 R >>".encode("ascii"),
+                b"<< /Length " + str(len(stream)).encode("ascii") + b" >>\nstream\n" + stream + b"\nendstream",
+            ])
+        font_id = len(objects) + 1
+        objects.append(b"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>")
+        for index, obj in enumerate(objects[:-1]):
+            if b"/Type /Page" in obj:
+                objects[index] = obj.replace(b"/F1 0 0 R", f"/F1 {font_id} 0 R".encode("ascii"))
         pdf = bytearray(b"%PDF-1.4\n")
         offsets = [0]
         for number, obj in enumerate(objects, start=1):

@@ -36,6 +36,9 @@ mobile/.flutter-plugins
 mobile/.flutter-plugins-dependencies
 mobile/android/.gradle/
 mobile/ios/Pods/
+mobile/android/key.properties
+mobile/android/*.jks
+mobile/android/*.keystore
 
 # IDE and operating-system files
 .idea/

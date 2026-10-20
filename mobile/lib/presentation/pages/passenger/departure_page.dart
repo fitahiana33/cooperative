@@ -39,6 +39,7 @@ class _PassengerForm {
 class _DeparturePageState extends ConsumerState<DeparturePage> {
   static const _maxSeats = 6;
   final _formKey = GlobalKey<FormState>();
+  final _reservationName = TextEditingController();
   List<Seat> _seats = [];
   final List<Seat> _selected = [];
   final Map<int, _PassengerForm> _forms = {};
@@ -52,11 +53,14 @@ class _DeparturePageState extends ConsumerState<DeparturePage> {
   @override
   void initState() {
     super.initState();
+    final user = ref.read(authControllerProvider).user;
+    _reservationName.text = user?.fullName ?? '';
     _loadSeats();
   }
 
   @override
   void dispose() {
+    _reservationName.dispose();
     for (final form in _forms.values) {
       form.dispose();
     }
@@ -113,10 +117,15 @@ class _DeparturePageState extends ConsumerState<DeparturePage> {
     if (!(_formKey.currentState?.validate() ?? false)) return;
     setState(() { _booking = true; _error = null; });
     try {
+      final reservationName = _reservationName.text.trim();
+      if (reservationName.length < 2) {
+        setState(() => _error = 'Saisissez le nom de la personne qui réserve.');
+        return;
+      }
       final passengers = _selected.map((seat) {
         final form = _forms[seat.id]!;
         final phone = form.phone.text.trim();
-        return {'id_depart_place': seat.id, 'nom_passager': form.name.text.trim(), 'telephone_passager': phone.isEmpty ? null : phone};
+        return {'id_depart_place': seat.id, 'nom_passager': form.name.text.trim().isEmpty ? reservationName : form.name.text.trim(), 'telephone_passager': phone.isEmpty ? null : phone};
       }).toList();
       final reservation = await ref.read(travelRepositoryProvider).createReservation(_departure.id, passengers);
       if (!mounted) return;
@@ -198,6 +207,13 @@ class _DeparturePageState extends ConsumerState<DeparturePage> {
                 const SizedBox(height: 20),
                 const Text('Passagers', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
                 const SizedBox(height: 8),
+                TextFormField(
+                  controller: _reservationName,
+                  textCapitalization: TextCapitalization.words,
+                  decoration: const InputDecoration(labelText: 'Nom de la personne qui réserve *', helperText: 'Ce nom sera repris pour les places sans nom individuel.'),
+                  validator: (value) => (value ?? '').trim().length < 2 ? 'Nom obligatoire.' : null,
+                ),
+                const SizedBox(height: 8),
                 ..._selected.map(_passengerCard),
                 const SizedBox(height: 8),
                 Card(
@@ -248,8 +264,7 @@ class _DeparturePageState extends ConsumerState<DeparturePage> {
           TextFormField(
             controller: form.name,
             textCapitalization: TextCapitalization.words,
-            decoration: InputDecoration(labelText: 'Nom du passager (place ${seat.number}) *'),
-            validator: (value) => (value ?? '').trim().length < 2 ? 'Saisissez le nom du passager.' : null,
+            decoration: InputDecoration(labelText: 'Nom individuel (place ${seat.number}, facultatif)', helperText: 'Laisser vide pour reprendre le réservataire.'),
           ),
           TextFormField(
             controller: form.phone,

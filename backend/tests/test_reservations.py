@@ -124,3 +124,32 @@ def test_passenger_cannot_read_someone_elses_reservation(client, db, login):
     assert client.get(f"{API}/reservations/{reservation['id']}", headers=other).status_code == 404
     db.rollback()
     assert db.scalar(select(Reservation.id_user).where(Reservation.id == reservation["id"])) is not None
+
+
+def test_passenger_can_modify_pending_reservation_and_replace_seat(client, db):
+    passenger = new_passenger(client)
+    depart = bookable_departure(db, min_free=2)
+    seats = free_place_ids(db, depart.id, 2)
+    reservation = book(client, passenger, depart.id, [seats[0]]).json()
+    response = client.patch(
+        f"{API}/reservations/{reservation['id']}",
+        headers=passenger,
+        json={"id_depart": depart.id, "places": [{"id_depart_place": seats[1], "nom_passager": "Passager modifie", "telephone_passager": "+261340000000"}]},
+    )
+    assert response.status_code == 200, response.text
+    assert [place["id_depart_place"] for place in response.json()["places"]] == [seats[1]]
+
+
+def test_one_reserver_name_is_reused_for_other_seats(client, db):
+    passenger = new_passenger(client)
+    depart = bookable_departure(db, min_free=2)
+    seats = free_place_ids(db, depart.id, 2)
+    response = client.post(f"{API}/reservations", headers=passenger, json={
+        "id_depart": depart.id,
+        "places": [
+            {"id_depart_place": seats[0], "nom_passager": "Nom Réservataire"},
+            {"id_depart_place": seats[1]},
+        ],
+    })
+    assert response.status_code == 201, response.text
+    assert {place["nom_passager"] for place in response.json()["places"]} == {"Nom Réservataire"}

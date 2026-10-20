@@ -107,6 +107,7 @@ class Seat {
 }
 
 class PassengerSeat {
+  final int departurePlaceId;
   final int seatNumber;
   final String name;
   final String? phone;
@@ -114,11 +115,12 @@ class PassengerSeat {
   final String? ticketNumber;
   final String? ticketStatus;
 
-  const PassengerSeat({required this.seatNumber, required this.name, this.phone, this.ticketId, this.ticketNumber, this.ticketStatus});
+  const PassengerSeat({required this.departurePlaceId, required this.seatNumber, required this.name, this.phone, this.ticketId, this.ticketNumber, this.ticketStatus});
 
   factory PassengerSeat.fromJson(Map<String, dynamic> json) {
     final ticket = _map(json['billet']);
     return PassengerSeat(
+      departurePlaceId: _int(json['id_depart_place']),
       seatNumber: _int(_map(json['depart_place'])['numero_place']),
       name: _str(json['nom_passager']),
       phone: json['telephone_passager'] as String?,
