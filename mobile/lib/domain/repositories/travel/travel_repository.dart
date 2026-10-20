@@ -15,6 +15,9 @@ abstract class TravelRepository {
 
   Future<Reservation> getReservation(int id);
 
+  /// Replaces the seats and passenger details of a pending reservation.
+  Future<Reservation> updateReservation(int id, int departureId, List<Map<String, dynamic>> passengers);
+
   Future<Reservation> cancelReservation(int id);
 
   Future<PageResult<Ticket>> listTickets({int page = 1});

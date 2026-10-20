@@ -5,6 +5,9 @@ export const departService = {
   async list(params?: Record<string, unknown>) {
     return (await api.get('/departs', { params })).data
   },
+  async listMine(params?: Record<string, unknown>) {
+    return (await api.get('/departs/mes-departs', { params })).data
+  },
   async get(id: number): Promise<Depart> {
     return (await api.get<Depart>(`/departs/${id}`)).data
   },

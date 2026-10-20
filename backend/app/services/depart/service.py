@@ -21,6 +21,7 @@ from app.models.vehicule import Vehicule, VehiculeChauffeur, VehiculeDocument
 from app.services.finance import FinanceService
 from app.services.notification import NotificationService
 from app.core.clock import local_moment, local_now, local_today
+from app.core.config import settings
 
 logger = logging.getLogger("cooperative.depart")
 
@@ -279,9 +280,11 @@ class DepartService:
         )
         for other in candidates:
             other_start, other_end = window(other.date_depart, other.heure_depart, other.itineraire)
-            if start < other_end and other_start < end:
+            driver_buffer = timedelta(minutes=settings.driver_min_rest_minutes) if other.id_chauffeur == id_chauffeur else timedelta(0)
+            if start < other_end + driver_buffer and other_start < end + driver_buffer:
                 who = "Le véhicule" if other.id_vehicule == id_vehicule else "Le chauffeur"
-                raise HTTPException(409, f"{who} est déjà en trajet de {other_start:%d/%m %H:%M} à {other_end:%d/%m %H:%M} (départ #{other.id}).")
+                suffix = f" avec une marge de repos de {settings.driver_min_rest_minutes} min" if driver_buffer else ""
+                raise HTTPException(409, f"{who} est déjà en trajet de {other_start:%d/%m %H:%M} à {other_end:%d/%m %H:%M}{suffix} (départ #{other.id}).")
 
     def _notify_passengers(self, item: Depart, *, type_notification: str, titre: str, message: str) -> None:
         reservations = self.db.scalars(select(Reservation).where(
@@ -293,7 +296,10 @@ class DepartService:
 
     def create_depart(self, **fields) -> Depart:
         capacity = self._validate_schedule(depart_id=None, **fields)
-        item = Depart(**{**fields, "nombre_places": capacity}, statut=DepartStatus.PROGRAMME, places_reservees=0)
+        itinerary = self.db.get(Itineraire, fields["id_itineraire"])
+        planned_start = local_moment(fields["date_depart"], fields["heure_depart"])
+        planned_end = planned_start + timedelta(minutes=itinerary.duree_estimee_minutes or 60)
+        item = Depart(**{**fields, "nombre_places": capacity, "planifie_depart_at": planned_start, "planifie_arrivee_at": planned_end}, statut=DepartStatus.PROGRAMME, places_reservees=0)
         try:
             self.db.add(item)
             self.db.commit()
@@ -322,6 +328,10 @@ class DepartService:
             "nombre_places": fields.get("nombre_places", item.nombre_places),
         }
         values["nombre_places"] = self._validate_schedule(depart_id=depart_id, **values)
+        itinerary = self.db.get(Itineraire, values["id_itineraire"])
+        planned_start = local_moment(values["date_depart"], values["heure_depart"])
+        values["planifie_depart_at"] = planned_start
+        values["planifie_arrivee_at"] = planned_start + timedelta(minutes=itinerary.duree_estimee_minutes or 60)
         schedule_changed = (values["date_depart"], values["heure_depart"]) != (item.date_depart, item.heure_depart)
         for key, value in values.items():
             setattr(item, key, value)

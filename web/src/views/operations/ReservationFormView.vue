@@ -27,6 +27,7 @@ const places = ref<DepartPlace[]>([])
 const departId = ref<number | null>(null)
 const selected = ref<number[]>([])
 const passengerDetails = reactive<Record<number, { nom: string; telephone: string }>>({})
+const reservationName = ref('')
 const loading = ref(true)
 const loadingPlaces = ref(false)
 const submitting = ref(false)
@@ -36,7 +37,7 @@ const success = ref('')
 const today = localIsoDate()
 const reservation = ref<Reservation | null>(null)
 // Staff sell at the counter (booked and confirmed at once); passengers get a booking to pay within the hold period.
-const isCounterSale = computed(() => auth.hasPermission('RESERVATION_UPDATE'))
+const isCounterSale = computed(() => auth.user?.role?.toLowerCase() !== 'passenger' && auth.hasPermission('RESERVATION_UPDATE'))
 const canCollectCash = computed(() => isCounterSale.value && auth.hasPermission('PAIEMENT_PROCESS'))
 const openCaisses = ref<Caisse[]>([])
 const caisseId = ref<number | null>(null)
@@ -63,21 +64,22 @@ const selectedDepart = computed(() => departures.value.find((item) => item.id ==
 const selectedPlaces = computed(() => places.value.filter((place) => selected.value.includes(place.id)).sort((a, b) => a.numero_place - b.numero_place))
 const pricePerPlace = computed(() => Number(selectedDepart.value?.tarif?.prix || 0))
 const totalAmount = computed(() => selected.value.length * pricePerPlace.value)
+const vehicleLayout = computed(() => ({
+  front: selectedDepart.value?.vehicule?.places_avant ?? reservation.value?.depart?.vehicule?.places_avant ?? 2,
+  row: selectedDepart.value?.vehicule?.places_par_rangee ?? reservation.value?.depart?.vehicule?.places_par_rangee ?? 4,
+}))
 const seatColumns = computed(() => {
-  const capacity = places.value.length
-  if (capacity <= 8) return 2
-  if (capacity <= 12) return 3
-  return 4
+  return Math.max(2, vehicleLayout.value.row)
 })
 const frontPlaces = computed(() => {
   const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
-  return items.slice(0, 2)
+  return items.slice(0, vehicleLayout.value.front)
 })
 const seatRows = computed(() => {
   const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
   const rowSize = seatColumns.value
   const rows: DepartPlace[][] = []
-  for (let index = 2; index < items.length; index += rowSize) {
+  for (let index = vehicleLayout.value.front; index < items.length; index += rowSize) {
     rows.push(items.slice(index, index + rowSize))
   }
   return rows
@@ -97,20 +99,26 @@ function passengerFor(placeId: number) {
 
 function showError(value: unknown, fallback = 'Une erreur est survenue.') { error.value = userError(value, fallback, 'RESERVATION_FORM_ERROR'); success.value = '' }
 
-async function loadDepartures() {
+async function loadDepartures(includeCurrent = false) {
   loading.value = true
-  try { const result = await departService.list({ page: 1, page_size: 100, date_from: today, statut: 'PROGRAMME', sort_by: 'date_depart', sort_order: 'asc' }); departures.value = result.items } catch (value: unknown) { showError(value, 'Impossible de charger les départs disponibles.') } finally { loading.value = false }
+  try {
+    const result = await departService.list({ page: 1, page_size: 100, date_from: today, sort_by: 'date_depart', sort_order: 'asc' })
+    const allowed = new Set(['PROGRAMME', 'EMBARQUEMENT', 'RETARDE'])
+    departures.value = (result.items || []).filter((item: Depart) => allowed.has(item.statut) && (item.places_disponibles > 0 || (includeCurrent && item.id === reservation.value?.id_depart)))
+  } catch (value: unknown) { showError(value, 'Impossible de charger les départs disponibles.') } finally { loading.value = false }
 }
 
 async function loadReservation() {
   if (!editId.value) return
   try {
     reservation.value = await reservationService.get(editId.value)
+    await loadDepartures(true)
     departId.value = reservation.value.id_depart
     selected.value = reservation.value.places.map((p) => p.id_depart_place)
     reservation.value.places.forEach((place) => {
       passengerDetails[place.id_depart_place] = { nom: place.nom_passager, telephone: place.telephone_passager || '' }
     })
+    reservationName.value = reservation.value.places[0]?.nom_passager || ''
     places.value = await reservationService.places(reservation.value.id_depart, false)
   } catch (value: unknown) { showError(value, 'Impossible de charger la réservation.') }
 }
@@ -122,24 +130,29 @@ async function chooseDepart() {
 }
 
 function togglePlace(id: number) {
-  if (isEdit.value) return
   if (selected.value.includes(id)) {
     selected.value = selected.value.filter((value) => value !== id)
     delete passengerDetails[id]
   } else {
+    const place = places.value.find((item) => item.id === id)
+    if (place && place.statut !== 'DISPONIBLE' && !selected.value.includes(id)) return
     selected.value.push(id)
     passengerFor(id)
   }
 }
 
 async function submit() {
-  if (isEdit.value) return
   error.value = ''
-  const missingPassenger = selectedPlaces.value.some((place) => passengerFor(place.id).nom.trim().length < 2)
-  if (!departId.value || !selected.value.length || missingPassenger) { error.value = 'Sélectionnez un départ, puis renseignez le nom de chaque passager sélectionné.'; return }
+  const defaultName = reservationName.value.trim()
+  if (!departId.value || !selected.value.length || defaultName.length < 2) { error.value = 'Sélectionnez un départ, puis renseignez le nom de la personne qui réserve.'; return }
   submitting.value = true
   try {
-    const payload = { id_depart: departId.value, places: selectedPlaces.value.map((place) => ({ id_depart_place: place.id, nom_passager: passengerFor(place.id).nom.trim(), telephone_passager: passengerFor(place.id).telephone.trim() || undefined })) }
+    const payload = { id_depart: departId.value, places: selectedPlaces.value.map((place) => ({ id_depart_place: place.id, nom_passager: passengerFor(place.id).nom.trim() || defaultName, telephone_passager: passengerFor(place.id).telephone.trim() || undefined })) }
+    if (isEdit.value && reservation.value) {
+      const updated = await reservationService.update(reservation.value.id, payload)
+      await router.push({ name: 'reservation-detail', params: { id: updated.id }, query: { updated: '1' } })
+      return
+    }
     // One request for the counter: if any step fails the server cancels the booking, so no seat stays blocked.
     const created = isCounterSale.value
       ? await reservationService.counterSale({ ...payload, id_caisse: caisseId.value })
@@ -177,7 +190,7 @@ onMounted(() => { load(); loadOpenCaisses() })
       <div>
         <p class="eyebrow">VENTES & PLACES</p>
         <h2>{{ isEdit ? 'Modifier la réservation' : 'Créer une réservation' }}</h2>
-        <p>{{ isEdit ? 'Réservation ' + (reservation?.numero_reservation || '#' + editId) + ' — Les places confirmées ne peuvent pas être modifiées.' : 'Choisissez un départ puis une ou plusieurs places disponibles.' }}</p>
+        <p>{{ isEdit ? 'Réservation ' + (reservation?.numero_reservation || '#' + editId) + ' — modifiable tant qu’elle est en attente de paiement.' : 'Choisissez un départ puis une ou plusieurs places disponibles.' }}</p>
       </div>
       <RouterLink class="secondary-button" to="/reservations">Retour à la liste</RouterLink>
     </div>
@@ -220,7 +233,62 @@ onMounted(() => { load(); loadOpenCaisses() })
           <RouterLink class="secondary-button" :to="{ name: 'places-depart', params: { id: reservation.id_depart } }">Gérer les places du départ</RouterLink>
         </div>
       </BaseCard>
-      <p v-else-if="!loading" class="status-msg">Réservation introuvable.</p>
+      <BaseCard v-if="reservation?.statut === 'EN_ATTENTE'">
+        <div class="form-grid">
+          <label class="form-field"><span>Départ *</span>
+            <select v-model="departId" :disabled="loading || submitting" @change="chooseDepart">
+              <option :value="null">Choisir un départ</option>
+              <option v-for="item in departures" :key="item.id" :value="item.id">{{ departLabel(item) }}</option>
+            </select>
+          </label>
+        </div>
+        <div v-if="selectedDepart" class="detail-grid">
+          <div class="detail-item"><span class="detail-label">Coopérative</span><strong>{{ selectedDepart.cooperative?.nom || '#' + selectedDepart.id_cooperative }}</strong></div>
+          <div class="detail-item"><span class="detail-label">Disponibles</span><strong>{{ selectedDepart.places_disponibles }} places</strong></div>
+          <div class="detail-item"><span class="detail-label">Tarif</span><strong>{{ selectedDepart.tarif?.prix || '—' }} {{ selectedDepart.tarif?.devise || '' }}</strong></div>
+          <div class="detail-item total-detail"><span class="detail-label">Total à payer</span><strong>{{ totalAmount.toLocaleString('fr-FR') }} {{ selectedDepart.tarif?.devise || 'MGA' }}</strong></div>
+        </div>
+        <div v-if="departId" class="seat-heading">
+          <div><h3 class="section-title">Choisir les places</h3><p class="seat-help">Les places actuellement réservées restent sélectionnables. Choisissez un autre départ pour remplacer le trajet.</p></div>
+          <strong class="seat-counter">{{ selected.length }} sélectionnée(s)</strong>
+        </div>
+        <p v-if="loadingPlaces" class="status-msg">Chargement des places…</p>
+        <div v-if="departId && !loadingPlaces" class="seat-layout">
+          <div class="seat-legend" aria-label="Légende des places">
+            <span><i class="legend-swatch available"></i>Disponible</span>
+            <span><i class="legend-swatch selected"></i>Sélectionnée</span>
+            <span><i class="legend-swatch unavailable"></i>Indisponible</span>
+          </div>
+          <div class="bus-cabin">
+            <div class="front-row">
+              <div class="driver-seat" aria-label="Place du chauffeur non réservable"><span class="driver-icon">CH</span><span>Chauffeur</span></div>
+              <button v-for="place in frontPlaces" :key="place.id" type="button" class="seat-button real-seat front-seat" :class="seatClass(place)" :disabled="(place.statut !== 'DISPONIBLE' && !selected.includes(place.id)) || submitting" @click="togglePlace(place.id)" :title="`Place ${place.numero_place}`">{{ place.numero_place }}</button>
+            </div>
+            <div v-for="(row, rowIndex) in seatRows" :key="row[0]?.id || rowIndex" class="seat-row" :style="{ '--seat-columns': seatColumns }">
+              <button v-for="place in row" :key="place.id" type="button" class="seat-button real-seat" :class="seatClass(place)" :disabled="(place.statut !== 'DISPONIBLE' && !selected.includes(place.id)) || submitting" @click="togglePlace(place.id)" :title="`Place ${place.numero_place}`">{{ place.numero_place }}</button>
+            </div>
+          </div>
+          <p v-if="!places.length" class="status-msg">Aucune place disponible pour ce départ.</p>
+        </div>
+        <div v-if="selectedPlaces.length" class="form-grid reservation-holder">
+          <label class="form-field"><span>Nom de la personne qui réserve *</span><input v-model="reservationName" :disabled="submitting" required minlength="2" placeholder="Nom complet du réservataire" /></label>
+          <p class="seat-help">Ce nom sera repris automatiquement pour les places dont le nom individuel n’est pas renseigné.</p>
+        </div>
+        <div v-if="selectedPlaces.length" class="passenger-list">
+          <div class="card-heading passenger-heading"><div><h3 class="section-title">Informations des passagers</h3><p>Le nom individuel et le téléphone sont facultatifs.</p></div><strong class="seat-counter">{{ selectedPlaces.length }} passager(s)</strong></div>
+          <div v-for="place in selectedPlaces" :key="place.id" class="passenger-row">
+            <div class="passenger-seat">Place {{ place.numero_place }}</div>
+            <label class="form-field"><span>Nom individuel (facultatif)</span><input v-model="passengerFor(place.id).nom" :disabled="submitting" placeholder="Laisser vide pour reprendre le réservataire" /></label>
+            <label class="form-field"><span>Téléphone</span><input v-model="passengerFor(place.id).telephone" :disabled="submitting" placeholder="034 00 00 00" /></label>
+          </div>
+        </div>
+        <div class="form-actions">
+          <p class="seat-help">La modification est possible tant que la réservation est en attente de paiement.</p>
+          <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Enregistrement…' : 'Enregistrer les modifications' }}</button>
+          <RouterLink class="secondary-button" :to="{ name: 'reservation-detail', params: { id: reservation.id } }">Annuler</RouterLink>
+        </div>
+      </BaseCard>
+      <p v-if="!reservation && !loading" class="status-msg">Réservation introuvable.</p>
     </template>
 
     <template v-else>
@@ -267,7 +335,7 @@ onMounted(() => { load(); loadOpenCaisses() })
                 type="button"
                 class="seat-button real-seat front-seat"
                 :class="seatClass(place)"
-                :disabled="place.statut !== 'DISPONIBLE' || submitting"
+                :disabled="(place.statut !== 'DISPONIBLE' && !selected.includes(place.id)) || submitting"
                 @click="togglePlace(place.id)"
                 :title="`Place ${place.numero_place}`"
               >
@@ -281,7 +349,7 @@ onMounted(() => { load(); loadOpenCaisses() })
                 type="button"
                 class="seat-button real-seat"
                 :class="seatClass(place)"
-                :disabled="place.statut !== 'DISPONIBLE' || submitting"
+                :disabled="(place.statut !== 'DISPONIBLE' && !selected.includes(place.id)) || submitting"
                 @click="togglePlace(place.id)"
                 :title="`Place ${place.numero_place}`"
               >
@@ -291,6 +359,10 @@ onMounted(() => { load(); loadOpenCaisses() })
           </div>
           <p v-if="!places.length" class="status-msg">Aucune place disponible pour ce départ.</p>
         </div>
+        <div v-if="selectedPlaces.length" class="form-grid reservation-holder">
+          <label class="form-field"><span>Nom de la personne qui réserve *</span><input v-model="reservationName" :disabled="submitting" required minlength="2" placeholder="Nom complet du réservataire" /></label>
+          <p class="seat-help">Ce nom sera repris automatiquement pour les places dont le nom individuel n’est pas renseigné.</p>
+        </div>
         <div v-if="selectedPlaces.length" class="passenger-list">
           <div class="card-heading passenger-heading">
             <div><h3 class="section-title">Informations des passagers</h3><p>Un passager différent peut être associé à chaque place.</p></div>
@@ -298,7 +370,7 @@ onMounted(() => { load(); loadOpenCaisses() })
           </div>
           <div v-for="place in selectedPlaces" :key="place.id" class="passenger-row">
             <div class="passenger-seat">Place {{ place.numero_place }}</div>
-            <label class="form-field"><span>Nom complet *</span><input v-model="passengerFor(place.id).nom" :disabled="submitting" placeholder="Nom du passager" /></label>
+            <label class="form-field"><span>Nom individuel (facultatif)</span><input v-model="passengerFor(place.id).nom" :disabled="submitting" placeholder="Laisser vide pour reprendre le réservataire" /></label>
             <label class="form-field"><span>Téléphone</span><input v-model="passengerFor(place.id).telephone" :disabled="submitting" placeholder="034 00 00 00" /></label>
           </div>
         </div>
@@ -311,7 +383,7 @@ onMounted(() => { load(); loadOpenCaisses() })
             </select>
           </label>
           <p v-if="!isCounterSale" class="seat-help">Vos places sont retenues pour une durée limitée : payez au guichet de la gare avant l’heure d’expiration indiquée pour recevoir vos billets.</p>
-          <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Enregistrement…' : isCounterSale ? (caisseId ? 'Vendre et encaisser' : 'Confirmer la réservation') : 'Réserver' }}</button>
+          <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Enregistrement…' : isEdit ? 'Enregistrer les modifications' : isCounterSale ? (caisseId ? 'Vendre et encaisser' : 'Confirmer la réservation') : 'Réserver' }}</button>
           <RouterLink class="secondary-button" to="/reservations">Annuler</RouterLink>
         </div>
       </BaseCard>

@@ -147,6 +147,7 @@ watch(() => route.fullPath, restoreNavScroll)
         </button>
         <div v-if="isSectionOpen('planning')" class="sidebar-submenu">
           <RouterLink to="/departs" class="sidebar-link" @click="sidebar.closeMobile"><span>◷</span><b>Départs</b></RouterLink>
+          <RouterLink to="/planning" class="sidebar-link" @click="sidebar.closeMobile"><span>▦</span><b>Calendrier</b></RouterLink>
         </div>
       </div>
       <div v-if="canSeeReservations || canSeeBillets || canSeeBoarding || canSeeNotifications" class="sidebar-group">

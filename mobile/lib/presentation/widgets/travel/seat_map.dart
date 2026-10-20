@@ -46,15 +46,16 @@ class SeatMap extends StatelessWidget {
 
   Widget _seat(Seat seat) {
     final isSelected = selected.contains(seat.id);
+    final selectable = seat.isFree || isSelected;
     final state = isSelected ? 'sélectionnée' : _labels[seat.status] ?? seat.status;
     return Semantics(
-      button: seat.isFree,
+      button: selectable,
       selected: isSelected,
-      enabled: enabled && seat.isFree,
+      enabled: enabled && selectable,
       label: 'Place ${seat.number}, $state',
       excludeSemantics: true,
       child: GestureDetector(
-        onTap: enabled && seat.isFree ? () => onToggle(seat) : null,
+        onTap: enabled && selectable ? () => onToggle(seat) : null,
         child: AnimatedContainer(
           duration: const Duration(milliseconds: 150),
           width: 44,

@@ -1,0 +1,6 @@
+# Keep this file outside version control in mobile/android/key.properties.
+# storeFile may be an absolute path or a path resolved from mobile/android.
+storeFile=/secure/path/cooperative-release.jks
+storePassword=change-me
+keyAlias=cooperative-release
+keyPassword=change-me

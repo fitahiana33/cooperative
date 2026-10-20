@@ -1,7 +1,7 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 
-from sqlalchemy import distinct, func, select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.models.billet import Billet
@@ -55,7 +55,15 @@ class DashboardService:
             cooperative_ids,
         ).order_by(Depart.date_depart, Depart.heure_depart).limit(8)
         upcoming_items = list(self.db.scalars(upcoming))
-        passagers_statement = select(func.count(distinct(Reservation.id_user))).join(Depart).where(Depart.date_depart == today, Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]))
+        # A passenger can reserve several seats and one account can book for
+        # several people. The operational KPI is therefore the number of
+        # reserved passenger places, not the number of distinct accounts.
+        passagers_statement = (
+            select(func.count(ReservationPlace.id))
+            .join(Reservation, Reservation.id == ReservationPlace.id_reservation)
+            .join(Depart, Depart.id == Reservation.id_depart)
+            .where(Depart.date_depart == today, Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]))
+        )
         passagers_statement = self._depart_scope(passagers_statement, cooperative_ids)
         return {
             "date": today,

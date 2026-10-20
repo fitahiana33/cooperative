@@ -25,20 +25,20 @@ const newStatut = ref<PlaceStatus>('DISPONIBLE')
 
 const labels: Record<DepartStatus, string> = { PROGRAMME: 'Programmé', EMBARQUEMENT: 'Embarquement', RETARDE: 'Retardé', PARTI: 'Parti', TERMINE: 'Terminé', ANNULE: 'Annulé' }
 const placeLabels: Record<PlaceStatus, string> = { DISPONIBLE: 'Disponible', RESERVEE: 'Réservée', BLOQUEE: 'Bloquée', OCCUPEE: 'Occupée' }
-const seatColumns = computed(() => {
-  if (places.value.length <= 8) return 2
-  if (places.value.length <= 12) return 3
-  return 4
-})
+const vehicleLayout = computed(() => ({
+  front: depart.value?.vehicule?.places_avant ?? 2,
+  row: depart.value?.vehicule?.places_par_rangee ?? 4,
+}))
+const seatColumns = computed(() => Math.max(2, vehicleLayout.value.row))
 const frontPlaces = computed(() => {
   const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
-  return items.slice(0, 2)
+  return items.slice(0, vehicleLayout.value.front)
 })
 const seatRows = computed(() => {
   const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
   const rowSize = seatColumns.value
   const rows: DepartPlace[][] = []
-  for (let index = 2; index < items.length; index += rowSize) {
+  for (let index = vehicleLayout.value.front; index < items.length; index += rowSize) {
     rows.push(items.slice(index, index + rowSize))
   }
   return rows

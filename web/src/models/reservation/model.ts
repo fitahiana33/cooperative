@@ -28,6 +28,7 @@ export interface Reservation {
     nombre_places: number; places_reservees: number; places_disponibles: number; statut: string
     itineraire?: { id: number; destination_depart?: { id: number; nom: string } | null; destination_arrivee?: { id: number; nom: string } | null } | null
     cooperative?: { id: number; nom: string } | null
+    vehicule?: { id: number; immatriculation: string; nombre_places: number; places_avant?: number; places_par_rangee?: number } | null
   }
   places: Array<{ id: number; id_depart_place: number; nom_passager: string; telephone_passager?: string; depart_place?: DepartPlace; billet?: { id: number; numero_billet: string; qr_code_uuid: string; statut: string } | null }>
 }

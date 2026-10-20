@@ -142,7 +142,7 @@ def has_global_cooperative_access(user: User) -> bool:
     )
 
 
-STAFF_ROLES = (UserRole.AGENT_GARE, UserRole.RESPONSABLE_COOPERATIVE, UserRole.CHAUFFEUR)
+STAFF_ROLES = (UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE, UserRole.RESPONSABLE_COOPERATIVE, UserRole.CHAUFFEUR)
 
 
 def is_staff(user: User) -> bool:

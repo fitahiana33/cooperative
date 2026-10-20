@@ -39,9 +39,9 @@ def test_seed_keeps_a_removed_permission(db):
         db.commit()
 
 
-def test_passengers_cannot_confirm_reservations(db):
+def test_passengers_can_modify_but_cannot_confirm_reservations(db):
     role = db.scalar(select(Role).where(Role.libelle == UserRole.PASSAGER))
-    assert "RESERVATION_UPDATE" not in {item.code for item in role.permissions}
+    assert "RESERVATION_UPDATE" in {item.code for item in role.permissions}
 
 
 def test_local_date_uses_station_time():

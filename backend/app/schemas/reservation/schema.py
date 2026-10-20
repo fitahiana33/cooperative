@@ -22,16 +22,16 @@ class DepartPlaceStatusUpdate(BaseModel):
 
 class ReservationPlaceCreate(BaseModel):
     id_depart_place: int
-    nom_passager: str = Field(min_length=2, max_length=150)
+    nom_passager: str | None = Field(default=None, max_length=150)
     telephone_passager: str | None = Field(default=None, max_length=30)
 
     @field_validator("nom_passager")
     @classmethod
-    def clean_name(cls, value: str) -> str:
+    def clean_name(cls, value: str | None) -> str | None:
+        if value is None:
+            return None
         value = " ".join(value.split())
-        if not value:
-            raise ValueError("Le nom du passager est obligatoire.")
-        return value
+        return value or None
 
 
 class ReservationCreate(BaseModel):
@@ -43,6 +43,29 @@ class ReservationCreate(BaseModel):
         ids = [place.id_depart_place for place in self.places]
         if len(ids) != len(set(ids)):
             raise ValueError("Une même place ne peut pas être sélectionnée deux fois.")
+        if not any(place.nom_passager for place in self.places):
+            raise ValueError("Le nom de la personne qui réserve est obligatoire.")
+        return self
+
+
+class ReservationUpdate(BaseModel):
+    """Editable reservation data.
+
+    Editing is deliberately explicit: the client sends the complete set of
+    seats and passenger details, which lets the service validate the new seat
+    allocation atomically.
+    """
+
+    id_depart: int
+    places: list[ReservationPlaceCreate] = Field(min_length=1, max_length=20)
+
+    @model_validator(mode="after")
+    def unique_places(self):
+        ids = [place.id_depart_place for place in self.places]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Une même place ne peut pas être sélectionnée deux fois.")
+        if not any(place.nom_passager for place in self.places):
+            raise ValueError("Le nom de la personne qui réserve est obligatoire.")
         return self
 
 
@@ -87,6 +110,15 @@ class _RouteRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class ReservationVehicleRead(BaseModel):
+    id: int
+    immatriculation: str
+    nombre_places: int
+    places_avant: int = 2
+    places_par_rangee: int = 4
+    model_config = ConfigDict(from_attributes=True)
+
+
 class ReservationDepartRead(BaseModel):
     id: int
     id_itineraire: int
@@ -100,6 +132,7 @@ class ReservationDepartRead(BaseModel):
     statut: str
     itineraire: _RouteRead | None = None
     cooperative: _NamedRead | None = None
+    vehicule: ReservationVehicleRead | None = None
     model_config = ConfigDict(from_attributes=True)
 
 

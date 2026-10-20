@@ -1,11 +1,11 @@
 from functools import lru_cache
 from pathlib import Path
 
-from pydantic import model_validator
+from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-DEVELOPMENT_ENVIRONMENTS = {"development", "production", "dev", "local", "test"}
+DEVELOPMENT_ENVIRONMENTS = {"development", "dev", "local", "test"}
 # Values shipped in the example configuration; never acceptable outside development.
 DEFAULT_SECRET_PREFIXES = ("change-me", "changeme", "change_me")
 DEFAULT_ADMIN_PASSWORDS = {"Admin123!", "admin", "password"}
@@ -54,6 +54,9 @@ class Settings(BaseSettings):
     passenger_max_seats_per_reservation: int = 6
     # A passenger may cancel a paid reservation until this many minutes before departure.
     cancellation_deadline_minutes: int = 120
+    # Station-specific rest/repositioning buffer between two driver trips.
+    # Zero keeps the rule disabled until the station defines its real value.
+    driver_min_rest_minutes: int = Field(default=0, ge=0)
     # Online payment adapter. `mock` is intentionally safe for development;
     # production must provide a real adapter and a private webhook secret.
     online_payment_enabled: bool = False
