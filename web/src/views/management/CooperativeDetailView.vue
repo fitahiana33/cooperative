@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PageTabs from '../../components/ui/PageTabs.vue'
 import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { managementService } from '../../services/management/service'
 import { chauffeurService } from '../../services/chauffeur/service'
@@ -59,6 +60,7 @@ const relationSubmitting = ref(false)
 const error = ref('')
 const relationError = ref('')
 const success = ref('')
+const cooperativeTab = ref('overview')
 
 function pageCount(items: unknown[]) {
   return Math.max(1, Math.ceil(items.length / relationPageSize))
@@ -258,7 +260,19 @@ onMounted(async () => {
     <p v-if="success" class="success-banner" role="status">{{ success }}</p>
 
     <template v-if="cooperative && !error">
-      <BaseCard>
+      <PageTabs
+        v-model="cooperativeTab"
+        aria-label="Sections de la cooperative"
+        :tabs="[
+          { id: 'overview', label: 'Informations' },
+          { id: 'gares', label: 'Gares', count: gares.length },
+          { id: 'members', label: 'Membres', count: members.length },
+          { id: 'vehicles', label: 'Vehicules', count: vehicules.length },
+          { id: 'drivers', label: 'Chauffeurs', count: chauffeurs.length },
+        ]"
+      />
+
+      <BaseCard v-if="cooperativeTab === 'overview'">
         <div class="card-heading">
           <div>
             <h2>{{ cooperative.nom }}</h2>
@@ -280,7 +294,7 @@ onMounted(async () => {
         </div>
       </BaseCard>
 
-      <BaseCard>
+      <BaseCard v-if="cooperativeTab === 'gares'">
         <div class="card-heading">
           <div><h2>Gares associees ({{ gares.length }})</h2><p>Gares auxquelles cette cooperative est rattachee.</p></div>
         </div>
@@ -303,7 +317,7 @@ onMounted(async () => {
         <div v-else class="empty-state">Aucune gare associee.</div>
       </BaseCard>
 
-      <BaseCard>
+      <BaseCard v-if="cooperativeTab === 'members'">
         <div class="card-heading">
           <div><h2>Membres ({{ members.length }})</h2><p>Utilisateurs rattaches a cette cooperative.</p></div>
         </div>
@@ -324,13 +338,13 @@ onMounted(async () => {
         <div v-else class="empty-state">Aucun membre enregistre.</div>
       </BaseCard>
 
-      <BaseCard>
+      <BaseCard v-if="cooperativeTab === 'vehicles'">
         <div class="card-heading"><div><h2>Vehicules ({{ vehicules.length }})</h2><p>Vehicules appartenant a cette cooperative.</p></div><RouterLink class="card-link" to="/vehicules">Voir la flotte <span>-&gt;</span></RouterLink></div>
         <div v-if="vehicules.length" class="table-scroll"><table class="data-table"><caption>Vehicules de la cooperative</caption><thead><tr><th>Immatriculation</th><th>Modele</th><th>Places</th><th>Disponibilite</th><th>Etat</th></tr></thead><tbody><tr v-for="vehicule in visibleVehicules" :key="vehicule.id"><td><RouterLink class="table-link" :to="`/vehicules/${vehicule.id}`"><strong>{{ vehicule.immatriculation }}</strong></RouterLink></td><td>{{ vehicule.modele?.nom || `Modele #${vehicule.id_modele}` }}</td><td>{{ vehicule.nombre_places }}</td><td>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td>{{ vehicule.etat }}</td></tr></tbody></table><PaginationControls :page="vehiclePage" :pages="pageCount(vehicules)" :total="vehicules.length" item-label="véhicule(s)" @change="vehiclePage = $event" /></div>
         <div v-else class="empty-state">Aucun vehicule enregistre.</div>
       </BaseCard>
 
-      <BaseCard>
+      <BaseCard v-if="cooperativeTab === 'drivers'">
         <div class="card-heading"><div><h2>Chauffeurs ({{ chauffeurs.length }})</h2><p>Chauffeurs rattaches a cette cooperative.</p></div><RouterLink class="card-link" to="/chauffeurs">Voir les chauffeurs <span>-&gt;</span></RouterLink></div>
         <div v-if="chauffeurs.length" class="table-scroll"><table class="data-table"><caption>Chauffeurs de la cooperative</caption><thead><tr><th>Utilisateur</th><th>Permis</th><th>Expiration</th><th>Disponibilite</th><th>Statut</th></tr></thead><tbody><tr v-for="chauffeur in visibleChauffeurs" :key="chauffeur.id"><td><RouterLink class="table-link" :to="`/chauffeurs/${chauffeur.id}`"><strong>{{ displayDriver(chauffeur) }}</strong></RouterLink></td><td>{{ chauffeur.numero_permis }}</td><td>{{ formatDate(chauffeur.date_expiration_permis) }}</td><td>{{ chauffeur.disponibilite ? 'Disponible' : 'Indisponible' }}</td><td><span :class="['status-badge', chauffeur.is_active ? 'active' : 'inactive']">{{ chauffeur.is_active ? 'Actif' : 'Inactif' }}</span></td></tr></tbody></table><PaginationControls :page="driverPage" :pages="pageCount(chauffeurs)" :total="chauffeurs.length" item-label="chauffeur(s)" @change="driverPage = $event" /></div>
         <div v-else class="empty-state">Aucun chauffeur enregistre.</div>

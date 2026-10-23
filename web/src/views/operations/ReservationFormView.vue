@@ -4,6 +4,7 @@ import { localIsoDate } from '../../utils/date'
 import { RouterLink, useRoute, useRouter } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PageTabs from '../../components/ui/PageTabs.vue'
 import { departService } from '../../services/depart/service'
 import { reservationService } from '../../services/reservation/service'
 import { financeService } from '../../services/finance/service'
@@ -19,6 +20,10 @@ const route = useRoute()
 const router = useRouter()
 const isEdit = computed(() => route.name === 'reservation-edit')
 const editId = computed(() => (isEdit.value ? Number(route.params.id) : null))
+const reservationTab = ref('trip')
+const reservationTabs = computed(() => isEdit.value
+  ? [{ id: 'summary', label: 'Réservation' }, { id: 'edit', label: 'Modifier les places' }]
+  : [{ id: 'trip', label: '1. Départ et places' }, { id: 'passengers', label: '2. Passagers et validation' }])
 
 const labels: Record<ReservationStatus, string> = { EN_ATTENTE: 'En attente', CONFIRMEE: 'Confirmée', PAYEE: 'Payée', ANNULEE: 'Annulée', EXPIREE: 'Expirée', EMBARQUEE: 'Embarquée', TERMINEE: 'Terminée' }
 
@@ -196,9 +201,10 @@ onMounted(() => { load(); loadOpenCaisses() })
     </div>
     <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
     <p v-else-if="success" class="success-banner">{{ success }}</p>
+    <PageTabs v-model="reservationTab" :tabs="reservationTabs" aria-label="Étapes de la réservation" />
 
     <template v-if="isEdit">
-      <BaseCard v-if="reservation">
+      <BaseCard v-if="reservation && reservationTab === 'summary'">
         <div class="card-heading">
           <div>
             <h2>{{ reservation.numero_reservation }}</h2>
@@ -233,7 +239,7 @@ onMounted(() => { load(); loadOpenCaisses() })
           <RouterLink class="secondary-button" :to="{ name: 'places-depart', params: { id: reservation.id_depart } }">Gérer les places du départ</RouterLink>
         </div>
       </BaseCard>
-      <BaseCard v-if="reservation?.statut === 'EN_ATTENTE'">
+      <BaseCard v-if="reservation?.statut === 'EN_ATTENTE' && reservationTab === 'edit'">
         <div class="form-grid">
           <label class="form-field"><span>Départ *</span>
             <select v-model="departId" :disabled="loading || submitting" @change="chooseDepart">
@@ -293,6 +299,7 @@ onMounted(() => { load(); loadOpenCaisses() })
 
     <template v-else>
       <BaseCard>
+        <template v-if="reservationTab === 'trip'">
         <div class="form-grid">
           <label class="form-field"><span>Départ *</span>
             <select v-model="departId" :disabled="loading || submitting" @change="chooseDepart">
@@ -359,6 +366,9 @@ onMounted(() => { load(); loadOpenCaisses() })
           </div>
           <p v-if="!places.length" class="status-msg">Aucune place disponible pour ce départ.</p>
         </div>
+        </template>
+        <template v-if="reservationTab === 'passengers'">
+        <p v-if="!selectedPlaces.length" class="status-msg">Sélectionnez d'abord une place dans l'onglet « Départ et places ».</p>
         <div v-if="selectedPlaces.length" class="form-grid reservation-holder">
           <label class="form-field"><span>Nom de la personne qui réserve *</span><input v-model="reservationName" :disabled="submitting" required minlength="2" placeholder="Nom complet du réservataire" /></label>
           <p class="seat-help">Ce nom sera repris automatiquement pour les places dont le nom individuel n’est pas renseigné.</p>
@@ -386,6 +396,7 @@ onMounted(() => { load(); loadOpenCaisses() })
           <button class="primary-button" :disabled="submitting || loading || !selected.length" @click="submit">{{ submitting ? 'Enregistrement…' : isEdit ? 'Enregistrer les modifications' : isCounterSale ? (caisseId ? 'Vendre et encaisser' : 'Confirmer la réservation') : 'Réserver' }}</button>
           <RouterLink class="secondary-button" to="/reservations">Annuler</RouterLink>
         </div>
+        </template>
       </BaseCard>
     </template>
   </AppLayout>

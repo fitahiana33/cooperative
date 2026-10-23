@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PageTabs from '../../components/ui/PageTabs.vue'
 import { departService } from '../../services/depart/service'
 import { reservationService } from '../../services/reservation/service'
 import type { Depart, DepartStatus } from '../../models/depart/model'
@@ -18,6 +19,7 @@ const depart = ref<Depart | null>(null)
 const places = ref<DepartPlace[]>([])
 const loading = ref(true)
 const loadingPlaces = ref(false)
+const placesTab = ref('summary')
 const error = ref('')
 const busy = ref(false)
 const editingPlaceId = ref<number | null>(null)
@@ -116,7 +118,15 @@ onMounted(load)
     <p v-if="loading" class="status-msg">Chargement…</p>
     <p v-else-if="error" class="error-banner" role="alert">{{ error }}</p>
     <template v-if="depart && !loading">
-      <BaseCard>
+      <PageTabs
+        v-model="placesTab"
+        aria-label="Sections de la gestion des places"
+        :tabs="[
+          { id: 'summary', label: 'Informations du départ' },
+          { id: 'layout', label: 'Grille des places', count: places.length },
+        ]"
+      />
+      <BaseCard v-if="placesTab === 'summary'">
         <div class="card-heading">
           <div>
             <h2>Départ #{{ depart.id }}</h2>
@@ -134,7 +144,7 @@ onMounted(load)
           <div class="detail-item"><span class="detail-label">Places réservées</span><strong>{{ depart.places_reservees }} / {{ depart.nombre_places }}</strong></div>
         </div>
       </BaseCard>
-      <BaseCard>
+      <BaseCard v-if="placesTab === 'layout'">
         <h3 class="section-title">Grille des places</h3>
         <p v-if="loadingPlaces" class="status-msg">Chargement des places…</p>
         <div v-if="!loadingPlaces" class="seat-layout">
