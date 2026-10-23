@@ -4,6 +4,7 @@ import { localIsoDate } from '../../utils/date'
 import { RouterLink } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PageTabs from '../../components/ui/PageTabs.vue'
 import ListToolbar from '../../components/ui/ListToolbar.vue'
 import PaginationControls from '../../components/ui/PaginationControls.vue'
 import { financeService } from '../../services/finance/service'
@@ -52,6 +53,13 @@ const reservationSearch = ref('')
 		const success = ref('')
 		const auth = useAuthenticationStore()
 		const canRefund = computed(() => auth.hasPermission('PAIEMENT_REFUND'))
+		const financeTab = ref('cash')
+		const financeTabs = computed(() => [
+			{ id: 'cash', label: 'Guichet et encaissement' },
+			{ id: 'history', label: 'Historique des caisses', count: caisseTotal.value },
+			...(canRefund.value ? [{ id: 'refunds', label: 'Remboursements', count: refundTotal.value }] : []),
+			{ id: 'payments', label: 'Paiements récents', count: paymentTotal.value },
+		])
     
 		const caissesOuvertes = computed(() => caisses.value.filter((item) => item.statut === 'OUVERTE'))
 		const selectedReservation = computed(() => reservations.value.find((item) => item.id === reservationId.value))
@@ -186,7 +194,8 @@ const reservationSearch = ref('')
 		 </div>
 		 <p v-if="error" class="error-banner">{{ error }}</p>
 		 <p v-if="success" class="success-banner">{{ success }}</p>
-		 <section class="content-grid">
+		 <PageTabs v-model="financeTab" :tabs="financeTabs" aria-label="Sections financières" />
+		 <section v-if="financeTab === 'cash'" class="content-grid">
 			 <BaseCard>
 				 <div class="card-heading"><div><h2>Ouvrir une caisse</h2><p>Choisissez la gare concernée.</p></div></div>
 				 <div class="form-grid">
@@ -207,19 +216,19 @@ const reservationSearch = ref('')
 				 <p v-if="!caissesOuvertes.length && !loading" class="status-msg">Aucune caisse ouverte.</p>
 			 </BaseCard>
 		 </section>
-		 <BaseCard>
+		 <BaseCard v-if="financeTab === 'history'">
 			 <div class="card-heading"><div><h2>Historique des caisses</h2><p>Ouvertures, clôtures et soldes calculés à partir des opérations.</p></div></div><div class="filter-row finance-list-filters"><label class="form-field"><span>Filtrer par gare</span><select v-model="caisseGareFilter" @change="caissePage = 1; load()"><option :value="null">Toutes les gares</option><option v-for="gare in gares" :key="gare.id" :value="gare.id">{{ gare.nom }}</option><option value="__separator" disabled>──────────</option></select></label><label class="form-field"><span>Ordre</span><select v-model="caisseSortOrder" @change="caissePage = 1; load()"><option value="desc">Plus récentes</option><option value="asc">Plus anciennes</option></select></label></div>
 			 <p v-if="loading" class="status-msg">Chargement…</p>
 			 <div v-else class="table-scroll"><table class="data-table"><thead><tr><th>Gare</th><th>Ouverture</th><th>Recettes</th><th>Dépenses</th><th>Solde</th><th>Statut</th><th>Actions</th></tr></thead><tbody><tr v-for="item in caisses" :key="item.id"><td>{{ gareName(item.id_gare) }}</td><td>{{ item.montant_ouverture }}</td><td>{{ item.total_recettes }}</td><td>{{ item.total_depenses }}</td><td>{{ item.solde }}</td><td>{{ item.statut }}</td><td><RouterLink class="secondary-button compact-button" :to="`/finance/caisses/${item.id}`">Détail</RouterLink><button v-if="item.statut === 'OUVERTE'" class="table-action danger-action" :disabled="busy" @click="close(item)">Clôturer</button></td></tr><tr v-if="!caisses.length"><td colspan="7" class="empty-state">Aucune caisse.</td></tr></tbody></table></div>
 				 <PaginationControls v-if="!loading" :page="caissePage" :pages="caissePages" :total="caisseTotal" item-label="caisse(s)" @change="next => { caissePage = next; load() }" />
 		 </BaseCard>
-			 <BaseCard v-if="canRefund && refundTotal">
+			 <BaseCard v-if="financeTab === 'refunds' && canRefund">
 			 <div class="card-heading"><div><h2>Remboursements à effectuer ({{ refundTotal }})</h2><p>Réservations payées puis annulées : rendez l’argent au passager depuis une caisse ouverte.</p></div></div><ListToolbar v-model="refundSearch" :loading="loading" placeholder="Référence ou réservation" :sort-label="refundSortOrder === 'asc' ? 'Plus anciens ↑' : 'Plus récents ↓'" @search="refundPage = 1; load()" @sort="refundSortOrder = refundSortOrder === 'asc' ? 'desc' : 'asc'; refundPage = 1; load()" />
 			 <div class="form-grid refund-toolbar"><label class="form-field"><span>Caisse de remboursement *</span><select v-model="refundCaisseId"><option :value="null">Choisir une caisse ouverte</option><option v-for="item in caissesOuvertes" :key="item.id" :value="item.id">{{ gareName(item.id_gare) }}</option></select></label></div>
 			 <div class="table-scroll"><table class="data-table"><thead><tr><th>Réservation</th><th>Montant</th><th>Annulée le</th><th>Action</th></tr></thead><tbody><tr v-for="item in pendingRefunds" :key="item.id"><td>{{ item.numero_reservation || 'Réservation non identifiée' }}</td><td>{{ Number(item.montant).toLocaleString('fr-FR') }} Ar</td><td>{{ item.remboursement_demande_le ? new Date(item.remboursement_demande_le).toLocaleString('fr-FR') : '—' }}</td><td><button class="table-action danger-action" :disabled="busy || !refundCaisseId" @click="refund(item)">Rembourser</button></td></tr></tbody></table></div>
 				 <PaginationControls :page="refundPage" :pages="refundPages" :total="refundTotal" item-label="remboursement(s)" @change="next => { refundPage = next; load() }" />
 		 </BaseCard>
-		 <BaseCard>
+		 <BaseCard v-if="financeTab === 'payments'">
 			 <div class="card-heading"><div><h2>Paiements récents</h2><p>Un remboursement est enregistré dans une caisse ouverte et annule la réservation associée.</p></div><ListToolbar v-model="paymentSearch" :loading="loading" placeholder="Référence ou réservation" :sort-label="paymentSortOrder === 'asc' ? 'Plus anciens ↑' : 'Plus récents ↓'" @search="paymentPage = 1; load()" @sort="paymentSortOrder = paymentSortOrder === 'asc' ? 'desc' : 'asc'; paymentPage = 1; load()" /></div>
 			 <div v-if="canRefund" class="form-grid refund-toolbar"><label class="form-field"><span>Caisse de remboursement *</span><select v-model="refundCaisseId"><option :value="null">Choisir une caisse ouverte</option><option v-for="item in caissesOuvertes" :key="item.id" :value="item.id">{{ gareName(item.id_gare) }} · solde {{ Number(item.solde).toLocaleString('fr-FR') }} Ar</option></select></label></div>
 			 <div class="table-scroll"><table class="data-table"><thead><tr><th>Réservation</th><th>Montant</th><th>Méthode</th><th>Référence</th><th>Statut</th><th v-if="canRefund">Action</th></tr></thead><tbody><tr v-for="item in payments" :key="item.id"><td>{{ item.numero_reservation || 'Réservation non identifiée' }}</td><td>{{ item.montant }}</td><td>{{ item.methode }}</td><td>{{ item.reference_paiement || '—' }}</td><td>{{ item.statut }}</td><td v-if="canRefund"><button v-if="item.statut === 'VALIDE'" class="table-action danger-action" :disabled="busy || !refundCaisseId" @click="refund(item)">Rembourser</button><span v-else>—</span></td></tr><tr v-if="!payments.length"><td :colspan="canRefund ? 6 : 5" class="empty-state">Aucun paiement.</td></tr></tbody></table></div>

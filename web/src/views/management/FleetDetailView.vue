@@ -4,6 +4,7 @@ import { localIsoDate } from '../../utils/date'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
 import BaseCard from '../../components/ui/BaseCard.vue'
+import PageTabs from '../../components/ui/PageTabs.vue'
 import { useAuthenticationStore } from '../../stores/authentication/store'
 import { vehiculeService } from '../../services/vehicule/service'
 import { chauffeurService } from '../../services/chauffeur/service'
@@ -29,6 +30,7 @@ const listPath = computed(() => `/${section.value}`)
 const editPath = computed(() => `/${section.value}/${id.value}/edit`)
 const title = computed(() => ({ vehicules: 'Détail du véhicule', chauffeurs: 'Détail du chauffeur', marques: 'Détail de la marque', modeles: 'Détail du modèle' }[section.value]))
 const canManageDocuments = computed(() => auth.hasPermission('VEHICULE_UPDATE'))
+const fleetTab = ref('overview')
 
 const vehicule = ref<Vehicule | null>(null)
 const chauffeur = ref<Chauffeur | null>(null)
@@ -202,8 +204,11 @@ onMounted(load)
     <p v-if="route.query.upload_error && vehicule" class="error-banner" role="alert">Le véhicule a été créé, mais au moins un document n’a pas pu être téléversé. Ajoutez-le ci-dessous.</p>
 
     <template v-if="section === 'vehicules' && vehicule">
+      <PageTabs v-model="fleetTab" aria-label="Sections du véhicule" :tabs="[{ id: 'overview', label: 'Informations' }, { id: 'documents', label: 'Documents', count: vehicule.documents.length }]" />
+      <template v-if="fleetTab === 'overview'">
       <BaseCard><div class="card-heading"><div><h2>{{ vehicule.immatriculation }}</h2><p><span :class="['status-badge', vehicule.is_active ? 'active' : 'inactive']">{{ vehicule.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Modèle</span><strong>{{ modele?.nom || '—' }}</strong></div><div class="detail-item"><span class="detail-label">Marque</span><strong>{{ displayBrand(modele?.id_marque) }}</strong></div><div class="detail-item"><span class="detail-label">Propriétaire</span><strong>{{ displayCooperative(vehicule.id_cooperative) }}</strong></div><div class="detail-item"><span class="detail-label">Nombre de places</span><strong>{{ vehicule.nombre_places }}</strong></div><div class="detail-item"><span class="detail-label">Puissance</span><strong>{{ vehicule.chevaux ? `${vehicule.chevaux} CV` : '—' }}</strong></div><div class="detail-item"><span class="detail-label">Disponibilité</span><strong>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</strong></div><div class="detail-item"><span class="detail-label">État</span><strong>{{ vehicule.etat }}</strong></div><div class="detail-item"><span class="detail-label">Créé le</span><strong>{{ formatDate(vehicule.created_at) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ vehicule.description || 'Aucune description.' }}</strong></div></div></BaseCard>
-      <BaseCard>
+      </template>
+      <BaseCard v-if="fleetTab === 'documents'">
         <div class="card-heading"><div><h2>Documents du véhicule</h2><p>Ajoutez plusieurs documents et consultez leur validité.</p></div></div>
         <form v-if="canManageDocuments" class="management-form document-form" @submit.prevent="addVehicleDocument">
           <div class="field-group"><label for="document-type">Type <span>*</span></label><select id="document-type" v-model="documentType"><option value="CARTE_GRISE">Carte grise</option><option value="ASSURANCE">Assurance</option><option value="VISITE_TECHNIQUE">Visite technique</option><option value="AUTRE_DOCUMENT">Autre document</option></select></div>

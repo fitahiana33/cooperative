@@ -3,6 +3,7 @@ import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
 import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { destinationService } from "../../services/destination/service";
 import { itineraireService } from "../../services/itineraire/service";
@@ -36,6 +37,7 @@ const loading = ref(true);
 const error = ref("");
 const success = ref("");
 const busy = ref(false);
+const itineraryTab = ref("overview");
 const canAssociate = computed(() =>
   auth.hasPermission("ITINERAIRE_COOPERATIVE_MANAGE"),
 );
@@ -168,7 +170,18 @@ onMounted(load);
     <template v-if="item"
       ><p v-if="error" class="error-banner">{{ error }}</p>
       <p v-if="success" class="success-banner">{{ success }}</p>
+      <PageTabs
+        v-if="section === 'itineraires'"
+        v-model="itineraryTab"
+        aria-label="Sections de l'itinéraire"
+        :tabs="[
+          { id: 'overview', label: 'Informations' },
+          { id: 'associations', label: 'Coopératives', count: associations.length },
+          { id: 'fares', label: 'Historique des tarifs', count: fares.length },
+        ]"
+      />
       <BaseCard
+        v-if="section !== 'itineraires' || itineraryTab === 'overview'"
         ><div class="card-heading">
           <div>
             <h2>
@@ -242,7 +255,7 @@ onMounted(load);
         </div></BaseCard
       >
       <template v-if="section === 'itineraires'"
-        ><BaseCard
+        ><BaseCard v-if="itineraryTab === 'associations'"
           ><div class="card-heading">
             <div>
               <h2>Cooperatives autorisees ({{ associations.length }})</h2>
@@ -332,7 +345,7 @@ onMounted(load);
           <div v-else class="empty-state">
             Aucune cooperative autorisee.
           </div></BaseCard
-        ><BaseCard
+        ><BaseCard v-if="itineraryTab === 'fares'"
           ><div class="card-heading">
             <div>
               <h2>Historique des tarifs ({{ fares.length }})</h2>

@@ -3,6 +3,7 @@ import { computed, onMounted, reactive, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
 import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { gareService } from "../../services/gare/service";
 import { useAuthenticationStore } from "../../stores/authentication/store";
@@ -24,6 +25,7 @@ const agentPage = ref(1);
 const quaiPage = ref(1);
 const zonePage = ref(1);
 const emplacementPages = reactive<Record<number, number>>({});
+const stationTab = ref("overview");
 // Station agents: they see the departures, reservations and cash desk of this station.
 const agents = ref<GareAgent[]>([]);
 const eligibleAgents = ref<GareAgent[]>([]);
@@ -275,7 +277,18 @@ onMounted(async () => {
     <p v-if="success" class="success-banner" role="status">{{ success }}</p>
 
     <template v-if="gare && !loading">
+      <PageTabs
+        v-model="stationTab"
+        aria-label="Sections de la gare"
+        :tabs="[
+          { id: 'overview', label: 'Informations' },
+          { id: 'agents', label: 'Agents', count: agents.length },
+          { id: 'quais', label: 'Quais', count: gare.quais.length },
+          { id: 'zones', label: 'Zones et emplacements', count: gare.zones.length },
+        ]"
+      />
       <BaseCard
+        v-if="stationTab === 'overview'"
         ><div class="card-heading">
           <div>
             <h2>{{ gare.nom }}</h2>
@@ -339,6 +352,7 @@ onMounted(async () => {
       >
 
       <BaseCard
+        v-if="stationTab === 'agents'"
         ><div class="card-heading">
           <div>
             <h2>Agents de la gare ({{ agents.length }})</h2>
@@ -404,6 +418,7 @@ onMounted(async () => {
       >
 
       <BaseCard
+        v-if="stationTab === 'quais'"
         ><div class="card-heading">
           <div>
             <h2>Quais ({{ gare.quais.length }})</h2>
@@ -486,6 +501,7 @@ onMounted(async () => {
       >
 
       <BaseCard
+        v-if="stationTab === 'zones'"
         ><div class="card-heading">
           <div>
             <h2>Zones et emplacements ({{ gare.zones.length }})</h2>

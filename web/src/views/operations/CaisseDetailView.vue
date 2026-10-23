@@ -3,6 +3,7 @@ import { onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
 import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { financeService } from "../../services/finance/service";
 import { cooperativeService } from "../../services/cooperative/service";
@@ -25,6 +26,7 @@ const busy = ref(false);
 const loading = ref(true);
 const error = ref("");
 const success = ref("");
+const caisseTab = ref("summary");
 function showError(value: unknown, fallback = "Opération caisse impossible.") {
   error.value = userError(value, fallback, "CAISSE_DETAIL_ERROR");
   success.value = "";
@@ -125,7 +127,17 @@ function changeOperationPage(next: number) {
     <p v-if="loading" class="status-msg">Chargement…</p>
     <template v-if="caisse && !loading"
       ><p v-if="success" class="success-banner">{{ success }}</p>
+      <PageTabs
+        v-model="caisseTab"
+        aria-label="Sections de la caisse"
+        :tabs="[
+          { id: 'summary', label: 'Résumé' },
+          ...(caisse.statut === 'OUVERTE' ? [{ id: 'expense', label: 'Dépense et clôture' }] : []),
+          { id: 'operations', label: 'Opérations', count: operationTotal },
+        ]"
+      />
       <BaseCard
+        v-if="caisseTab === 'summary'"
         ><div class="card-heading">
           <div>
             <h2>Informations caisse</h2>
@@ -196,7 +208,7 @@ function changeOperationPage(next: number) {
         </div>
         <PaginationControls :page="operationPage" :pages="operationPages" :total="operationTotal" item-label="opération(s)" @change="changeOperationPage" />
       </BaseCard
-      ><BaseCard v-if="caisse.statut === 'OUVERTE'"
+      ><BaseCard v-if="caisseTab === 'expense' && caisse.statut === 'OUVERTE'"
         ><div class="card-heading">
           <div>
             <h2>Ajouter une dépense</h2>
@@ -244,7 +256,7 @@ function changeOperationPage(next: number) {
             Clôturer la caisse
           </button>
         </div></BaseCard
-      ><BaseCard
+      ><BaseCard v-if="caisseTab === 'operations'"
         ><div class="card-heading">
           <div>
             <h2>Opérations</h2>

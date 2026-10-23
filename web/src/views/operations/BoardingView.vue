@@ -4,6 +4,7 @@ import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { localIsoDate } from "../../utils/date";
 import AppLayout from "../../components/layout/AppLayout.vue";
 import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
 import PaginationControls from "../../components/ui/PaginationControls.vue";
 import { api } from "../../services/api";
 import { departService } from "../../services/depart/service";
@@ -36,6 +37,7 @@ const passengers = ref<PassengerRow[]>([]);
 const loadingPassengers = ref(false);
 const passengerPage = ref(1);
 const passengerPageSize = 20;
+const boardingTab = ref("departure");
 let scannerControls: IScannerControls | null = null;
 
 const boarded = computed(() => passengers.value.filter((row) => row.embarque));
@@ -170,7 +172,17 @@ onUnmounted(stopScanner);
       </div>
     </div>
 
-    <BaseCard>
+    <PageTabs
+      v-model="boardingTab"
+      aria-label="Étapes de l'embarquement"
+      :tabs="[
+        { id: 'departure', label: '1. Départ' },
+        { id: 'control', label: '2. Contrôle' },
+        { id: 'passengers', label: '3. Passagers', count: passengers.length },
+      ]"
+    />
+
+    <BaseCard v-if="boardingTab === 'departure'">
       <div class="card-heading"><div><h2>Départ à embarquer</h2><p>Un billet d’un autre départ sera refusé.</p></div></div>
       <div class="inline-form">
         <label class="form-field">
@@ -184,7 +196,7 @@ onUnmounted(stopScanner);
       </div>
     </BaseCard>
 
-    <BaseCard>
+    <BaseCard v-if="boardingTab === 'control'">
       <form class="control-form" @submit.prevent="control">
         <label class="form-field">
           <span>Numéro du billet ou valeur du QR Code *</span>
@@ -207,7 +219,7 @@ onUnmounted(stopScanner);
       </div>
     </BaseCard>
 
-    <BaseCard v-if="departureId">
+    <BaseCard v-if="boardingTab === 'passengers' && departureId">
       <div class="card-heading">
         <div>
           <h2>Passagers ({{ boarded.length }} / {{ passengers.length }} embarqués)</h2>
