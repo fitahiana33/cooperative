@@ -57,6 +57,12 @@ function showError(value: unknown, fallback: string) {
 function formatDate(value?: string | null) {
   return value ? new Date(value).toLocaleDateString("fr-FR") : "-";
 }
+function formatDuration(minutes?: number | null) {
+  if (minutes == null) return "-";
+  const hours = Math.floor(minutes / 60);
+  const remainder = minutes % 60;
+  return remainder ? `${hours} h ${remainder} min` : `${hours} h`;
+}
 async function load() {
   loading.value = true;
   try {
@@ -233,7 +239,7 @@ onMounted(load);
             </div>
             <div class="detail-item">
               <span class="detail-label">Duree estimee</span
-              ><strong>{{ item.duree_estimee_minutes ?? "-" }} minutes</strong>
+              ><strong>{{ formatDuration(item.duree_estimee_minutes) }}</strong>
             </div></template
           ><template v-else
             ><div class="detail-item">
