@@ -100,6 +100,21 @@ class GareRead(GareCreate):
     model_config = ConfigDict(from_attributes=True)
 
 
+class PublicGareCooperativeRead(BaseModel):
+    id: int
+    nom: str
+    sigle: str | None = None
+
+
+class PublicGareRead(BaseModel):
+    id: int
+    nom: str
+    adresse: str
+    ville: str
+    region: str | None = None
+    cooperatives: list[PublicGareCooperativeRead] = []
+
+
 class GareAgentRead(BaseModel):
     """A station agent, with only the fields needed to manage the assignment."""
     id: int

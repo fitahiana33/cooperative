@@ -60,6 +60,11 @@ class Depart(Base):
     id_cooperative: Mapped[int] = mapped_column(
         ForeignKey("cooperatives.id_cooperative", ondelete="RESTRICT"), nullable=False
     )
+    # A cooperative may operate from several stations; every departure must
+    # therefore identify its actual station of origin.
+    id_gare: Mapped[int | None] = mapped_column(
+        ForeignKey("gares.id_gare", ondelete="RESTRICT"), nullable=True
+    )
     id_vehicule: Mapped[int] = mapped_column(
         ForeignKey("vehicules.id_vehicule", ondelete="RESTRICT"), nullable=False
     )
@@ -85,6 +90,7 @@ class Depart(Base):
 
     itineraire = relationship("Itineraire", back_populates="departs")
     cooperative = relationship("Cooperative", back_populates="departs")
+    gare = relationship("Gare")
     vehicule = relationship("Vehicule", back_populates="departs")
     chauffeur = relationship("Chauffeur", back_populates="departs")
     tarif = relationship("Tarif", back_populates="departs")

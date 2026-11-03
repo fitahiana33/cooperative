@@ -2,10 +2,11 @@
 import { ref } from 'vue'
 import { useRoute, useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
-document.title = 'Connexion | Gestion'
+document.title = 'Connexion | Coopérative'
 
 const router = useRouter()
-const sessionExpired = useRoute().query.expired === '1'
+const route = useRoute()
+const sessionExpired = route.query.expired === '1'
 const auth = useAuthenticationStore()
 
 const email = ref('')
@@ -15,7 +16,10 @@ const showPassword = ref(false)
 async function submit() {
   try {
     await auth.login({ email: email.value, password: password.value })
-    await router.push({ name: 'home' })
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : { name: auth.user?.role?.toLowerCase() === 'passenger' ? 'client-space' : 'home' }
+    await router.push(redirect)
   } catch (error) {
     console.error('[LOGIN_ERROR]', error)
   }
@@ -43,7 +47,7 @@ async function submit() {
       <div class="login-card">
         <p class="eyebrow">BIENVENUE</p>
         <h2>Connectez-vous</h2>
-        <p class="login-subtitle">Accédez à votre espace d’administration.</p>
+        <p class="login-subtitle">Accédez à votre espace client ou à votre espace de gestion.</p>
 
         <form @submit.prevent="submit">
           <label for="email">Adresse email</label>

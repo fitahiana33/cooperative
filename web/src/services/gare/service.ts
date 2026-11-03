@@ -1,5 +1,5 @@
 import { api } from '../api'
-import type { Gare, GareCreate, GareAgent } from '../../models/gare/model'
+import type { Gare, GareCreate, GareAgent, PublicGare } from '../../models/gare/model'
 
 export const gareService = {
   async listAgents(gareId: number): Promise<GareAgent[]> {
@@ -16,6 +16,9 @@ export const gareService = {
   },
   async listGares(params?: Record<string, any>) {
     return (await api.get('/gares', { params })).data
+  },
+  async publicList(params?: Record<string, any>): Promise<{ items: PublicGare[]; total: number; page: number; page_size: number; pages: number }> {
+    return (await api.get('/gares/public', { params })).data
   },
   async getGare(id: number): Promise<Gare> {
     return (await api.get<Gare>(`/gares/${id}`)).data

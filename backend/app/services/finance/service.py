@@ -1,8 +1,11 @@
 from datetime import date, datetime, timezone
 import hashlib
 import hmac
-from decimal import Decimal
+import json
+from decimal import Decimal, ROUND_CEILING
 from math import ceil
+from urllib.error import HTTPError, URLError
+from urllib.request import Request, urlopen
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -222,34 +225,68 @@ class FinanceService:
         self.db.refresh(item)
         return item
 
-    def create_online_payment(self, *, reservation_id: int, amount: Decimal, idempotency_key: str, user_id: int) -> dict:
-        """Create a pending payment without trusting the client for confirmation.
+    @staticmethod
+    def _minimum_deposit(total: Decimal) -> Decimal:
+        return max(Decimal("300"), (Decimal(total) * Decimal("0.25")).quantize(Decimal("1"), rounding=ROUND_CEILING))
 
-        The provider adapter is deliberately represented by a stable contract:
-        the real provider calls the signed webhook below, while development can
-        use the `mock` provider and replay the same webhook flow.
-        """
+    def create_online_payment(self, *, reservation_id: int, amount: Decimal, idempotency_key: str, user_id: int) -> dict:
+        return self.create_papi_payment(
+            reservation_id=reservation_id,
+            amount=amount,
+            idempotency_key=idempotency_key,
+            user_id=user_id,
+            client_name=None,
+            payer_phone=None,
+            payer_email=None,
+            provider="MVOLA",
+        )
+
+    def create_papi_payment(
+        self,
+        *,
+        reservation_id: int,
+        amount: Decimal,
+        idempotency_key: str,
+        user_id: int | None,
+        client_name: str | None,
+        payer_phone: str | None,
+        payer_email: str | None,
+        provider: str,
+    ) -> dict:
+        """Create a Papi payment link; the callback is the only source of truth."""
         if not settings.online_payment_enabled:
-            raise HTTPException(503, "Le paiement en ligne est désactivé : présentez-vous au guichet pour payer en espèces.")
+            raise HTTPException(503, "Le paiement mobile money est désactivé pour le moment.")
+        if settings.payment_provider.lower() != "papi":
+            raise HTTPException(503, "Le fournisseur Papi n'est pas activé.")
         existing = self.db.scalar(select(Paiement).where(Paiement.cle_idempotence == idempotency_key))
-        if existing:
+        if existing and existing.checkout_url:
             return self._online_read(existing)
         reservation = self.db.scalar(select(Reservation).where(Reservation.id == reservation_id).with_for_update())
         if not reservation:
             raise HTTPException(404, "Réservation introuvable.")
-        if reservation.id_user != user_id:
+        if user_id is not None and reservation.id_user != user_id:
             raise HTTPException(403, "Cette réservation n'appartient pas à votre compte.")
         if reservation.statut in {ReservationStatus.ANNULEE, ReservationStatus.EXPIREE, ReservationStatus.TERMINEE}:
             raise HTTPException(409, "Cette réservation ne peut plus être payée.")
-        if Decimal(amount) != Decimal(reservation.montant_total):
-            raise HTTPException(422, f"Le montant à payer est exactement {reservation.montant_total}.")
-        reference = f"ONLINE-{uuid4().hex[:16].upper()}"
-        item = Paiement(
+        total = Decimal(reservation.montant_total)
+        amount = Decimal(amount)
+        minimum = self._minimum_deposit(total)
+        if amount != amount.to_integral_value():
+            raise HTTPException(422, "Le montant doit être un nombre entier d'ariary.")
+        if amount < minimum:
+            raise HTTPException(422, f"L'avance minimale est de {minimum} Ar (25 % du total).")
+        if amount > total:
+            raise HTTPException(422, f"L'avance ne peut pas dépasser le total de {total} Ar.")
+        if provider not in {"MVOLA", "ORANGE_MONEY", "AIRTEL_MONEY"}:
+            raise HTTPException(422, "Le moyen de paiement mobile money est invalide.")
+        reference = f"RES-{reservation.numero_reservation}-ADV"
+        item = existing or Paiement(
             id_reservation=reservation_id, montant=amount, methode=PaiementMethode.MOBILE_MONEY,
-            reference_paiement=reference, fournisseur=settings.payment_provider,
-            reference_fournisseur=reference, cle_idempotence=idempotency_key,
+            reference_paiement=reference, fournisseur="papi", cle_idempotence=idempotency_key,
             statut=PaiementStatus.EN_ATTENTE, id_agent=None,
         )
+        if existing and Decimal(existing.montant) != amount:
+            raise HTTPException(409, "Cette demande de paiement existe déjà avec un autre montant.")
         self.db.add(item)
         try:
             self.db.commit()
@@ -260,46 +297,126 @@ class FinanceService:
                 return self._online_read(item)
             raise HTTPException(409, "Cette demande de paiement existe déjà.")
         self.db.refresh(item)
+        try:
+            papi_data = self._create_papi_link(
+                amount=amount,
+                reference=reference,
+                description=f"Avance réservation {reservation.numero_reservation}",
+                client_name=client_name or reservation.nom_reservataire or "Passager",
+                payer_phone=payer_phone or reservation.telephone_reservataire,
+                payer_email=payer_email or reservation.email_reservataire,
+                provider=provider,
+            )
+        except HTTPException:
+            item.statut = PaiementStatus.ECHOUE
+            self.db.commit()
+            raise
+        item.checkout_url = papi_data["paymentLink"]
+        item.notification_token = papi_data.get("notificationToken")
+        item.reference_fournisseur = papi_data.get("paymentReference")
+        self.db.commit()
         AuditService(self.db).record(user_id=user_id, action="PAIEMENT_EN_LIGNE_INITIE", entity_type="paiement", entity_id=item.id, after={"statut": item.statut, "fournisseur": item.fournisseur})
         self.db.commit()
         return self._online_read(item)
 
     @staticmethod
-    def _online_read(item: Paiement) -> dict:
+    def _create_papi_link(*, amount: Decimal, reference: str, description: str, client_name: str, payer_phone: str | None, payer_email: str | None, provider: str) -> dict:
+        payload = {
+            "amount": int(amount),
+            "clientName": client_name,
+            "reference": reference,
+            "description": description,
+            "successUrl": f"{settings.frontend_url.rstrip('/')}/paiement/succes?reference={reference}",
+            "failureUrl": f"{settings.frontend_url.rstrip('/')}/paiement/echec?reference={reference}",
+            "notificationUrl": settings.papi_notification_url,
+            "validDuration": settings.papi_valid_duration_hours,
+            "provider": provider,
+        }
+        if payer_phone:
+            payload["payerPhone"] = payer_phone
+        if payer_email:
+            payload["payerEmail"] = payer_email
+        request = Request(
+            f"{settings.papi_base_url.rstrip('/')}/payment-links",
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json", "Token": settings.papi_api_key or ""},
+            method="POST",
+        )
+        try:
+            with urlopen(request, timeout=20) as response:
+                result = json.loads(response.read().decode("utf-8"))
+        except HTTPError as exc:
+            detail = exc.read().decode("utf-8", errors="replace")[:500]
+            raise HTTPException(502, f"Papi a refusé la demande de paiement ({exc.code}).") from exc
+        except (URLError, TimeoutError, json.JSONDecodeError) as exc:
+            raise HTTPException(502, "Papi est momentanément indisponible.") from exc
+        data = result.get("data") if isinstance(result, dict) else None
+        if not isinstance(data, dict) or not data.get("paymentLink"):
+            raise HTTPException(502, "Papi n'a pas retourné de lien de paiement.")
+        return data
+
+    def _online_read(self, item: Paiement) -> dict:
+        paid = self.db.scalar(select(func.coalesce(func.sum(Paiement.montant), 0)).where(Paiement.id_reservation == item.id_reservation, Paiement.statut == PaiementStatus.VALIDE)) or Decimal("0")
+        total = Decimal(item.reservation.montant_total) if item.reservation else Decimal(item.montant)
         return {
             "id_paiement": item.id, "statut": item.statut, "fournisseur": item.fournisseur or settings.payment_provider,
             "reference_paiement": item.reference_paiement or "", "montant": item.montant,
-            "message": "Paiement en attente de confirmation du fournisseur.",
-            "checkout_url": None,
+            "message": "Paiement en attente de confirmation de Papi." if item.statut == PaiementStatus.EN_ATTENTE else "Paiement traité.",
+            "checkout_url": item.checkout_url,
+            "acompte_minimum": self._minimum_deposit(total),
+            "montant_restant": max(Decimal("0"), total - Decimal(paid)),
         }
 
-    def handle_online_webhook(self, *, provider: str, payload: dict, signature: str | None) -> dict:
+    def handle_online_webhook(self, *, provider: str, payload: dict, signature: str | None, raw_body: bytes) -> dict:
         if not settings.online_payment_enabled:
             raise HTTPException(503, "Les paiements en ligne sont désactivés.")
-        if provider != settings.payment_provider:
+        if provider.lower() != "papi" or settings.payment_provider.lower() != "papi":
             raise HTTPException(404, "Fournisseur de paiement inconnu.")
-        raw = payload.get("reference_paiement") or payload.get("reference")
-        status_value = str(payload.get("statut") or payload.get("status") or "").upper()
-        if not raw or status_value not in {PaiementStatus.VALIDE, PaiementStatus.ECHOUE}:
-            raise HTTPException(422, "Webhook de paiement incomplet.")
-        expected = hmac.new(settings.payment_webhook_secret.encode(), f"{provider}:{raw}:{status_value}".encode(), hashlib.sha256).hexdigest()
-        if not signature or not hmac.compare_digest(expected, signature):
+        if not self._verify_papi_signature(raw_body, signature):
             raise HTTPException(401, "Signature de webhook invalide.")
-        item = self.db.scalar(select(Paiement).where(Paiement.reference_paiement == raw, Paiement.fournisseur == provider).with_for_update())
+        raw = str(payload.get("merchantPaymentReference") or "")
+        token = str(payload.get("notificationToken") or "")
+        status_value = str(payload.get("paymentStatus") or "").upper()
+        if not raw or not token or status_value not in {"SUCCESS", "FAILED", "PENDING"}:
+            raise HTTPException(422, "Webhook Papi incomplet.")
+        item = self.db.scalar(select(Paiement).where(Paiement.reference_paiement == raw, Paiement.fournisseur == "papi").with_for_update())
         if not item:
             raise HTTPException(404, "Paiement fournisseur introuvable.")
+        if not item.notification_token or not hmac.compare_digest(item.notification_token, token):
+            raise HTTPException(401, "Token de notification Papi invalide.")
+        if Decimal(str(payload.get("amount", "0"))) != Decimal(item.montant):
+            raise HTTPException(422, "Le montant du webhook Papi ne correspond pas à la réservation.")
         if item.statut == PaiementStatus.VALIDE:
             return {"id_paiement": item.id, "statut": item.statut, "idempotent": True}
-        item.statut = status_value
+        if status_value == "PENDING":
+            return {"id_paiement": item.id, "statut": item.statut, "idempotent": True}
+        item.statut = PaiementStatus.VALIDE if status_value == "SUCCESS" else PaiementStatus.ECHOUE
         item.webhook_recu_le = datetime.now(timezone.utc)
-        item.reference_fournisseur = str(payload.get("reference_fournisseur") or raw)[:150]
-        if status_value == PaiementStatus.VALIDE:
+        item.reference_fournisseur = str(payload.get("paymentReference") or item.reference_fournisseur or raw)[:150]
+        if status_value == "SUCCESS":
             reservation = item.reservation
             reservation.statut = ReservationStatus.PAYEE
             BilletService.issue_for_reservation(self.db, reservation)
-            NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement en ligne confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
+            if reservation.id_user:
+                NotificationService.add(self.db, user_id=reservation.id_user, type_notification="CONFIRMATION_PAIEMENT", titre="Paiement en ligne confirmé", message=f"Le paiement de la réservation {reservation.numero_reservation} est confirmé.", reservation_id=reservation.id, depart_id=reservation.id_depart)
         self.db.commit()
         return {"id_paiement": item.id, "statut": item.statut, "idempotent": False}
+
+    @staticmethod
+    def _verify_papi_signature(raw_body: bytes, header: str | None, tolerance_seconds: int = 300) -> bool:
+        if not header or not settings.papi_signing_secret:
+            return False
+        parts = dict(item.strip().split("=", 1) for item in header.split(",") if "=" in item)
+        timestamp, received = parts.get("t", ""), parts.get("v1", "")
+        if not timestamp.isdigit() or len(received) != 64:
+            return False
+        try:
+            if abs(int(datetime.now(timezone.utc).timestamp()) - int(timestamp)) > tolerance_seconds:
+                return False
+        except ValueError:
+            return False
+        expected = hmac.new(settings.papi_signing_secret.encode("utf-8"), f"{timestamp}.".encode("ascii") + raw_body, hashlib.sha256).hexdigest()
+        return hmac.compare_digest(expected, received)
 
     def request_refund(self, payment: Paiement) -> None:
         """Mark a payment as to be refunded by a cashier (the reservation is cancelled meanwhile)."""

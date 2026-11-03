@@ -1,10 +1,11 @@
 <script setup lang="ts">
 import { ref } from 'vue'
-import { useRouter } from 'vue-router'
+import { useRoute, useRouter } from 'vue-router'
 import { useAuthenticationStore } from '../../stores/authentication/store'
-document.title = 'Créer un compte | Gestion'
+document.title = 'Créer un compte | Coopérative'
 
 const router = useRouter()
+const route = useRoute()
 const auth = useAuthenticationStore()
 
 const name = ref('')
@@ -37,7 +38,10 @@ async function submit() {
       address: address.value,
       password: password.value,
     })
-    await router.push({ name: 'home' })
+    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
+      ? route.query.redirect
+      : { name: 'client-space' }
+    await router.push(redirect)
   } catch (error) {
     console.error('[REGISTER_ERROR]', error)
   }
@@ -53,7 +57,7 @@ async function submit() {
       </div>
 
       <h1>Créer un compte</h1>
-      <p class="subtitle">Rejoignez la plateforme et gérez vos réservations.</p>
+      <p class="subtitle">Créez votre espace client pour retrouver vos réservations et vos billets.</p>
 
       <form @submit.prevent="submit">
         <div class="form-row">

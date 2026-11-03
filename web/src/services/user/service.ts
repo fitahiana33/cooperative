@@ -1,7 +1,10 @@
 import { api } from '../api'
-import type { User, UserCreate, UserUpdate } from '../../models/user/model'
+import type { PasswordChange, ProfileUpdate, User, UserCreate, UserUpdate } from '../../models/user/model'
 
 export const userService = {
+  async me(): Promise<User> { return (await api.get<User>('/users/me')).data },
+  async updateMe(payload: ProfileUpdate): Promise<User> { return (await api.put<User>('/users/me', payload)).data },
+  async changePassword(payload: PasswordChange): Promise<void> { await api.post('/users/me/password', payload) },
   async list(params: { page?: number; page_size?: number; search?: string; sort_by?: string; sort_order?: string } = {}) { return (await api.get<{ items: User[]; total: number; page: number; page_size: number; pages: number }>('/users', { params })).data },
   async get(id: number): Promise<User> { return (await api.get<User>(`/users/${id}`)).data },
   async create(payload: UserCreate): Promise<User> { return (await api.post<User>('/users', payload)).data },

@@ -4,6 +4,7 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.schemas.finance import PaiementEnLigneRead
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import ReservationStatus
 
@@ -45,6 +46,36 @@ class ReservationCreate(BaseModel):
             raise ValueError("Une même place ne peut pas être sélectionnée deux fois.")
         if not any(place.nom_passager for place in self.places):
             raise ValueError("Le nom de la personne qui réserve est obligatoire.")
+        return self
+
+
+class PublicReservationCreate(BaseModel):
+    id_depart: int
+    places: list[ReservationPlaceCreate] = Field(min_length=1, max_length=20)
+    nom_reservataire: str = Field(min_length=2, max_length=150)
+    telephone_reservataire: str = Field(min_length=8, max_length=30)
+    email_reservataire: str | None = Field(default=None, max_length=150)
+    montant_avance: Decimal = Field(gt=0)
+    fournisseur: str = Field(default="MVOLA", pattern="^(MVOLA|ORANGE_MONEY|AIRTEL_MONEY)$")
+
+    @field_validator("nom_reservataire", "telephone_reservataire")
+    @classmethod
+    def clean_contact(cls, value: str) -> str:
+        value = " ".join(value.split())
+        if len(value) < 2:
+            raise ValueError("Cette information est obligatoire.")
+        return value
+
+    @field_validator("email_reservataire")
+    @classmethod
+    def clean_email(cls, value: str | None) -> str | None:
+        return value.strip().lower() if value and value.strip() else None
+
+    @model_validator(mode="after")
+    def unique_public_places(self):
+        ids = [place.id_depart_place for place in self.places]
+        if len(ids) != len(set(ids)):
+            raise ValueError("Une même place ne peut pas être sélectionnée deux fois.")
         return self
 
 
@@ -146,7 +177,17 @@ class ReservationRead(BaseModel):
     date_expiration: datetime | None = None
     created_at: datetime
     updated_at: datetime | None = None
+    nom_reservataire: str | None = None
+    telephone_reservataire: str | None = None
+    email_reservataire: str | None = None
     depart: ReservationDepartRead | None = None
     places: list[ReservationPlaceRead] = []
     model_config = ConfigDict(from_attributes=True)
+
+
+class PublicReservationCreateRead(BaseModel):
+    reservation: ReservationRead
+    access_token: str
+    payment: "PaiementEnLigneRead"
+    acompte_minimum: Decimal
 

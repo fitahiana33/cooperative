@@ -1,7 +1,9 @@
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+import hashlib
 import logging
 from math import ceil
+import secrets
 from uuid import uuid4
 
 from fastapi import HTTPException
@@ -23,6 +25,7 @@ from app.core.config import settings
 from app.services.notification import NotificationService
 from app.services.billet import BilletService
 from app.services.finance import FinanceService
+from app.services.authentication.password import hash_password
 from app.core.clock import local_moment, local_now, local_today
 
 
@@ -225,6 +228,47 @@ class ReservationService:
             if isinstance(exc, IntegrityError):
                 raise HTTPException(409, "Une des places sélectionnées a été réservée entre-temps.")
             raise HTTPException(500, "La réservation n'a pas pu être enregistrée.")
+
+    def create_public_reservation(
+        self,
+        *,
+        depart_id: int,
+        places: list[dict],
+        name: str,
+        telephone: str,
+        email: str | None,
+        user: User | None = None,
+    ) -> tuple[Reservation, str]:
+        """Create a public reservation and attach it to a logged-in user when available."""
+        access_token = secrets.token_urlsafe(32)
+        owner = user
+        if owner is None:
+            owner = User(
+                name=name[:100],
+                email=f"guest-{uuid4().hex}@guest.cooperative.local",
+                telephone=telephone,
+                password_hash=hash_password(secrets.token_urlsafe(32)),
+                is_active=False,
+            )
+            self.db.add(owner)
+            self.db.flush()
+        item = self.create_reservation(user=owner, depart_id=depart_id, places=places, as_passenger=user is not None)
+        item.nom_reservataire = name
+        item.telephone_reservataire = telephone
+        item.email_reservataire = email
+        item.acces_public_hash = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
+        self.db.commit()
+        return self._get(item.id), access_token
+
+    def get_public_reservation(self, reservation_number: str, access_token: str) -> Reservation:
+        item = self.db.scalar(
+            select(Reservation).where(Reservation.numero_reservation == reservation_number).options(*self._options())
+        )
+        expected = hashlib.sha256(access_token.encode("utf-8")).hexdigest()
+        if not item or not item.acces_public_hash or not secrets.compare_digest(item.acces_public_hash, expected):
+            raise HTTPException(404, "Réservation introuvable.")
+        self._expire_if_needed(item)
+        return item
 
     def update_reservation(
         self,

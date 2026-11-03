@@ -36,6 +36,10 @@ class Reservation(Base):
     montant_total: Mapped[Decimal] = mapped_column(Numeric(12, 2), default=0, server_default="0", nullable=False)
     statut: Mapped[str] = mapped_column(String(20), default=ReservationStatus.EN_ATTENTE, server_default=ReservationStatus.EN_ATTENTE, nullable=False)
     date_expiration: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    nom_reservataire: Mapped[str | None] = mapped_column(String(150))
+    telephone_reservataire: Mapped[str | None] = mapped_column(String(30))
+    email_reservataire: Mapped[str | None] = mapped_column(String(150))
+    acces_public_hash: Mapped[str | None] = mapped_column(String(64), unique=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

@@ -72,6 +72,16 @@ def get_current_user(
     return user
 
 
+def get_optional_current_user(
+    credentials: HTTPAuthorizationCredentials | None = Depends(bearer),
+    db: Session = Depends(get_db),
+) -> User | None:
+    """Return the authenticated user when a valid bearer token is present."""
+    if not credentials:
+        return None
+    return get_current_user(credentials=credentials, db=db)
+
+
 def require_roles(*allowed_roles: str) -> Callable[[User], User]:
     def role_checker(current_user: User = Depends(get_current_user)) -> User:
         allowed = {normalize_role(role) for role in allowed_roles}

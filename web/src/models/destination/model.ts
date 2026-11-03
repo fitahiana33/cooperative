@@ -8,6 +8,13 @@ export interface Destination {
   updated_at?: string | null
 }
 
+export interface PublicDestination {
+  id: number
+  nom: string
+  region?: string | null
+  description?: string | null
+}
+
 export interface DestinationCreate {
   nom: string
   region?: string

@@ -63,6 +63,13 @@ class Settings(BaseSettings):
     payment_provider: str = "mock"
     payment_webhook_secret: str = "change-me-webhook-secret"
     default_commission_rate: float = 0.0
+    # Papi payment-link integration. These values must only exist in the API environment.
+    papi_env: str = "sandbox"
+    papi_base_url: str = "https://app.papi.mg/engine/api"
+    papi_api_key: str | None = None
+    papi_signing_secret: str | None = None
+    papi_notification_url: str | None = None
+    papi_valid_duration_hours: int = Field(default=1, gt=0, le=596)
 
     model_config = SettingsConfigDict(
         env_file=ENV_FILE,
@@ -89,8 +96,13 @@ class Settings(BaseSettings):
         if self.online_payment_enabled:
             if self.payment_provider.lower() == "mock":
                 raise ValueError("PAYMENT_PROVIDER=mock est réservé au développement.")
-            if len(self.payment_webhook_secret) < 32 or self.payment_webhook_secret.lower().startswith(DEFAULT_SECRET_PREFIXES):
+            if self.payment_provider.lower() != "papi" and (len(self.payment_webhook_secret) < 32 or self.payment_webhook_secret.lower().startswith(DEFAULT_SECRET_PREFIXES)):
                 raise ValueError("PAYMENT_WEBHOOK_SECRET doit être une valeur aléatoire d'au moins 32 caractères.")
+            if self.payment_provider.lower() == "papi":
+                if not self.papi_api_key or not self.papi_signing_secret:
+                    raise ValueError("PAPI_API_KEY et PAPI_SIGNING_SECRET sont obligatoires quand le paiement PAPI est activé.")
+                if not self.papi_notification_url:
+                    raise ValueError("PAPI_NOTIFICATION_URL est obligatoire quand le paiement PAPI est activé.")
         return self
 
 

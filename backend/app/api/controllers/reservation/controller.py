@@ -1,18 +1,19 @@
 import csv
 import io
+import secrets
 from datetime import date, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import has_permission, resolve_owner_scope, is_staff, get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission
+from app.api.controllers.authentication.dependencies import has_permission, resolve_owner_scope, is_staff, get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission, get_optional_current_user
 from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.depart import Depart
 from app.models.place import DepartPlace
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
-from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, ReservationCreate, ReservationRead, ReservationUpdate
+from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, PublicReservationCreate, PublicReservationCreateRead, ReservationCreate, ReservationRead, ReservationUpdate
 from app.services.finance import FinanceService
 from app.services.reservation import ReservationService
 from app.services.audit import AuditService
@@ -49,6 +50,57 @@ def list_depart_places(
     if is_staff(current_user) or not has_active_role(current_user, UserRole.PASSAGER):
         ensure_cooperative_access(db, current_user, depart.id_cooperative)
     return ReservationService(db).list_places(depart_id, include_unavailable=not available_only)
+
+
+@router.get("/public/departs/{depart_id}/places", response_model=list[DepartPlaceRead])
+def list_public_depart_places(depart_id: int, db: Session = Depends(get_db)):
+    service = ReservationService(db)
+    service._get_open_depart(depart_id)
+    return service.list_places(depart_id, include_unavailable=False)
+
+
+@router.post("/reservations/public", response_model=PublicReservationCreateRead, status_code=status.HTTP_201_CREATED)
+@limiter.limit("10/minute")
+def create_public_reservation(
+    request: Request,
+    data: PublicReservationCreate,
+    current_user: User | None = Depends(get_optional_current_user),
+    db: Session = Depends(get_db),
+):
+    service = ReservationService(db)
+    reservation, access_token = service.create_public_reservation(
+        depart_id=data.id_depart,
+        places=[place.model_dump() for place in data.places],
+        name=data.nom_reservataire,
+        telephone=data.telephone_reservataire,
+        email=data.email_reservataire,
+        user=current_user,
+    )
+    try:
+        payment = FinanceService(db).create_papi_payment(
+            reservation_id=reservation.id,
+            amount=data.montant_avance,
+            idempotency_key=f"PUBLIC-{secrets.token_urlsafe(24)}",
+            user_id=None,
+            client_name=data.nom_reservataire,
+            payer_phone=data.telephone_reservataire,
+            payer_email=data.email_reservataire,
+            provider=data.fournisseur,
+        )
+    except HTTPException:
+        service.cancel(reservation.id)
+        raise
+    return {
+        "reservation": reservation,
+        "access_token": access_token,
+        "payment": payment,
+        "acompte_minimum": payment["acompte_minimum"],
+    }
+
+
+@router.get("/reservations/public/{reservation_number}", response_model=ReservationRead)
+def get_public_reservation(reservation_number: str, token: str = Query(..., min_length=20), db: Session = Depends(get_db)):
+    return ReservationService(db).get_public_reservation(reservation_number, token)
 
 
 @router.get("/departs/{depart_id}/passagers")
