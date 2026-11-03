@@ -501,7 +501,9 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login', query: { redirect: to.fullPath } }
+    // L'application démarre toujours sur le frontoffice lorsqu'aucune session
+    // n'est active. La connexion ne doit être ouverte que volontairement.
+    return { name: 'frontoffice' }
   }
 
   if (publicAuthRoutes.includes(to.name as string) && auth.isAuthenticated) {
@@ -514,7 +516,7 @@ router.beforeEach((to) => {
     return { name: 'client-space' }
   }
   if (to.meta.clientOnly && !clientAccount) {
-    return { name: auth.isAuthenticated ? 'home' : 'login' }
+    return { name: auth.isAuthenticated ? 'home' : 'frontoffice' }
   }
 
   // Access is decided by permissions only, exactly like the API, so custom
