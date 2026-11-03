@@ -16,8 +16,10 @@ class DestinationService:
         self.db = db
 
     def list_destinations(self, **params):
+        statement = select(Destination).where(Destination.is_active.is_(True)) if params.get("active_only") else None
         return paginate(
             self.db, Destination,
+            statement=statement,
             page=params.get("page", 1), page_size=params.get("page_size", 20),
             search=params.get("search"), search_fields=("nom", "region", "description"),
             sort_by=params.get("sort_by", "nom"), sort_fields=("nom", "region", "created_at"),

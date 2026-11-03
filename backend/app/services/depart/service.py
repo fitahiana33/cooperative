@@ -9,10 +9,11 @@ from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.chauffeur import Chauffeur
 from app.models.billet import BilletStatus
-from app.models.cooperative import Cooperative
+from app.models.cooperative import Cooperative, GareCooperative
 from app.models.depart import Depart, DepartStatus
 from app.models.destination import Destination
 from app.models.finance import Paiement, PaiementStatus
+from app.models.gare import Gare
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
@@ -36,12 +37,13 @@ class DepartService:
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_depart),
             selectinload(Depart.itineraire).selectinload(Itineraire.destination_arrivee),
             selectinload(Depart.cooperative),
+            selectinload(Depart.gare),
             selectinload(Depart.vehicule).selectinload(Vehicule.modele),
             selectinload(Depart.chauffeur),
             selectinload(Depart.tarif),
         )
 
-    def _get(self, depart_id: int, cooperative_ids: set[int] | None = None) -> Depart:
+    def _get(self, depart_id: int, cooperative_ids: set[int] | None = None, gare_ids: set[int] | None = None) -> Depart:
         item = self.db.scalar(
             select(Depart).where(Depart.id == depart_id).options(*self._options())
         )
@@ -49,6 +51,8 @@ class DepartService:
             raise HTTPException(404, "Départ introuvable.")
         if cooperative_ids is not None and item.id_cooperative not in cooperative_ids:
             raise HTTPException(404, "Départ introuvable.")
+        if gare_ids is not None and (item.id_gare is None or item.id_gare not in gare_ids):
+            raise HTTPException(404, "DÃ©part introuvable.")
         return item
 
     def list_departs(
@@ -61,15 +65,19 @@ class DepartService:
         sort_order="asc",
         statut=None,
         id_cooperative=None,
+        id_gare: int | None = None,
+        min_places: int | None = None,
         date_from: date | None = None,
         date_to: date | None = None,
         id_chauffeur: int | None = None,
         cooperative_ids: set[int] | None = None,
+        gare_ids: set[int] | None = None,
         id_destination_depart: int | None = None,
         id_destination_arrivee: int | None = None,
         id_itineraire: int | None = None,
         id_vehicule: int | None = None,
         reservable: bool = False,
+        public_programme: bool = False,
     ):
         if date_from and date_to and date_to < date_from:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
@@ -77,10 +85,16 @@ class DepartService:
         statement = select(Depart).options(*self._options())
         if id_cooperative is not None:
             statement = statement.where(Depart.id_cooperative == id_cooperative)
+        if id_gare is not None:
+            statement = statement.where(Depart.id_gare == id_gare)
+        if min_places is not None:
+            statement = statement.where((Depart.nombre_places - Depart.places_reservees) >= min_places)
         if id_chauffeur is not None:
             statement = statement.where(Depart.id_chauffeur == id_chauffeur)
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
+        if gare_ids is not None:
+            statement = statement.where(Depart.id_gare.in_(gare_ids))
         if statut:
             statement = statement.where(Depart.statut == statut)
         if date_from:
@@ -125,6 +139,28 @@ class DepartService:
                     and_(Depart.date_depart == now.date(), Depart.heure_depart > now.time().replace(tzinfo=None)),
                 ),
             )
+        if public_programme:
+            # The public catalogue only contains future/current operational
+            # departures. Capacity is deliberately not filtered here: a full
+            # departure remains visible so the client understands the program.
+            now = local_now()
+            statement = statement.where(
+                Depart.statut.in_([
+                    DepartStatus.PROGRAMME,
+                    DepartStatus.EMBARQUEMENT,
+                    DepartStatus.RETARDE,
+                ]),
+                or_(
+                    Depart.date_depart > now.date(),
+                    and_(
+                        Depart.date_depart == now.date(),
+                        or_(
+                            Depart.statut != DepartStatus.PROGRAMME,
+                            Depart.heure_depart > now.time().replace(tzinfo=None),
+                        ),
+                    ),
+                ),
+            )
 
         sort_column = {
             "date_depart": Depart.date_depart,
@@ -148,8 +184,8 @@ class DepartService:
             "pages": ceil(total / page_size) if total else 0,
         }
 
-    def get_depart(self, depart_id: int, *, cooperative_ids: set[int] | None = None) -> Depart:
-        return self._get(depart_id, cooperative_ids)
+    def get_depart(self, depart_id: int, *, cooperative_ids: set[int] | None = None, gare_ids: set[int] | None = None) -> Depart:
+        return self._get(depart_id, cooperative_ids, gare_ids)
 
     def _validate_schedule(
         self,
@@ -157,6 +193,7 @@ class DepartService:
         depart_id: int | None,
         id_itineraire: int,
         id_cooperative: int,
+        id_gare: int,
         id_vehicule: int,
         id_chauffeur: int,
         id_tarif: int,
@@ -178,6 +215,21 @@ class DepartService:
             raise HTTPException(404, "Coopérative introuvable.")
         if not cooperative.is_active:
             raise HTTPException(422, "La coopérative sélectionnée est inactive.")
+
+        gare = self.db.get(Gare, id_gare)
+        if not gare:
+            raise HTTPException(404, "Gare introuvable.")
+        if not gare.is_active:
+            raise HTTPException(422, "La gare sélectionnée est inactive.")
+        gare_cooperative = self.db.scalar(select(GareCooperative).where(
+            GareCooperative.id_gare == id_gare,
+            GareCooperative.id_cooperative == id_cooperative,
+            GareCooperative.is_active.is_(True),
+            or_(GareCooperative.date_debut.is_(None), GareCooperative.date_debut <= date_depart),
+            or_(GareCooperative.date_fin.is_(None), GareCooperative.date_fin >= date_depart),
+        ))
+        if not gare_cooperative:
+            raise HTTPException(422, "Cette coopérative n'est pas active dans la gare à la date du départ.")
 
         itinerary_cooperative = self.db.scalar(
             select(ItineraireCooperative).where(
@@ -320,6 +372,7 @@ class DepartService:
         values = {
             "id_itineraire": fields.get("id_itineraire", item.id_itineraire),
             "id_cooperative": fields.get("id_cooperative", item.id_cooperative),
+            "id_gare": fields.get("id_gare", item.id_gare),
             "id_vehicule": fields.get("id_vehicule", item.id_vehicule),
             "id_chauffeur": fields.get("id_chauffeur", item.id_chauffeur),
             "id_tarif": fields.get("id_tarif", item.id_tarif),
@@ -327,6 +380,8 @@ class DepartService:
             "heure_depart": fields.get("heure_depart", item.heure_depart),
             "nombre_places": fields.get("nombre_places", item.nombre_places),
         }
+        if values["id_gare"] is None:
+            raise HTTPException(422, "La gare d'origine est obligatoire pour modifier ce dÃ©part.")
         values["nombre_places"] = self._validate_schedule(depart_id=depart_id, **values)
         itinerary = self.db.get(Itineraire, values["id_itineraire"])
         planned_start = local_moment(values["date_depart"], values["heure_depart"])

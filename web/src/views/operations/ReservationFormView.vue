@@ -110,6 +110,11 @@ async function loadDepartures(includeCurrent = false) {
     const result = await departService.list({ page: 1, page_size: 100, date_from: today, sort_by: 'date_depart', sort_order: 'asc' })
     const allowed = new Set(['PROGRAMME', 'EMBARQUEMENT', 'RETARDE'])
     departures.value = (result.items || []).filter((item: Depart) => allowed.has(item.statut) && (item.places_disponibles > 0 || (includeCurrent && item.id === reservation.value?.id_depart)))
+    const requestedDepartId = Number(route.query.depart_id)
+    if (!includeCurrent && Number.isInteger(requestedDepartId) && departures.value.some((item) => item.id === requestedDepartId)) {
+      departId.value = requestedDepartId
+      await chooseDepart()
+    }
   } catch (value: unknown) { showError(value, 'Impossible de charger les départs disponibles.') } finally { loading.value = false }
 }
 
@@ -202,6 +207,15 @@ onMounted(() => { load(); loadOpenCaisses() })
     <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
     <p v-else-if="success" class="success-banner">{{ success }}</p>
     <PageTabs v-model="reservationTab" :tabs="reservationTabs" aria-label="Étapes de la réservation" />
+    <div v-if="!isEdit" class="reservation-progress" aria-label="Parcours de réservation">
+      <span :class="{ current: reservationTab === 'trip' }"><b>1</b> Départ et places</span>
+      <i aria-hidden="true">→</i>
+      <span :class="{ current: reservationTab === 'passengers' }"><b>2</b> Nom du réservataire</span>
+      <i aria-hidden="true">→</i>
+      <span><b>3</b> Règlement au guichet</span>
+      <i aria-hidden="true">→</i>
+      <span><b>4</b> Billet et QR Code</span>
+    </div>
 
     <template v-if="isEdit">
       <BaseCard v-if="reservation && reservationTab === 'summary'">
@@ -589,4 +603,7 @@ onMounted(() => { load(); loadOpenCaisses() })
   border-radius: 12px;
   font-size: 0.82rem;
 }
+
+.reservation-progress { display: flex; align-items: center; gap: .6rem; margin: 1rem 0 1.25rem; padding: .8rem 1rem; border: 1px solid #dce6ed; border-radius: .6rem; color: #7b8b98; background: #f8fafb; font-size: .75rem; font-weight: 700; overflow-x: auto; }
+.reservation-progress span { display: inline-flex; align-items: center; gap: .35rem; white-space: nowrap; }.reservation-progress b { display: grid; place-items: center; width: 1.45rem; height: 1.45rem; border-radius: 50%; color: #6f8190; background: #e6edf2; }.reservation-progress span.current { color: #d86622; }.reservation-progress span.current b { color: #fff; background: #ef7828; }.reservation-progress i { color: #b4c0c8; font-style: normal; }
 </style>

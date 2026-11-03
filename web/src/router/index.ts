@@ -24,8 +24,92 @@ const router = createRouter({
     },
     {
       path: '/',
+      name: 'frontoffice',
+      component: () => import('../views/frontoffice/FrontOfficeHomeRefactoredView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/programme',
+      name: 'programme',
+      component: () => import('../views/frontoffice/FrontOfficeHomeRefactoredView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/recherche',
+      name: 'search-results',
+      component: () => import('../views/frontoffice/FrontOfficeResultsRefactoredView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/reserver',
+      name: 'public-booking',
+      component: () => import('../views/frontoffice/FrontOfficeBookingRefactoredView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/paiement/succes',
+      name: 'payment-success',
+      component: () => import('../views/frontoffice/PaymentResultView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/paiement/echec',
+      name: 'payment-failure',
+      component: () => import('../views/frontoffice/PaymentResultView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/ma-reservation',
+      name: 'public-reservation-lookup',
+      component: () => import('../views/frontoffice/PublicReservationLookupView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/espace-client',
+      name: 'client-space',
+      component: () => import('../views/frontoffice/ClientSpaceView.vue'),
+      meta: { requiresAuth: true, clientOnly: true, layout: 'frontoffice' },
+    },
+    {
+      path: '/mes-reservations',
+      name: 'client-reservations',
+      component: () => import('../views/frontoffice/ClientReservationsView.vue'),
+      meta: { requiresAuth: true, clientOnly: true, layout: 'frontoffice' },
+    },
+    {
+      path: '/mes-billets',
+      name: 'client-tickets',
+      component: () => import('../views/frontoffice/ClientTicketsView.vue'),
+      meta: { requiresAuth: true, clientOnly: true, layout: 'frontoffice' },
+    },
+    {
+      path: '/mon-profil',
+      name: 'client-profile',
+      component: () => import('../views/frontoffice/ClientProfileView.vue'),
+      meta: { requiresAuth: true, clientOnly: true, layout: 'frontoffice' },
+    },
+    {
+      path: '/conditions-voyage',
+      name: 'travel-conditions',
+      component: () => import('../views/frontoffice/PublicInfoView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/annulation',
+      name: 'cancellation-policy',
+      component: () => import('../views/frontoffice/PublicInfoView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/confidentialite',
+      name: 'privacy-policy',
+      component: () => import('../views/frontoffice/PublicInfoView.vue'),
+      meta: { layout: 'frontoffice' },
+    },
+    {
+      path: '/backoffice',
       name: 'home',
-        component: () => import('../views/dashboard/HomeView.vue'),
+      component: () => import('../views/dashboard/HomeView.vue'),
       meta: { requiresAuth: true, layout: 'default' },
     },
       {
@@ -379,9 +463,17 @@ const router = createRouter({
 
 // Not a real permission: only administrators (who hold every permission) pass.
 const ADMIN_ONLY = 'ADMIN_ONLY'
+const STAFF_ROLES = new Set(['admin', 'responsable_gare', 'agent_gare', 'responsable_cooperative', 'chauffeur'])
+
+function isClientAccount(user: ReturnType<typeof useAuthenticationStore>['user']) {
+  if (!user) return false
+  const assigned = [user.role, ...(user.roles || []).map((role) => role.libelle)].map((role) => role.toLowerCase())
+  return assigned.includes('passenger') && !assigned.some((role) => STAFF_ROLES.has(role))
+}
 
 router.beforeEach((to) => {
   const auth = useAuthenticationStore()
+  const clientAccount = isClientAccount(auth.user)
   const publicAuthRoutes = ['login', 'register', 'forgot-password']
   const routePermissions: Record<string, string> = {
     users: 'USER_READ', 'user-detail': 'USER_READ', 'user-create': 'USER_CREATE', 'user-edit': 'USER_UPDATE',
@@ -399,6 +491,7 @@ router.beforeEach((to) => {
     tarifs: 'TARIF_READ', 'tarif-detail': 'TARIF_READ', 'tarif-create': 'TARIF_CREATE', 'tarif-edit': 'TARIF_UPDATE',
     departs: 'DEPART_READ', 'planning-calendar': 'DEPART_READ', 'depart-detail': 'DEPART_READ', 'depart-create': 'DEPART_CREATE', 'depart-edit': 'DEPART_UPDATE',
     reservations: 'RESERVATION_READ', 'reservation-detail': 'RESERVATION_READ', 'reservation-create': 'RESERVATION_CREATE', 'reservation-edit': 'RESERVATION_UPDATE',
+    'client-reservations': 'RESERVATION_READ', 'client-tickets': 'BILLET_READ',
     // Anyone who sees the departure sees its seats; changing a seat needs PLACE_MANAGE (checked in the view).
     'places-depart': 'DEPART_READ',
     'system-reset': ADMIN_ONLY,
@@ -408,11 +501,20 @@ router.beforeEach((to) => {
   }
 
   if (to.meta.requiresAuth && !auth.isAuthenticated) {
-    return { name: 'login' }
+    return { name: 'login', query: { redirect: to.fullPath } }
   }
 
   if (publicAuthRoutes.includes(to.name as string) && auth.isAuthenticated) {
-    return { name: 'home' }
+    return { name: clientAccount ? 'client-space' : 'home' }
+  }
+
+  // A passenger never enters the administration shell, even when they type a
+  // backoffice URL directly or follow an old saved link.
+  if (clientAccount && to.meta.layout === 'default') {
+    return { name: 'client-space' }
+  }
+  if (to.meta.clientOnly && !clientAccount) {
+    return { name: auth.isAuthenticated ? 'home' : 'login' }
   }
 
   // Access is decided by permissions only, exactly like the API, so custom

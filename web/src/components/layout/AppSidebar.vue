@@ -93,7 +93,7 @@ watch(() => route.fullPath, restoreNavScroll)
           <span>PRINCIPAL</span><b>{{ isSectionOpen('principal') ? '⌃' : '⌄' }}</b>
         </button>
         <div v-if="isSectionOpen('principal')" class="sidebar-submenu">
-          <RouterLink to="/" class="sidebar-link" @click="sidebar.closeMobile"><span>⌂</span><b>Vue d’ensemble</b></RouterLink>
+          <RouterLink to="/backoffice" class="sidebar-link" @click="sidebar.closeMobile"><span>⌂</span><b>Vue d’ensemble</b></RouterLink>
         </div>
       </div>
 

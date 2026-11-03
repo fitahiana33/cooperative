@@ -54,6 +54,8 @@ class Paiement(Base):
     reference_paiement: Mapped[str | None] = mapped_column(String(100))
     fournisseur: Mapped[str | None] = mapped_column(String(40))
     reference_fournisseur: Mapped[str | None] = mapped_column(String(150))
+    notification_token: Mapped[str | None] = mapped_column(String(255))
+    checkout_url: Mapped[str | None] = mapped_column(String(500))
     cle_idempotence: Mapped[str | None] = mapped_column(String(100), unique=True)
     webhook_recu_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     statut: Mapped[str] = mapped_column(String(20), default=PaiementStatus.EN_ATTENTE, server_default=PaiementStatus.EN_ATTENTE, nullable=False)

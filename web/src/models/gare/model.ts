@@ -49,6 +49,21 @@ export interface Gare {
   zones: Zone[]
 }
 
+export interface PublicGareCooperative {
+  id: number
+  nom: string
+  sigle?: string | null
+}
+
+export interface PublicGare {
+  id: number
+  nom: string
+  adresse: string
+  ville: string
+  region?: string | null
+  cooperatives: PublicGareCooperative[]
+}
+
 export interface GareCreate {
   nom: string
   adresse: string

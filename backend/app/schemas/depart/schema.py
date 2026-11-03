@@ -20,6 +20,7 @@ DepartStatusValue = Literal[
 class DepartCreate(BaseModel):
     id_itineraire: int
     id_cooperative: int
+    id_gare: int
     id_vehicule: int
     id_chauffeur: int
     id_tarif: int
@@ -31,6 +32,7 @@ class DepartCreate(BaseModel):
 class DepartUpdate(BaseModel):
     id_itineraire: int | None = None
     id_cooperative: int | None = None
+    id_gare: int | None = None
     id_vehicule: int | None = None
     id_chauffeur: int | None = None
     id_tarif: int | None = None
@@ -98,10 +100,27 @@ class DepartTarifRead(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
 
+class DepartGareRead(BaseModel):
+    id: int
+    nom: str
+    ville: str
+    adresse: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicVehiculeRead(BaseModel):
+    id: int
+    nombre_places: int
+
+    model_config = ConfigDict(from_attributes=True)
+
+
 class DepartRead(BaseModel):
     id: int
     id_itineraire: int
     id_cooperative: int
+    id_gare: int | None = None
     id_vehicule: int
     id_chauffeur: int
     id_tarif: int
@@ -118,8 +137,32 @@ class DepartRead(BaseModel):
     updated_at: datetime | None = None
     itineraire: DepartItineraireRead | None = None
     cooperative: DepartCooperativeRead | None = None
+    gare: DepartGareRead | None = None
     vehicule: DepartVehiculeRead | None = None
     chauffeur: DepartChauffeurRead | None = None
+    tarif: DepartTarifRead | None = None
+
+    model_config = ConfigDict(from_attributes=True)
+
+
+class PublicProgrammeRead(BaseModel):
+    """Informations de départ nécessaires à la consultation publique."""
+
+    id: int
+    id_itineraire: int
+    id_cooperative: int
+    id_gare: int | None = None
+    date_depart: date
+    heure_depart: time
+    nombre_places: int
+    places_reservees: int
+    places_disponibles: int
+    taux_remplissage: float
+    statut: DepartStatusValue
+    itineraire: DepartItineraireRead | None = None
+    cooperative: DepartCooperativeRead | None = None
+    gare: DepartGareRead | None = None
+    vehicule: PublicVehiculeRead | None = None
     tarif: DepartTarifRead | None = None
 
     model_config = ConfigDict(from_attributes=True)

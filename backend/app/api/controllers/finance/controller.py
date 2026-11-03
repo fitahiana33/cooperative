@@ -1,4 +1,6 @@
-from fastapi import APIRouter, Depends, Header, Query, status
+import json
+
+from fastapi import APIRouter, Depends, Header, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import (
@@ -23,8 +25,19 @@ def create_online_payment(data: PaiementEnLigneCreate, current_user: User = Depe
 
 
 @router.post("/paiements/webhooks/{provider}")
-def payment_webhook(provider: str, payload: dict, x_payment_signature: str | None = Header(default=None), db: Session = Depends(get_db)):
-    return FinanceService(db).handle_online_webhook(provider=provider, payload=payload, signature=x_payment_signature)
+async def payment_webhook(provider: str, request: Request, db: Session = Depends(get_db)):
+    raw_body = await request.body()
+    try:
+        payload = json.loads(raw_body.decode("utf-8"))
+    except (UnicodeDecodeError, json.JSONDecodeError) as exc:
+        from fastapi import HTTPException
+        raise HTTPException(400, "Corps de notification invalide.") from exc
+    return FinanceService(db).handle_online_webhook(
+        provider=provider,
+        payload=payload,
+        signature=request.headers.get("X-Papi-Signature"),
+        raw_body=raw_body,
+    )
 
 
 @router.get("/caisses", response_model=PageResponse[CaisseRead])

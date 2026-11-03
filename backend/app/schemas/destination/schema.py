@@ -27,3 +27,14 @@ class DestinationRead(DestinationBase):
     updated_at: datetime | None = None
 
     model_config = ConfigDict(from_attributes=True)
+
+
+class PublicDestinationRead(BaseModel):
+    """Minimal destination data exposed to the public travel catalogue."""
+
+    id: int
+    nom: str
+    region: str | None = None
+    description: str | None = None
+
+    model_config = ConfigDict(from_attributes=True)

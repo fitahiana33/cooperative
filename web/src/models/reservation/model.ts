@@ -10,7 +10,7 @@ export interface DepartPlace {
 
 export interface ReservationPlaceInput {
   id_depart_place: number
-  nom_passager: string
+  nom_passager?: string
   telephone_passager?: string
 }
 
@@ -19,6 +19,9 @@ export interface Reservation {
   numero_reservation: string
   id_depart: number
   id_user: number
+  nom_reservataire?: string | null
+  telephone_reservataire?: string | null
+  email_reservataire?: string | null
   montant_total: number
   statut: ReservationStatus
   date_expiration?: string | null
@@ -31,4 +34,21 @@ export interface Reservation {
     vehicule?: { id: number; immatriculation: string; nombre_places: number; places_avant?: number; places_par_rangee?: number } | null
   }
   places: Array<{ id: number; id_depart_place: number; nom_passager: string; telephone_passager?: string; depart_place?: DepartPlace; billet?: { id: number; numero_billet: string; qr_code_uuid: string; statut: string } | null }>
+}
+
+export interface PublicReservationCreate {
+  id_depart: number
+  places: ReservationPlaceInput[]
+  nom_reservataire: string
+  telephone_reservataire: string
+  email_reservataire?: string
+  montant_avance: number
+  fournisseur: 'MVOLA' | 'ORANGE_MONEY' | 'AIRTEL_MONEY'
+}
+
+export interface PublicReservationResult {
+  reservation: Reservation
+  access_token: string
+  payment: import('./../finance/model').OnlinePayment
+  acompte_minimum: number
 }

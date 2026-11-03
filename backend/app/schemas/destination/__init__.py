@@ -1,3 +1,3 @@
-from app.schemas.destination.schema import DestinationCreate, DestinationRead, DestinationUpdate
+from app.schemas.destination.schema import DestinationCreate, DestinationRead, DestinationUpdate, PublicDestinationRead
 
-__all__ = ["DestinationCreate", "DestinationRead", "DestinationUpdate"]
+__all__ = ["DestinationCreate", "DestinationRead", "DestinationUpdate", "PublicDestinationRead"]

@@ -26,3 +26,15 @@ export interface Paiement {
   id_agent?: number | null
   remboursement_demande_le?: string | null
 }
+
+export interface OnlinePayment {
+  id_paiement: number
+  statut: string
+  fournisseur: string
+  reference_paiement: string
+  montant: number
+  message: string
+  checkout_url?: string | null
+  acompte_minimum?: number | null
+  montant_restant?: number | null
+}

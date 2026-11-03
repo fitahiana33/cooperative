@@ -576,8 +576,11 @@ class DemoSeeder:
                 if statut in (DepartStatus.TERMINE, DepartStatus.PROGRAMME) and self.rng.random() < 0.04:
                     statut, started, arrived = DepartStatus.ANNULE, None, None
 
+                slug = self.origin_gare_slug(origin, destination)
+
                 depart = Depart(
                     id_itineraire=self.itineraires[(origin, destination)].id, id_cooperative=self.cooperatives[sigle].id,
+                    id_gare=self.gares[slug].id,
                     id_vehicule=vehicule.id, id_chauffeur=chauffeur.id, id_tarif=tarif.id,
                     date_depart=day, heure_depart=hour, date_heure_depart=started, date_heure_arrivee=arrived,
                     nombre_places=vehicule.nombre_places, statut=statut,
@@ -586,7 +589,6 @@ class DemoSeeder:
                 db.add(depart)
                 db.flush()  # trigger creates the seats
 
-                slug = self.origin_gare_slug(origin, destination)
                 ctx = DepartContext(
                     depart=depart, label=f"{origin} → {destination} du {day:%d/%m/%Y} à {hour:%H:%M}",
                     dep_at=dep_at, arr_at=arr_at, gare=self.gares[slug], agent=self.agents[slug], prix=Decimal(tarif.prix),

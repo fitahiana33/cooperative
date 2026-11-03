@@ -1,16 +1,79 @@
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session
+from sqlalchemy import or_, select
+from sqlalchemy.orm import Session, selectinload
+
+from app.core.clock import local_today
 from app.db.session import get_db
+from app.models.cooperative import GareCooperative
+from app.models.gare import Gare
 from app.models.user import User
 from app.schemas.gare import (
     GareAgentRead, GareCreate, GareUpdate, GareRead, QuaiCreate, QuaiRead, QuaiUpdate,
     ZoneCreate, ZoneRead, ZoneUpdate, EmplacementCreate, EmplacementRead, EmplacementUpdate,
+    PublicGareRead,
 )
 from app.schemas.common import PageResponse
 from app.services.gare import GareService
 from app.api.controllers.authentication.dependencies import require_permission
 
 router = APIRouter(prefix="/gares", tags=["gares"])
+
+
+@router.get("/public", response_model=PageResponse[PublicGareRead])
+def list_public_gares(
+    page: int = Query(1, ge=1),
+    page_size: int = Query(20, ge=1, le=100),
+    search: str | None = Query(None, max_length=100),
+    db: Session = Depends(get_db),
+):
+    """Public station directory with only active station/cooperative links."""
+    statement = select(Gare).options(
+        selectinload(Gare.cooperatives).selectinload(GareCooperative.cooperative),
+    ).where(Gare.is_active.is_(True))
+    if search and search.strip():
+        term = f"%{search.strip()}%"
+        statement = statement.where(or_(
+            Gare.nom.ilike(term),
+            Gare.ville.ilike(term),
+            Gare.adresse.ilike(term),
+            Gare.region.ilike(term),
+        ))
+
+    rows = list(db.scalars(statement.order_by(Gare.nom, Gare.id)))
+    today = local_today()
+    items = []
+    for gare in rows:
+        cooperatives = [
+            {
+                "id": association.cooperative.id,
+                "nom": association.cooperative.nom,
+                "sigle": association.cooperative.sigle,
+            }
+            for association in gare.cooperatives
+            if association.cooperative
+            and association.is_active
+            and association.cooperative.is_active
+            and (association.date_debut is None or association.date_debut <= today)
+            and (association.date_fin is None or association.date_fin >= today)
+        ]
+        items.append({
+            "id": gare.id,
+            "nom": gare.nom,
+            "adresse": gare.adresse,
+            "ville": gare.ville,
+            "region": gare.region,
+            "cooperatives": sorted(cooperatives, key=lambda item: item["nom"].lower()),
+        })
+
+    total = len(items)
+    offset = (page - 1) * page_size
+    return {
+        "items": items[offset:offset + page_size],
+        "total": total,
+        "page": page,
+        "page_size": page_size,
+        "pages": (total + page_size - 1) // page_size if total else 0,
+    }
 
 @router.get("", response_model=PageResponse[GareRead])
 def list_gares(

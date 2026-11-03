@@ -8,6 +8,7 @@ import { chauffeurService } from '../../services/chauffeur/service'
 import { cooperativeService } from '../../services/cooperative/service'
 import { departService } from '../../services/depart/service'
 import { itineraireService } from '../../services/itineraire/service'
+import { gareService } from '../../services/gare/service'
 import { tarifService } from '../../services/tarif/service'
 import { vehiculeService } from '../../services/vehicule/service'
 import { userError } from '../../utils/errors'
@@ -23,6 +24,7 @@ const error = ref('')
 const form = reactive({
   id_itineraire: 0,
   id_cooperative: 0,
+  id_gare: 0,
   id_vehicule: 0,
   id_chauffeur: 0,
   id_tarif: 0,
@@ -33,6 +35,7 @@ const form = reactive({
 
 const itineraires = ref<any[]>([])
 const cooperatives = ref<any[]>([])
+const gares = ref<any[]>([])
 const vehicules = ref<any[]>([])
 const chauffeurs = ref<any[]>([])
 const tarifs = ref<any[]>([])
@@ -71,6 +74,7 @@ async function loadReferences() {
   const results = await Promise.allSettled([
     itineraireService.list({ page: 1, page_size: 100, sort_by: 'created_at', sort_order: 'desc' }),
     cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
+    gareService.listGares({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
     vehiculeService.listVehicules({ page: 1, page_size: 100, sort_by: 'immatriculation', sort_order: 'asc' }),
     chauffeurService.listChauffeurs({ page: 1, page_size: 100, sort_by: 'created_at', sort_order: 'desc' }),
     tarifService.list({ page: 1, page_size: 100, sort_by: 'date_debut', sort_order: 'desc' }),
@@ -78,9 +82,10 @@ async function loadReferences() {
 
   if (results[0].status === 'fulfilled') itineraires.value = results[0].value.items.filter((item: any) => item.is_active)
   if (results[1].status === 'fulfilled') cooperatives.value = results[1].value.items.filter((item: any) => item.is_active)
-  if (results[2].status === 'fulfilled') allVehicules = results[2].value.items
-  if (results[3].status === 'fulfilled') allChauffeurs = results[3].value.items
-  if (results[4].status === 'fulfilled') tarifs.value = results[4].value.items
+  if (results[2].status === 'fulfilled') gares.value = results[2].value.items.filter((item: any) => item.is_active)
+  if (results[3].status === 'fulfilled') allVehicules = results[3].value.items
+  if (results[4].status === 'fulfilled') allChauffeurs = results[4].value.items
+  if (results[5].status === 'fulfilled') tarifs.value = results[5].value.items
   filterAvailable()
 }
 
@@ -197,6 +202,14 @@ async function submit() {
             <select v-model.number="form.id_cooperative" required @change="cooperativeChanged">
               <option :value="0" disabled>Choisir une coopérative</option>
               <option v-for="item in cooperatives" :key="item.id" :value="item.id">{{ item.nom }}</option>
+            </select>
+          </div>
+
+          <div class="field-group">
+            <label>Gare de départ <span>*</span></label>
+            <select v-model.number="form.id_gare" required>
+              <option :value="0" disabled>Choisir une gare</option>
+              <option v-for="item in gares" :key="item.id" :value="item.id">{{ item.nom }} · {{ item.ville }}</option>
             </select>
           </div>
 

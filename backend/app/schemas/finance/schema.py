@@ -43,6 +43,8 @@ class PaiementEnLigneRead(BaseModel):
     montant: Decimal
     message: str
     checkout_url: str | None = None
+    acompte_minimum: Decimal | None = None
+    montant_restant: Decimal | None = None
 
 
 class CaisseOpen(BaseModel):

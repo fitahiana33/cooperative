@@ -1,8 +1,9 @@
 import { api } from '../api'
-import type { Destination, DestinationCreate } from '../../models/destination/model'
+import type { Destination, DestinationCreate, PublicDestination } from '../../models/destination/model'
 
 export const destinationService = {
   async list(params?: Record<string, any>) { return (await api.get('/destinations', { params })).data },
+  async publicList(params?: Record<string, unknown>): Promise<{ items: PublicDestination[]; total: number; page: number; page_size: number; pages: number }> { return (await api.get('/destinations/public', { params })).data },
   async get(id: number): Promise<Destination> { return (await api.get(`/destinations/${id}`)).data },
   async create(data: DestinationCreate): Promise<Destination> { return (await api.post('/destinations', data)).data },
   async update(id: number, data: Partial<Destination>): Promise<Destination> { return (await api.put(`/destinations/${id}`, data)).data },

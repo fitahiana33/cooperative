@@ -5,7 +5,7 @@ from app.api.controllers.authentication.dependencies import require_permission, 
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
-from app.schemas.destination import DestinationCreate, DestinationRead, DestinationUpdate
+from app.schemas.destination import DestinationCreate, DestinationRead, DestinationUpdate, PublicDestinationRead
 from app.services.destination import DestinationService
 
 router = APIRouter(prefix="/destinations", tags=["destinations"])
@@ -20,6 +20,19 @@ def list_destinations(
     _: User = Depends(require_permission("DESTINATION_READ")), db: Session = Depends(get_db),
 ):
     return DestinationService(db).list_destinations(page=page, page_size=page_size, search=search, sort_by=sort_by, sort_order=sort_order)
+
+
+@router.get("/public", response_model=PageResponse[PublicDestinationRead])
+def list_public_destinations(
+    page: int = Query(1, ge=1), page_size: int = Query(100, ge=1, le=200),
+    search: str | None = Query(None, max_length=100),
+    db: Session = Depends(get_db),
+):
+    """Destinations actives utilisées par le moteur de recherche public."""
+    return DestinationService(db).list_destinations(
+        page=page, page_size=page_size, search=search,
+        sort_by="nom", sort_order="asc", active_only=True,
+    )
 
 
 @router.post("", response_model=DestinationRead, status_code=status.HTTP_201_CREATED)

@@ -1,5 +1,5 @@
 import { api } from '../api'
-import type { DepartPlace, Reservation, ReservationPlaceInput } from '../../models/reservation/model'
+import type { DepartPlace, PublicReservationCreate, PublicReservationResult, Reservation, ReservationPlaceInput } from '../../models/reservation/model'
 
 export const reservationService = {
   async list(params?: Record<string, unknown>) { return (await api.get('/reservations', { params })).data },
@@ -7,6 +7,9 @@ export const reservationService = {
   async exportManifest(departId: number): Promise<Blob> { return (await api.get(`/departs/${departId}/manifest.csv`, { responseType: 'blob', timeout: 60000 })).data },
   async get(id: number): Promise<Reservation> { return (await api.get(`/reservations/${id}`)).data },
   async places(departId: number, availableOnly = false): Promise<DepartPlace[]> { return (await api.get(`/departs/${departId}/places`, { params: { available_only: availableOnly } })).data },
+  async publicPlaces(departId: number): Promise<DepartPlace[]> { return (await api.get(`/reservations/public/departs/${departId}/places`)).data },
+  async publicCreate(data: PublicReservationCreate): Promise<PublicReservationResult> { return (await api.post('/reservations/public', data)).data },
+  async publicGet(number: string, token: string): Promise<Reservation> { return (await api.get(`/reservations/public/${encodeURIComponent(number)}`, { params: { token } })).data },
   async create(data: { id_depart: number; places: ReservationPlaceInput[] }): Promise<Reservation> { return (await api.post('/reservations', data)).data },
   async update(id: number, data: { id_depart: number; places: ReservationPlaceInput[] }): Promise<Reservation> { return (await api.patch(`/reservations/${id}`, data)).data },
   // Counter sale by staff: books, confirms and, when a cash desk is given, takes the cash payment.

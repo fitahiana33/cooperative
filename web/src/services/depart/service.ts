@@ -1,9 +1,15 @@
 import { api } from '../api'
-import type { Depart, DepartCreate, DepartStatus } from '../../models/depart/model'
+import type { Depart, DepartCreate, DepartStatus, PublicProgramme } from '../../models/depart/model'
 
 export const departService = {
   async list(params?: Record<string, unknown>) {
     return (await api.get('/departs', { params })).data
+  },
+  async publicProgramme(params?: Record<string, unknown>): Promise<{ items: PublicProgramme[]; total: number; page: number; page_size: number; pages: number }> {
+    return (await api.get('/departs/public/programme', { params })).data
+  },
+  async publicGet(id: number): Promise<PublicProgramme> {
+    return (await api.get<PublicProgramme>(`/departs/public/${id}`)).data
   },
   async listMine(params?: Record<string, unknown>) {
     return (await api.get('/departs/mes-departs', { params })).data
