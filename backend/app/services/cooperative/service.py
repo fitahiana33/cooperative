@@ -11,6 +11,7 @@ from app.core.pagination import paginate
 from app.models import Chauffeur, Cooperative, CooperativeMember, Gare, GareCooperative, Role, User
 from app.models.user import UserRole
 from app.core.clock import local_today
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.cooperative")
 
@@ -34,6 +35,7 @@ class CooperativeService:
         return list(self.db.scalars(statement))
 
     def remove_from_gare(self, gare_id: int, cooperative_id: int) -> None:
+        ensure_planning_covered(self.db, resource="Ce rattachement gare-coopérative", id_gare=gare_id, id_cooperative=cooperative_id, inactive=True)
         statement = select(GareCooperative).where(
             GareCooperative.id_gare == gare_id,
             GareCooperative.id_cooperative == cooperative_id,
@@ -273,6 +275,8 @@ class CooperativeService:
 
     def update_cooperative(self, cooperative_id: int, **fields) -> Cooperative:
         item = self.get_cooperative(cooperative_id)
+        if fields.get("is_active") is False:
+            ensure_planning_covered(self.db, resource="Cette coopérative", id_cooperative=cooperative_id, inactive=True)
         if "responsable_id" in fields:
             self._validate_responsable(fields["responsable_id"])
         if fields.get("nom") is not None and not fields["nom"].strip():
@@ -312,6 +316,8 @@ class CooperativeService:
 
     def toggle_cooperative(self, cooperative_id: int) -> Cooperative:
         item = self.get_cooperative(cooperative_id)
+        if item.is_active:
+            ensure_planning_covered(self.db, resource="Cette coopérative", id_cooperative=cooperative_id, inactive=True)
         item.is_active = not item.is_active
         try:
             self.db.commit()
@@ -346,12 +352,16 @@ class CooperativeService:
         date_fin: date | None = None,
         is_active: bool = True,
     ) -> GareCooperative:
-        if not self.db.get(Gare, gare_id):
+        gare = self.db.get(Gare, gare_id)
+        if not gare:
             raise HTTPException(404, "Gare introuvable.")
+        if not gare.is_active:
+            raise HTTPException(422, "Une gare inactive ne peut pas recevoir de coopérative.")
         cooperative = self.get_cooperative(cooperative_id)
         if not cooperative.is_active:
             raise HTTPException(422, "Une coopérative inactive ne peut pas être rattachée à une gare.")
         self._validate_dates(date_debut, date_fin)
+        ensure_planning_covered(self.db, resource="Ce rattachement gare-coopérative", id_gare=gare_id, id_cooperative=cooperative_id, starts=date_debut, ends=date_fin, inactive=not is_active)
 
         statement = select(GareCooperative).where(
             GareCooperative.id_gare == gare_id,
@@ -400,9 +410,10 @@ class CooperativeService:
         next_start = fields.get("date_debut", item.date_debut)
         next_end = fields.get("date_fin", item.date_fin)
         self._validate_dates(next_start, next_end)
+        ensure_planning_covered(self.db, resource="Ce rattachement gare-coopérative", id_gare=gare_id, id_cooperative=cooperative_id, starts=next_start, ends=next_end, inactive=not fields.get("is_active", item.is_active))
 
         for key, value in fields.items():
-            if value is not None and hasattr(GareCooperative, key):
+            if (value is not None or key in {"date_debut", "date_fin"}) and hasattr(GareCooperative, key):
                 setattr(item, key, value)
 
         self.db.commit()

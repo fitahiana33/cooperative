@@ -2,7 +2,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, DateTime, ForeignKey, Identity, Index, Numeric, String, Text, func, text
+from sqlalchemy import BigInteger, Boolean, CheckConstraint, DateTime, ForeignKey, Identity, Index, Numeric, String, Text, func, text
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
@@ -44,7 +44,6 @@ class Paiement(Base):
         Index("idx_paiements_statut", "statut"),
         Index("idx_paiements_agent", "id_agent"),
         Index("idx_paiements_date", "date_paiement"),
-        Index("uq_paiement_valide_reservation", "id_reservation", unique=True, postgresql_where=text("statut = 'VALIDE'")),
     )
 
     id: Mapped[int] = mapped_column("id_paiement", BigInteger, Identity(always=True), primary_key=True)
@@ -60,6 +59,11 @@ class Paiement(Base):
     webhook_recu_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
     statut: Mapped[str] = mapped_column(String(20), default=PaiementStatus.EN_ATTENTE, server_default=PaiementStatus.EN_ATTENTE, nullable=False)
     date_paiement: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+    date_validation: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    date_remboursement: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
+    verification_requise: Mapped[bool] = mapped_column(Boolean, default=False, server_default="false", nullable=False)
+    methode_remboursement: Mapped[str | None] = mapped_column(String(30))
+    reference_remboursement: Mapped[str | None] = mapped_column(String(150))
     id_agent: Mapped[int | None] = mapped_column(ForeignKey("users.id_user", ondelete="SET NULL"))
     # Set when the reservation was cancelled but the money is still to be returned by a cashier.
     remboursement_demande_le: Mapped[datetime | None] = mapped_column(DateTime(timezone=True))
@@ -110,6 +114,7 @@ class OperationCaisse(Base):
 
     id: Mapped[int] = mapped_column("id_operation", BigInteger, Identity(always=True), primary_key=True)
     id_caisse: Mapped[int] = mapped_column(ForeignKey("caisses.id_caisse", ondelete="CASCADE"), nullable=False)
+    id_agent: Mapped[int | None] = mapped_column(ForeignKey("users.id_user", ondelete="SET NULL"))
     type_operation: Mapped[str] = mapped_column(String(20), nullable=False)
     montant: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False)
     id_paiement: Mapped[int | None] = mapped_column(ForeignKey("paiements.id_paiement", ondelete="SET NULL"))

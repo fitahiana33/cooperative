@@ -103,8 +103,27 @@ class AuthRepositoryImpl implements AuthRepository {
   }
 
   @override
-  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
-    await _remoteDataSource.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+  Future<Uint8List> profilePhoto() => _remoteDataSource.profilePhoto();
+
+  @override
+  Future<UserEntity> uploadPhoto(Uint8List bytes, String filename) async {
+    final user = await _remoteDataSource.uploadPhoto(bytes, filename);
+    await _tokenStorage.saveUser(user.toJson());
+    return user;
+  }
+
+  @override
+  Future<UserEntity> removePhoto() async {
+    final user = await _remoteDataSource.removePhoto();
+    await _tokenStorage.saveUser(user.toJson());
+    return user;
+  }
+
+  @override
+  Future<void> changePassword(
+      {required String currentPassword, required String newPassword}) async {
+    await _remoteDataSource.changePassword(
+        currentPassword: currentPassword, newPassword: newPassword);
     // The server ends every session on a password change: sign in again.
     await _tokenStorage.clear();
   }

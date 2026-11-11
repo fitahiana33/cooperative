@@ -12,6 +12,7 @@ from app.models.cooperative import Cooperative, CooperativeMember
 from app.models.vehicule import Vehicule, VehiculeChauffeur
 from app.core.pagination import paginate
 from app.core.clock import local_today
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.chauffeur")
 
@@ -62,6 +63,7 @@ class ChauffeurService:
         today = local_today()
         due_assignments = list(self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.is_active.is_(False),
+            VehiculeChauffeur.is_cancelled.is_(False),
             VehiculeChauffeur.date_debut <= today,
             # A closed assignment ending today must not be reactivated by
             # the synchronizer. Open assignments remain eligible; an
@@ -71,6 +73,10 @@ class ChauffeurService:
         ).order_by(VehiculeChauffeur.date_debut, VehiculeChauffeur.created_at)))
         changed = False
         for assignment in due_assignments:
+            if (not assignment.chauffeur.is_active or not assignment.chauffeur.disponibilite
+                    or assignment.chauffeur.date_expiration_permis < today
+                    or not assignment.vehicule.is_active or not assignment.vehicule.disponibilite):
+                continue
             driver_busy = self.db.scalar(select(VehiculeChauffeur).where(
                 VehiculeChauffeur.id_chauffeur == assignment.id_chauffeur,
                 VehiculeChauffeur.is_active.is_(True),
@@ -93,6 +99,7 @@ class ChauffeurService:
         ).order_by(VehiculeChauffeur.date_debut.desc())))
 
     def close_assignment(self, chauffeur_id: int, vehicule_id: int, date_debut: date) -> None:
+        ensure_planning_covered(self.db, resource="Cette affectation", id_chauffeur=chauffeur_id, id_vehicule=vehicule_id, inactive=True)
         item = self.db.get(VehiculeChauffeur, (vehicule_id, chauffeur_id, date_debut))
         if not item:
             raise HTTPException(status_code=404, detail="Affectation introuvable.")
@@ -101,6 +108,7 @@ class ChauffeurService:
         if local_today() < date_debut:
             raise HTTPException(status_code=422, detail="Une affectation future ne peut pas encore être clôturée.")
         item.is_active = False
+        item.is_cancelled = True
         item.date_fin = local_today()
         self.db.commit()
 
@@ -112,6 +120,7 @@ class ChauffeurService:
         ))
         for assignment in assignments:
             assignment.is_active = False
+            assignment.is_cancelled = True
             assignment.date_fin = max(today, assignment.date_debut)
 
     def list_chauffeurs(
@@ -232,6 +241,8 @@ class ChauffeurService:
 
     def update_chauffeur(self, chauffeur_id: int, **fields) -> Chauffeur:
         item = self.get_chauffeur(chauffeur_id)
+        inactive = fields.get("is_active") is False or fields.get("disponibilite") is False or fields.get("id_cooperative", item.id_cooperative) != item.id_cooperative
+        ensure_planning_covered(self.db, resource="Ce chauffeur", id_chauffeur=chauffeur_id, inactive=inactive, ends=fields.get("date_expiration_permis"))
         if fields.get("id_cooperative") is not None:
             cooperative = self.db.get(Cooperative, fields["id_cooperative"])
             if not cooperative:
@@ -294,6 +305,8 @@ class ChauffeurService:
 
     def toggle_chauffeur(self, chauffeur_id: int) -> Chauffeur:
         item = self.get_chauffeur(chauffeur_id)
+        if item.is_active:
+            ensure_planning_covered(self.db, resource="Ce chauffeur", id_chauffeur=chauffeur_id, inactive=True)
         item.is_active = not item.is_active
         try:
             if not item.is_active:
@@ -346,9 +359,9 @@ class ChauffeurService:
         ):
             return []
 
-        period_end = end or start
         overlap = and_(
-            VehiculeChauffeur.date_debut <= period_end,
+            VehiculeChauffeur.is_cancelled.is_(False),
+            VehiculeChauffeur.date_debut <= end if end is not None else True,
             or_(
                 VehiculeChauffeur.date_fin.is_(None),
                 VehiculeChauffeur.date_fin >= start,
@@ -394,6 +407,7 @@ class ChauffeurService:
 
         next_start = new_date_debut or item.date_debut
         next_end = date_fin if date_fin is not None else item.date_fin
+        ensure_planning_covered(self.db, resource="Cette affectation", id_chauffeur=chauffeur_id, id_vehicule=vehicule_id, starts=next_start, ends=next_end, inactive=is_active is False)
         if next_end is not None and next_end < next_start:
             raise HTTPException(
                 status_code=422,
@@ -407,21 +421,34 @@ class ChauffeurService:
                 detail="L'affectation ne peut pas dépasser l'expiration du permis.",
             )
 
+        self.db.execute(select(Chauffeur.id).where(Chauffeur.id == chauffeur_id).with_for_update())
+        self.db.execute(select(Vehicule.id).where(Vehicule.id == vehicule_id).with_for_update())
+        if is_active is not False:
+            overlap = self.db.scalar(select(VehiculeChauffeur).where(
+                VehiculeChauffeur.is_cancelled.is_(False),
+                or_(VehiculeChauffeur.id_chauffeur == chauffeur_id, VehiculeChauffeur.id_vehicule == vehicule_id),
+                or_(VehiculeChauffeur.id_chauffeur != chauffeur_id, VehiculeChauffeur.id_vehicule != vehicule_id, VehiculeChauffeur.date_debut != date_debut),
+                or_(VehiculeChauffeur.date_fin.is_(None), VehiculeChauffeur.date_fin >= next_start),
+                VehiculeChauffeur.date_debut <= next_end if next_end else True,
+            ).limit(1))
+            if overlap is not None:
+                raise HTTPException(409, "Cette période entre en conflit avec une autre affectation du chauffeur ou du véhicule.")
+
         today = local_today()
         if new_date_debut is not None:
             item.date_debut = new_date_debut
         if date_fin is not None:
             item.date_fin = date_fin
         if is_active is not None:
-            item.is_active = is_active
-        else:
-            item.is_active = next_start <= today and (next_end is None or next_end >= today)
+            item.is_cancelled = not is_active
+        item.is_active = not item.is_cancelled and next_start <= today and (next_end is None or next_end >= today)
 
         self.db.commit()
         self.db.refresh(item)
         return item
 
     def delete_assignment(self, chauffeur_id: int, vehicule_id: int, date_debut: date) -> None:
+        ensure_planning_covered(self.db, resource="Cette affectation", id_chauffeur=chauffeur_id, id_vehicule=vehicule_id, inactive=True)
         self.get_chauffeur(chauffeur_id)
         item = self.db.get(VehiculeChauffeur, (vehicule_id, chauffeur_id, date_debut))
         if not item:
@@ -460,19 +487,8 @@ class ChauffeurService:
         if date_fin is not None and date_fin > chauffeur.date_expiration_permis:
             raise HTTPException(status_code=422, detail="L'affectation ne peut pas dépasser l'expiration du permis.")
 
-        active_assignment = self.db.scalar(select(VehiculeChauffeur).where(
-            VehiculeChauffeur.id_chauffeur == chauffeur_id,
-            VehiculeChauffeur.is_active.is_(True),
-        ))
-        if active_assignment:
-            raise HTTPException(status_code=409, detail="Ce chauffeur est déjà affecté à un véhicule actif.")
-
-        active_vehicle_assignment = self.db.scalar(select(VehiculeChauffeur).where(
-            VehiculeChauffeur.id_vehicule == vehicule_id,
-            VehiculeChauffeur.is_active.is_(True),
-        ))
-        if active_vehicle_assignment:
-            raise HTTPException(status_code=409, detail="Ce véhicule est déjà affecté à un chauffeur actif.")
+        self.db.execute(select(Chauffeur.id).where(Chauffeur.id == chauffeur_id).with_for_update())
+        self.db.execute(select(Vehicule.id).where(Vehicule.id == vehicule_id).with_for_update())
 
         def overlaps(existing: VehiculeChauffeur) -> bool:
             existing_end = existing.date_fin
@@ -483,11 +499,13 @@ class ChauffeurService:
 
         driver_periods = self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.id_chauffeur == chauffeur_id,
+            VehiculeChauffeur.is_cancelled.is_(False),
         ))
         if any(overlaps(existing) for existing in driver_periods):
             raise HTTPException(status_code=409, detail="Le chauffeur possède déjà une affectation sur cette période.")
         vehicle_periods = self.db.scalars(select(VehiculeChauffeur).where(
             VehiculeChauffeur.id_vehicule == vehicule_id,
+            VehiculeChauffeur.is_cancelled.is_(False),
         ))
         if any(overlaps(existing) for existing in vehicle_periods):
             raise HTTPException(status_code=409, detail="Le véhicule possède déjà une affectation sur cette période.")

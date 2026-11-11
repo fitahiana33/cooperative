@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { allPages } from "../../services/pagination";
 import { computed, nextTick, onMounted, onUnmounted, ref } from "vue";
 import { BrowserQRCodeReader, type IScannerControls } from "@zxing/browser";
 import { localIsoDate } from "../../utils/date";
@@ -27,7 +28,11 @@ interface PassengerRow {
 const code = ref("");
 const busy = ref(false);
 const error = ref("");
-const result = ref<{ id: number; statut: string; motif_refus?: string | null } | null>(null);
+const result = ref<{
+  id: number;
+  statut: string;
+  motif_refus?: string | null;
+} | null>(null);
 const video = ref<HTMLVideoElement | null>(null);
 const scanning = ref(false);
 const scannerError = ref("");
@@ -43,8 +48,15 @@ let scannerControls: IScannerControls | null = null;
 const boarded = computed(() => passengers.value.filter((row) => row.embarque));
 const waiting = computed(() => passengers.value.filter((row) => !row.embarque));
 const passengerRows = computed(() => [...waiting.value, ...boarded.value]);
-const passengerPages = computed(() => Math.max(1, Math.ceil(passengerRows.value.length / passengerPageSize)));
-const visiblePassengerRows = computed(() => passengerRows.value.slice((passengerPage.value - 1) * passengerPageSize, passengerPage.value * passengerPageSize));
+const passengerPages = computed(() =>
+  Math.max(1, Math.ceil(passengerRows.value.length / passengerPageSize)),
+);
+const visiblePassengerRows = computed(() =>
+  passengerRows.value.slice(
+    (passengerPage.value - 1) * passengerPageSize,
+    passengerPage.value * passengerPageSize,
+  ),
+);
 
 function departLabel(item: Depart) {
   const from = item.itineraire?.destination_depart?.nom || "?";
@@ -56,10 +68,23 @@ async function loadDepartures() {
   try {
     // Boarding happens on the day of the departure, for departures still open.
     const today = localIsoDate();
-    const result = await departService.list({ page: 1, page_size: 100, date_from: today, date_to: today, sort_by: "heure_depart", sort_order: "asc" });
-    departures.value = (result.items || []).filter((item: Depart) => ["PROGRAMME", "EMBARQUEMENT", "RETARDE"].includes(item.statut));
+    const result = await allPages((params) => departService.list(params), {
+      page: 1,
+      page_size: 100,
+      date_from: today,
+      date_to: today,
+      sort_by: "heure_depart",
+      sort_order: "asc",
+    });
+    departures.value = (result.items || []).filter((item: Depart) =>
+      ["PROGRAMME", "EMBARQUEMENT", "RETARDE"].includes(item.statut),
+    );
   } catch (value: unknown) {
-    error.value = userError(value, "Impossible de charger les départs du jour.", "BOARDING_DEPARTURES_ERROR");
+    error.value = userError(
+      value,
+      "Impossible de charger les départs du jour.",
+      "BOARDING_DEPARTURES_ERROR",
+    );
   }
 }
 
@@ -71,9 +96,15 @@ async function loadPassengers() {
   loadingPassengers.value = true;
   passengerPage.value = 1;
   try {
-    passengers.value = (await api.get<PassengerRow[]>(`/departs/${departureId.value}/passagers`)).data;
+    passengers.value = (
+      await api.get<PassengerRow[]>(`/departs/${departureId.value}/passagers`)
+    ).data;
   } catch (value: unknown) {
-    error.value = userError(value, "Impossible de charger la liste des passagers.", "BOARDING_PASSENGERS_ERROR");
+    error.value = userError(
+      value,
+      "Impossible de charger la liste des passagers.",
+      "BOARDING_PASSENGERS_ERROR",
+    );
   } finally {
     loadingPassengers.value = false;
   }
@@ -98,11 +129,20 @@ async function control() {
   error.value = "";
   result.value = null;
   try {
-    result.value = (await api.post("/embarquement/controle", { code: code.value.trim(), id_depart: departureId.value })).data;
+    result.value = (
+      await api.post("/embarquement/controle", {
+        code: code.value.trim(),
+        id_depart: departureId.value,
+      })
+    ).data;
     code.value = "";
     await loadPassengers();
   } catch (value: unknown) {
-    error.value = userError(value, "Billet non autorisé à l’embarquement.", "BOARDING_CONTROL_ERROR");
+    error.value = userError(
+      value,
+      "Billet non autorisé à l’embarquement.",
+      "BOARDING_CONTROL_ERROR",
+    );
   } finally {
     busy.value = false;
   }
@@ -131,7 +171,8 @@ async function startScanner() {
       },
     );
   } catch {
-    scannerError.value = "Accès à la caméra refusé ou indisponible. Saisissez le code manuellement.";
+    scannerError.value =
+      "Accès à la caméra refusé ou indisponible. Saisissez le code manuellement.";
     stopScanner();
   }
 }
@@ -153,7 +194,11 @@ async function generateManifest() {
     link.click();
     URL.revokeObjectURL(url);
   } catch (value: unknown) {
-    error.value = userError(value, "Impossible de générer le manifeste.", "MANIFEST_EXPORT_ERROR");
+    error.value = userError(
+      value,
+      "Impossible de générer le manifeste.",
+      "MANIFEST_EXPORT_ERROR",
+    );
   }
 }
 
@@ -168,7 +213,10 @@ onUnmounted(stopScanner);
       <div>
         <p class="eyebrow">CONTRÔLE</p>
         <h2>Contrôle d’embarquement</h2>
-        <p>Choisissez le départ, puis scannez le QR Code ou saisissez le numéro de chaque billet.</p>
+        <p>
+          Choisissez le départ, puis scannez le QR Code ou saisissez le numéro
+          de chaque billet.
+        </p>
       </div>
     </div>
 
@@ -183,16 +231,44 @@ onUnmounted(stopScanner);
     />
 
     <BaseCard v-if="boardingTab === 'departure'">
-      <div class="card-heading"><div><h2>Départ à embarquer</h2><p>Un billet d’un autre départ sera refusé.</p></div></div>
+      <div class="card-heading">
+        <div>
+          <h2>Départ à embarquer</h2>
+          <p>Un billet d’un autre départ sera refusé.</p>
+        </div>
+      </div>
       <div class="inline-form">
         <label class="form-field">
           <span>Départ du jour *</span>
-          <select v-model="departureId" :disabled="busy" @change="selectDeparture">
-            <option :value="null">{{ departures.length ? "Choisir un départ" : "Aucun départ à embarquer aujourd’hui" }}</option>
-            <option v-for="depart in departures" :key="depart.id" :value="depart.id">{{ departLabel(depart) }}</option>
+          <select
+            v-model="departureId"
+            :disabled="busy"
+            @change="selectDeparture"
+          >
+            <option :value="null">
+              {{
+                departures.length
+                  ? "Choisir un départ"
+                  : "Aucun départ à embarquer aujourd’hui"
+              }}
+            </option>
+            <option
+              v-for="depart in departures"
+              :key="depart.id"
+              :value="depart.id"
+            >
+              {{ departLabel(depart) }}
+            </option>
           </select>
         </label>
-        <button class="secondary-button" type="button" :disabled="!departureId" @click="generateManifest">Exporter le manifeste (CSV)</button>
+        <button
+          class="secondary-button"
+          type="button"
+          :disabled="!departureId"
+          @click="generateManifest"
+        >
+          Exporter le manifeste (CSV)
+        </button>
       </div>
     </BaseCard>
 
@@ -200,66 +276,184 @@ onUnmounted(stopScanner);
       <form class="control-form" @submit.prevent="control">
         <label class="form-field">
           <span>Numéro du billet ou valeur du QR Code *</span>
-          <input v-model="code" :disabled="busy || !departureId" placeholder="TKT-… ou identifiant du QR" />
+          <input
+            v-model="code"
+            :disabled="busy || !departureId"
+            placeholder="TKT-… ou identifiant du QR"
+          />
         </label>
-        <button class="primary-button" :disabled="busy || !departureId">{{ busy ? "Contrôle…" : "Contrôler" }}</button>
+        <button class="primary-button" :disabled="busy || !departureId">
+          {{ busy ? "Contrôle…" : "Contrôler" }}
+        </button>
       </form>
       <div class="scanner-actions">
-        <button class="secondary-button" type="button" :disabled="scanning || busy || !departureId" @click="startScanner">
+        <button
+          class="secondary-button"
+          type="button"
+          :disabled="scanning || busy || !departureId"
+          @click="startScanner"
+        >
           {{ scanning ? "Scan en cours…" : "Scanner avec la caméra" }}
         </button>
-        <button v-if="scanning" class="secondary-button danger-action" type="button" @click="stopScanner">Arrêter le scan</button>
+        <button
+          v-if="scanning"
+          class="secondary-button danger-action"
+          type="button"
+          @click="stopScanner"
+        >
+          Arrêter le scan
+        </button>
       </div>
-      <video v-if="scanning" ref="video" class="qr-camera" muted playsinline aria-label="Caméra de scan QR"></video>
+      <video
+        v-if="scanning"
+        ref="video"
+        class="qr-camera"
+        muted
+        playsinline
+        aria-label="Caméra de scan QR"
+      ></video>
       <p v-if="scannerError" class="status-msg">{{ scannerError }}</p>
       <p v-if="error" class="error-banner" role="alert">{{ error }}</p>
-      <div v-if="result" class="result-panel" :class="result.statut === 'VALIDE' ? 'result-success' : 'result-error'" role="status">
-        <strong>{{ result.statut === "VALIDE" ? "Embarquement enregistré" : "Embarquement refusé" }}</strong>
-        <span>{{ result.motif_refus || "Le billet, le départ, la date et la place ont été validés." }}</span>
+      <div
+        v-if="result"
+        class="result-panel"
+        :class="result.statut === 'VALIDE' ? 'result-success' : 'result-error'"
+        role="status"
+      >
+        <strong>{{
+          result.statut === "VALIDE"
+            ? "Embarquement enregistré"
+            : "Embarquement refusé"
+        }}</strong>
+        <span>{{
+          result.motif_refus ||
+          "Le billet, le départ, la date et la place ont été validés."
+        }}</span>
       </div>
     </BaseCard>
 
     <BaseCard v-if="boardingTab === 'passengers' && departureId">
       <div class="card-heading">
         <div>
-          <h2>Passagers ({{ boarded.length }} / {{ passengers.length }} embarqués)</h2>
+          <h2>
+            Passagers ({{ boarded.length }} / {{ passengers.length }} embarqués)
+          </h2>
           <p>La liste se met à jour après chaque contrôle.</p>
         </div>
       </div>
-      <p v-if="loadingPassengers" class="status-msg">Chargement des passagers…</p>
-      <p v-else-if="!passengers.length" class="empty-state">Aucune réservation sur ce départ.</p>
+      <p v-if="loadingPassengers" class="status-msg">
+        Chargement des passagers…
+      </p>
+      <p v-else-if="!passengers.length" class="empty-state">
+        Aucune réservation sur ce départ.
+      </p>
       <div v-else class="table-scroll">
         <table class="data-table">
-          <caption class="sr-only">Passagers du départ</caption>
-          <thead><tr><th>Place</th><th>Passager</th><th>Billet</th><th>Réservation</th><th>Embarquement</th></tr></thead>
+          <caption class="sr-only">
+            Passagers du départ
+          </caption>
+          <thead>
+            <tr>
+              <th>Place</th>
+              <th>Passager</th>
+              <th>Billet</th>
+              <th>Réservation</th>
+              <th>Embarquement</th>
+            </tr>
+          </thead>
           <tbody>
-            <tr v-for="row in visiblePassengerRows" :key="row.billet || row.reservation + row.place">
+            <tr
+              v-for="row in visiblePassengerRows"
+              :key="row.billet || row.reservation + row.place"
+            >
               <td>{{ row.place }}</td>
-              <td>{{ row.passager }}<br /><small>{{ row.telephone || "—" }}</small></td>
-              <td><small>{{ row.billet || "Non émis" }}</small></td>
+              <td>
+                {{ row.passager }}<br /><small>{{
+                  row.telephone || "—"
+                }}</small>
+              </td>
+              <td>
+                <small>{{ row.billet || "Non émis" }}</small>
+              </td>
               <td>{{ row.reservation_statut }}</td>
               <td>
-                <span :class="['status-badge', row.embarque ? 'active' : 'inactive']">
+                <span
+                  :class="[
+                    'status-badge',
+                    row.embarque ? 'active' : 'inactive',
+                  ]"
+                >
                   {{ row.embarque ? "Embarqué" : "Non embarqué" }}
                 </span>
-                <small v-if="row.embarque && row.date_pointage"> · {{ new Date(row.date_pointage).toLocaleTimeString("fr-FR", { hour: "2-digit", minute: "2-digit" }) }}</small>
+                <small v-if="row.embarque && row.date_pointage">
+                  ·
+                  {{
+                    new Date(row.date_pointage).toLocaleTimeString("fr-FR", {
+                      hour: "2-digit",
+                      minute: "2-digit",
+                    })
+                  }}</small
+                >
               </td>
             </tr>
           </tbody>
         </table>
-        <PaginationControls :page="passengerPage" :pages="passengerPages" :total="passengerRows.length" item-label="passager(s)" @change="passengerPage = $event" />
+        <PaginationControls
+          :page="passengerPage"
+          :pages="passengerPages"
+          :total="passengerRows.length"
+          item-label="passager(s)"
+          @change="passengerPage = $event"
+        />
       </div>
     </BaseCard>
   </AppLayout>
 </template>
 
 <style scoped>
-.control-form { display: grid; grid-template-columns: minmax(0, 1fr) auto; gap: 0.75rem; align-items: end; }
-.control-form input { width: 100%; }
-@media (max-width: 640px) { .control-form { grid-template-columns: 1fr; } }
-.scanner-actions { display: flex; flex-wrap: wrap; gap: 0.5rem; margin-top: 0.75rem; }
-.qr-camera { display: block; width: 100%; max-width: 420px; aspect-ratio: 4 / 3; margin-top: 0.75rem; border-radius: 12px; background: #0f172a; object-fit: cover; }
-.result-panel { display: grid; gap: 0.25rem; margin-top: 0.75rem; padding: 0.85rem 1rem; border-radius: 10px; }
-.result-success { color: #14532d; background: #dcfce7; }
-.result-error { color: #7f1d1d; background: #fee2e2; }
+.control-form {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 0.75rem;
+  align-items: end;
+}
+.control-form input {
+  width: 100%;
+}
+@media (max-width: 640px) {
+  .control-form {
+    grid-template-columns: 1fr;
+  }
+}
+.scanner-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-top: 0.75rem;
+}
+.qr-camera {
+  display: block;
+  width: 100%;
+  max-width: 420px;
+  aspect-ratio: 4 / 3;
+  margin-top: 0.75rem;
+  border-radius: 12px;
+  background: var(--ink-strong);
+  object-fit: cover;
+}
+.result-panel {
+  display: grid;
+  gap: 0.25rem;
+  margin-top: 0.75rem;
+  padding: 0.85rem 1rem;
+  border-radius: 10px;
+}
+.result-success {
+  color: #14532d;
+  background: #dcfce7;
+}
+.result-error {
+  color: #7f1d1d;
+  background: #fee2e2;
+}
 </style>

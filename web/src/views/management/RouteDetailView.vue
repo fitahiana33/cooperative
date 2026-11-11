@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { allPages } from "../../services/pagination";
 import { computed, onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
@@ -77,7 +78,7 @@ async function load() {
       const [links, history, cooperativePage] = await Promise.allSettled([
         itineraireService.listCooperatives(id),
         tarifService.history(id),
-        cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" }),
+        allPages((params) => cooperativeService.listCooperatives(params), { page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" }),
       ]);
       associations.value = links.status === "fulfilled" ? links.value : [];
       fares.value = history.status === "fulfilled" ? history.value : [];

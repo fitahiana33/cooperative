@@ -1,10 +1,11 @@
 from datetime import date, datetime, time
 from enum import StrEnum
 
-from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, Integer, String, Time, func, text
-from sqlalchemy.orm import Mapped, mapped_column, relationship
+from sqlalchemy import BigInteger, CheckConstraint, Date, DateTime, ForeignKey, Identity, Index, Integer, String, Time, func, select, text
+from sqlalchemy.orm import Mapped, column_property, mapped_column, relationship
 
 from app.db.base import Base
+from app.models.place import DepartPlace, DepartPlaceStatus
 
 
 class DepartStatus(StrEnum):
@@ -97,9 +98,15 @@ class Depart(Base):
     places = relationship("DepartPlace", back_populates="depart", cascade="all, delete-orphan", passive_deletes=True)
     reservations = relationship("Reservation", back_populates="depart", passive_deletes=True)
 
+    places_bloquees = column_property(
+        select(func.count(DepartPlace.id))
+        .where(DepartPlace.id_depart == id, DepartPlace.statut == DepartPlaceStatus.BLOQUEE)
+        .correlate_except(DepartPlace).scalar_subquery()
+    )
+
     @property
     def places_disponibles(self) -> int:
-        return max(self.nombre_places - self.places_reservees, 0)
+        return max(self.nombre_places - self.places_reservees - (self.places_bloquees or 0), 0)
 
     @property
     def taux_remplissage(self) -> float:

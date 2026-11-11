@@ -146,13 +146,10 @@ def has_active_role(user: User, role: str) -> bool:
 
 def has_global_cooperative_access(user: User) -> bool:
     """Return whether the user may inspect all cooperative-owned resources."""
-    return has_active_role(user, UserRole.ADMIN) or has_active_role(
-        user,
-        UserRole.RESPONSABLE_GARE,
-    )
+    return has_active_role(user, UserRole.ADMIN)
 
 
-STAFF_ROLES = (UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE, UserRole.RESPONSABLE_COOPERATIVE, UserRole.CHAUFFEUR)
+STAFF_ROLES = (UserRole.ADMIN, UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE, UserRole.RESPONSABLE_COOPERATIVE, UserRole.CHAUFFEUR)
 
 
 def is_staff(user: User) -> bool:
@@ -220,7 +217,7 @@ def get_user_gare_ids(db: Session, user: User) -> set[int] | None:
     if has_global_cooperative_access(user):
         return None
     assigned = _assigned_gare_ids(db, user)
-    if assigned and has_active_role(user, UserRole.AGENT_GARE):
+    if has_active_role(user, UserRole.AGENT_GARE) or has_active_role(user, UserRole.RESPONSABLE_GARE):
         # An agent works at their station only, not at every station of its cooperatives.
         return assigned
     cooperative_ids = get_user_cooperative_ids(db, user)
@@ -245,6 +242,31 @@ def ensure_gare_access(db: Session, user: User, gare_id: int) -> None:
             status_code=status.HTTP_403_FORBIDDEN,
             detail="Vous n'êtes pas autorisé à accéder à cette gare.",
         )
+
+
+def station_agent_scope(db: Session, user: User) -> set[int] | None:
+    """An agent serves a station, not all stations of its cooperatives."""
+    if has_global_cooperative_access(user) or not any(has_active_role(user, role) for role in (UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE)):
+        return None
+    return get_user_gare_ids(db, user)
+
+
+def driver_scope(db: Session, user: User) -> int | None:
+    if has_global_cooperative_access(user) or any(has_active_role(user, role) for role in (UserRole.RESPONSABLE_COOPERATIVE, UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE)):
+        return None
+    if not has_active_role(user, UserRole.CHAUFFEUR):
+        return None
+    return db.scalar(select(Chauffeur.id).where(Chauffeur.id_user == user.id)) or -1
+
+
+def ensure_depart_access(db: Session, user: User, depart) -> None:
+    ensure_cooperative_access(db, user, depart.id_cooperative)
+    gare_ids = station_agent_scope(db, user)
+    if gare_ids is not None and depart.id_gare not in gare_ids:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce départ n'appartient pas à votre gare.")
+    chauffeur_id = driver_scope(db, user)
+    if chauffeur_id is not None and depart.id_chauffeur != chauffeur_id:
+        raise HTTPException(status.HTTP_403_FORBIDDEN, "Ce départ n'est pas affecté à votre profil chauffeur.")
 
 
 def ensure_cooperative_access(db: Session, user: User, cooperative_id: int) -> None:

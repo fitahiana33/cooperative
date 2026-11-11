@@ -1,35 +1,69 @@
-import { api } from '../api'
-import type { Chauffeur, ChauffeurCreate, VehiculeChauffeurAssign } from '../../models/chauffeur/model'
+import type { Page } from "../pagination";
+import { api } from "../api";
+import type {
+  Chauffeur,
+  ChauffeurCreate,
+  VehiculeChauffeurAssign,
+} from "../../models/chauffeur/model";
 
 export const chauffeurService = {
-  async listChauffeurs(params?: Record<string, any>) {
-    return (await api.get('/chauffeurs', { params })).data
+  async listChauffeurs(params?: Record<string, any>): Promise<Page<Chauffeur>> {
+    return (await api.get("/chauffeurs", { params })).data;
   },
   async getChauffeur(id: number): Promise<Chauffeur> {
-    return (await api.get<Chauffeur>(`/chauffeurs/${id}`)).data
+    return (await api.get<Chauffeur>(`/chauffeurs/${id}`)).data;
   },
   async createChauffeur(data: ChauffeurCreate): Promise<Chauffeur> {
-    return (await api.post<Chauffeur>('/chauffeurs', data)).data
+    return (await api.post<Chauffeur>("/chauffeurs", data)).data;
   },
-  async updateChauffeur(id: number, data: Partial<Chauffeur>): Promise<Chauffeur> {
-    return (await api.put<Chauffeur>(`/chauffeurs/${id}`, data)).data
+  async updateChauffeur(
+    id: number,
+    data: Partial<Chauffeur>,
+  ): Promise<Chauffeur> {
+    return (await api.put<Chauffeur>(`/chauffeurs/${id}`, data)).data;
   },
   async toggleChauffeur(id: number): Promise<Chauffeur> {
-    return (await api.patch<Chauffeur>(`/chauffeurs/${id}/toggle`)).data
+    return (await api.patch<Chauffeur>(`/chauffeurs/${id}/toggle`)).data;
   },
   async deleteChauffeur(id: number): Promise<void> {
-    await api.delete(`/chauffeurs/${id}`)
+    await api.delete(`/chauffeurs/${id}`);
   },
   async assignVehicule(chauffeurId: number, data: VehiculeChauffeurAssign) {
-    return (await api.post(`/chauffeurs/${chauffeurId}/assign-vehicule`, data)).data
+    return (await api.post(`/chauffeurs/${chauffeurId}/assign-vehicule`, data))
+      .data;
   },
   async listAssignments(chauffeurId: number) {
-    return (await api.get(`/chauffeurs/${chauffeurId}/vehicules`)).data
+    return (await api.get(`/chauffeurs/${chauffeurId}/vehicules`)).data;
   },
-  async listAvailableVehicules(chauffeurId: number, params?: { date_debut?: string; date_fin?: string }) {
-    return (await api.get(`/chauffeurs/${chauffeurId}/vehicules-disponibles`, { params })).data
+  async listAvailableVehicules(
+    chauffeurId: number,
+    params?: { date_debut?: string; date_fin?: string },
+  ) {
+    return (
+      await api.get(`/chauffeurs/${chauffeurId}/vehicules-disponibles`, {
+        params,
+      })
+    ).data;
   },
-  async closeAssignment(chauffeurId: number, vehiculeId: number, dateDebut: string) {
-    await api.post(`/chauffeurs/${chauffeurId}/vehicules/${vehiculeId}/close`, { date_debut: dateDebut })
+  async closeAssignment(
+    chauffeurId: number,
+    vehiculeId: number,
+    dateDebut: string,
+  ) {
+    await api.post(`/chauffeurs/${chauffeurId}/vehicules/${vehiculeId}/close`, {
+      date_debut: dateDebut,
+    });
   },
-}
+  async cancelPlannedAssignment(
+    chauffeurId: number,
+    vehiculeId: number,
+    dateDebut: string,
+  ) {
+    return (
+      await api.put(`/chauffeurs/${chauffeurId}/vehicules/${vehiculeId}`, {
+        date_debut: dateDebut,
+        is_active: false,
+      })
+    ).data;
+  },
+};

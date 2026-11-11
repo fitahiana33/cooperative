@@ -1,6 +1,6 @@
 from datetime import date, datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, selectinload
 
@@ -10,7 +10,9 @@ from app.models.embarquement import Embarquement, EmbarquementStatus
 from app.models.place import DepartPlaceStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.models.user import User
+from app.models.finance import Paiement, PaiementStatus
 from app.core.clock import local_date
+from app.core.config import settings
 from app.services.billet import BilletService
 from app.services.notification import NotificationService
 
@@ -33,11 +35,24 @@ class EmbarquementService:
             statement = statement.where(Billet.qr_code_uuid == token)
         except ValueError:
             statement = statement.where(Billet.numero_billet == code.strip())
-        billet = self.db.scalar(statement.with_for_update())
+        billet = self.db.scalar(statement)
         if not billet:
             from fastapi import HTTPException
             raise HTTPException(404, "Billet introuvable.")
+        # Serialize all tickets of a reservation with cancellation/refund,
+        # including the first passenger of a group boarding.
+        self.db.execute(select(Reservation.id).where(Reservation.id == billet.reservation_place.id_reservation).with_for_update())
+        self.db.refresh(billet.reservation_place.reservation)
+        billet = self.db.scalar(statement.with_for_update(of=Billet).execution_options(populate_existing=True))
         motif = self._validate(billet, moment, depart_id)
+        if motif is None and settings.boarding_requires_full_payment:
+            reservation = billet.reservation_place.reservation
+            paid = self.db.scalar(select(func.coalesce(func.sum(Paiement.montant), 0)).where(
+                Paiement.id_reservation == reservation.id, Paiement.statut == PaiementStatus.VALIDE,
+                Paiement.remboursement_demande_le.is_(None),
+            )) or 0
+            if paid < reservation.montant_total:
+                motif = "Le solde de la réservation doit être réglé avant l'embarquement."
         if motif:
             result = Embarquement(id_billet=billet.id, id_agent=agent.id, date_heure_embarquement=moment, statut=EmbarquementStatus.REFUSE, motif_refus=motif)
             self.db.add(result)

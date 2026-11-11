@@ -1,100 +1,775 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import { departService } from '../../services/depart/service'
-import { reservationService } from '../../services/reservation/service'
-import type { DepartPlace, PublicReservationCreate } from '../../models/reservation/model'
-import type { PublicProgramme } from '../../models/depart/model'
+import { formatMoney } from "../../utils/money";
+import PublicLayout from "../../components/layout/PublicLayout.vue";
+import { computed, nextTick, onMounted, ref, watch } from "vue";
+import { RouterLink, useRoute } from "vue-router";
+import { departService } from "../../services/depart/service";
+import {
+  reservationService,
+  type BookingPolicy,
+} from "../../services/reservation/service";
+import type {
+  DepartPlace,
+  PublicReservationCreate,
+} from "../../models/reservation/model";
+import type { PublicProgramme } from "../../models/depart/model";
+import { userError } from "../../utils/errors";
 
-const route = useRoute()
-const departId = Number(route.query.depart_id)
-const depart = ref<PublicProgramme | null>(null)
-const places = ref<DepartPlace[]>([])
-const selected = ref<number[]>([])
-const name = ref('')
-const phone = ref('')
-const email = ref('')
-const provider = ref<PublicReservationCreate['fournisseur']>('MVOLA')
-const advance = ref(0)
-const loading = ref(true)
-const submitting = ref(false)
-const error = ref('')
+const route = useRoute();
+const departId = Number(route.query.depart_id);
+const depart = ref<PublicProgramme | null>(null);
+const places = ref<DepartPlace[]>([]);
+const selected = ref<number[]>([]);
+const name = ref("");
+const phone = ref("");
+const email = ref("");
+const provider = ref<PublicReservationCreate["fournisseur"]>("MVOLA");
+const paymentPhone = ref("");
+const advance = ref(0);
+const loading = ref(true);
+const submitting = ref(false);
+const error = ref("");
+const createdReservation = ref("");
+const reservationMinimum = ref<number | null>(null);
+const accessToken = ref("");
+const checkoutUrl = ref("");
+const storageWarning = ref("");
+const policy = ref<BookingPolicy | null>(null);
+const commandKey = ref<string>(crypto.randomUUID());
+const draftKey = `reservation-draft:${departId}`;
+const paymentKey = ref("");
+const previousReservation = ref("");
+const step = ref(1);
+const furthestStep = ref(1);
+const stepTitles = [
+  "Choisissez vos places",
+  "Vos coordonnées",
+  "Règlement",
+  "Suivi de la réservation",
+];
+function validContact() {
+  if (name.value.trim().length < 2 || phone.value.trim().length < 8) {
+    error.value = "Renseignez le nom du réservataire et un téléphone valide.";
+    return false;
+  }
+  if (
+    email.value.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())
+  ) {
+    error.value = "Renseignez une adresse e-mail valide.";
+    return false;
+  }
+  return true;
+}
+async function goStep(next: number) {
+  if (submitting.value || createdReservation.value) return;
+  error.value = "";
+  if (next > 1 && !selected.value.length) {
+    error.value = "Sélectionnez au moins une place.";
+    return;
+  }
+  if (next > 2 && !validContact()) {
+    step.value = 2;
+    return;
+  }
+  step.value = next;
+  furthestStep.value = Math.max(next, furthestStep.value);
+  await nextTick();
+  const heading = document.getElementById(`booking-step-${next}`);
+  heading?.focus({ preventScroll: true });
+  heading?.scrollIntoView({ block: "nearest" });
+}
 
-const total = computed(() => Number(depart.value?.tarif?.prix || 0) * selected.value.length)
-const minimum = computed(() => Math.max(300, Math.ceil(total.value * 0.25)))
-const currency = computed(() => depart.value?.tarif?.devise || 'MGA')
-const availablePlaces = computed(() => places.value.filter((place) => place.statut === 'DISPONIBLE'))
-
-function displayPrice(value: number) { return `${value.toLocaleString('fr-FR')} ${currency.value}` }
-function displayDate(value?: string) {
-  return value ? new Intl.DateTimeFormat('fr-FR', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${value}T00:00:00`)) : ''
+function startNewBooking() {
+  if (submitting.value) return;
+  previousReservation.value = createdReservation.value;
+  try {
+    sessionStorage.removeItem(draftKey);
+  } catch {
+    /* The current in-memory key is renewed. */
+  }
+  commandKey.value = crypto.randomUUID();
+  paymentKey.value = "";
+  createdReservation.value = "";
+  reservationMinimum.value = null;
+  accessToken.value = "";
+  checkoutUrl.value = "";
+  selected.value = [];
+  error.value = "";
+  step.value = 1;
+  furthestStep.value = 1;
+  void load();
+}
+const seatColumns = computed(
+  () => depart.value?.vehicule?.places_par_rangee || 4,
+);
+const frontSeats = computed(() => depart.value?.vehicule?.places_avant || 0);
+function seatStyle(number: number) {
+  if (number <= frontSeats.value)
+    return {
+      gridRow: 1,
+      gridColumn: seatColumns.value - frontSeats.value + number,
+    };
+  const index = number - frontSeats.value - 1;
+  return {
+    gridRow: Math.floor(index / seatColumns.value) + 2,
+    gridColumn: (index % seatColumns.value) + 1,
+  };
+}
+const requestedPassengers = computed(() =>
+  Math.min(
+    policy.value?.max_seats || 1,
+    Math.max(1, Number(route.query.passengers) || 1),
+  ),
+);
+const availablePlaces = computed(() =>
+  places.value.filter((item) => item.statut === "DISPONIBLE"),
+);
+const total = computed(
+  () => Number(depart.value?.tarif?.prix || 0) * selected.value.length,
+);
+const minimum = computed(
+  () =>
+    reservationMinimum.value ??
+    Math.min(
+      total.value,
+      Math.max(
+        policy.value?.minimum_deposit_amount || 0,
+        Math.ceil(total.value * (policy.value?.deposit_rate || 0)),
+      ),
+    ),
+);
+const currency = computed(() => depart.value?.tarif?.devise || "MGA");
+function price(value: number) {
+  return formatMoney(value, currency.value);
+}
+function date(value?: string) {
+  return value
+    ? new Intl.DateTimeFormat("fr-FR", {
+        weekday: "long",
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${value}T00:00:00`))
+    : "";
 }
 function togglePlace(id: number) {
-  selected.value = selected.value.includes(id) ? selected.value.filter((value) => value !== id) : [...selected.value, id]
-  if (advance.value < minimum.value) advance.value = minimum.value
+  if (submitting.value || createdReservation.value) return;
+  if (
+    !selected.value.includes(id) &&
+    selected.value.length >= (policy.value?.max_seats || 1)
+  ) {
+    error.value = `Vous pouvez réserver au maximum ${policy.value?.max_seats} places.`;
+    return;
+  }
+  selected.value = selected.value.includes(id)
+    ? selected.value.filter((item) => item !== id)
+    : [...selected.value, id];
 }
+watch([minimum, total], () => {
+  if (createdReservation.value) return;
+  advance.value = total.value
+    ? Math.min(total.value, Math.max(minimum.value, advance.value))
+    : 0;
+});
 async function load() {
-  if (!Number.isInteger(departId) || departId < 1) { error.value = 'Le départ demandé est introuvable.'; loading.value = false; return }
+  if (!Number.isInteger(departId) || departId < 1) {
+    error.value = "Le départ demandé est introuvable.";
+    loading.value = false;
+    return;
+  }
   try {
-    const [departure, available] = await Promise.all([departService.publicGet(departId), reservationService.publicPlaces(departId)])
-    depart.value = departure
-    places.value = available
+    const [departure, available, rules] = await Promise.all([
+      departService.publicGet(departId),
+      reservationService.publicPlaces(departId),
+      reservationService.policy(),
+    ]);
+    depart.value = departure;
+    places.value = available;
+    policy.value = rules;
+    try {
+      const draft = JSON.parse(
+        sessionStorage.getItem(draftKey) || "null",
+      ) as PublicReservationCreate | null;
+      if (draft?.cle_idempotence) {
+        commandKey.value = draft.cle_idempotence;
+        name.value = draft.nom_reservataire;
+        phone.value = draft.telephone_reservataire;
+        paymentPhone.value = draft.telephone_reservataire;
+        email.value = draft.email_reservataire || "";
+        provider.value = draft.fournisseur;
+        selected.value = draft.places.map((place) => place.id_depart_place);
+        advance.value = draft.montant_avance;
+        step.value = 3;
+        furthestStep.value = 3;
+      }
+    } catch {
+      /* Booking still works when session storage is unavailable. */
+    }
   } catch (value) {
-    console.error('[PUBLIC_BOOKING_ERROR]', value)
-    error.value = 'Ce départ n’est plus disponible à la réservation.'
-  } finally { loading.value = false }
+    if (import.meta.env.DEV) console.error("[PUBLIC_BOOKING_ERROR]", value);
+    error.value = "Ce départ n’est plus disponible à la réservation.";
+  } finally {
+    loading.value = false;
+  }
 }
 async function submit() {
-  error.value = ''
-  if (!selected.value.length) { error.value = 'Sélectionnez au moins une place.'; return }
-  if (name.value.trim().length < 2 || phone.value.trim().length < 8) { error.value = 'Renseignez votre nom et un numéro de téléphone valide.'; return }
-  if (advance.value < minimum.value || advance.value > total.value) { error.value = `L’avance doit être comprise entre ${displayPrice(minimum.value)} et ${displayPrice(total.value)}.`; return }
-  submitting.value = true
+  if (submitting.value) return;
+  error.value = "";
+  if (!selected.value.length) {
+    error.value = "Sélectionnez au moins une place.";
+    return;
+  }
+  if (name.value.trim().length < 2 || phone.value.trim().length < 8) {
+    error.value = "Renseignez le nom du réservataire et un téléphone valide.";
+    return;
+  }
+  if (
+    email.value.trim() &&
+    !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.value.trim())
+  ) {
+    error.value = "Renseignez une adresse e-mail valide.";
+    return;
+  }
+  if (
+    !Number.isFinite(advance.value) ||
+    advance.value < minimum.value ||
+    advance.value > total.value
+  ) {
+    error.value = `L’avance doit être comprise entre ${price(minimum.value)} et ${price(total.value)}.`;
+    return;
+  }
+  if (policy.value?.online_payment_enabled) {
+    const digits = paymentPhone.value.replace(/\D/g, "");
+    const valid =
+      (digits.length === 10 && digits.startsWith("0")) ||
+      (digits.length === 12 && digits.startsWith("261"));
+    if (!valid) {
+      error.value =
+        "Renseignez le numéro Mobile Money qui autorisera le paiement.";
+      return;
+    }
+  }
+  submitting.value = true;
   try {
     const payload: PublicReservationCreate = {
+      cle_idempotence: commandKey.value,
       id_depart: departId,
-      places: selected.value.map((id) => ({ id_depart_place: id, nom_passager: name.value.trim() })),
+      places: selected.value.map((id) => ({
+        id_depart_place: id,
+        nom_passager: name.value.trim(),
+      })),
       nom_reservataire: name.value.trim(),
       telephone_reservataire: phone.value.trim(),
       email_reservataire: email.value.trim() || undefined,
       montant_avance: advance.value,
       fournisseur: provider.value,
+    };
+    try {
+      sessionStorage.setItem(draftKey, JSON.stringify(payload));
+    } catch {
+      /* Keep the in-memory retry key. */
     }
-    const result = await reservationService.publicCreate(payload)
-    sessionStorage.setItem(`reservation-access:${result.payment.reference_paiement}`, result.access_token)
-    if (result.payment.checkout_url) window.location.assign(result.payment.checkout_url)
-    else error.value = 'Le lien de paiement n’a pas été généré. Réessayez.'
-  } catch (value: any) {
-    error.value = value?.response?.data?.detail || 'La réservation n’a pas pu être créée. Vérifiez les informations saisies.'
-  } finally { submitting.value = false }
+    const result = createdReservation.value
+      ? {
+          reservation: { numero_reservation: createdReservation.value },
+          acompte_minimum: reservationMinimum.value,
+          access_token: accessToken.value,
+        }
+      : await reservationService.publicCreate(payload);
+    reservationMinimum.value = Number(result.acompte_minimum ?? minimum.value);
+    createdReservation.value = result.reservation.numero_reservation;
+    accessToken.value = result.access_token;
+    step.value = 4;
+    furthestStep.value = 4;
+    try {
+      localStorage.setItem(
+        `reservation-access:${createdReservation.value}`,
+        accessToken.value,
+      );
+    } catch {
+      storageWarning.value =
+        "Conservez la référence et le code d’accès affichés pour retrouver votre réservation.";
+    }
+    if (!policy.value?.online_payment_enabled) {
+      error.value =
+        "Réservation enregistrée. Réglez au guichet avant la fin du délai indiqué dans son suivi.";
+      return;
+    }
+    if (advance.value < minimum.value) {
+      advance.value = minimum.value;
+      error.value = `Les conditions ont changé depuis votre estimation. L’acompte est de ${price(minimum.value)}. Vérifiez ce montant puis reprenez le paiement.`;
+      return;
+    }
+    // The reservation and access code are available before any provider request.
+    if (!paymentKey.value) paymentKey.value = `PAY-${commandKey.value}`;
+    const payment = await reservationService.publicPay(
+      createdReservation.value,
+      accessToken.value,
+      {
+        montant: advance.value,
+        fournisseur: provider.value,
+        cle_idempotence: paymentKey.value,
+        telephone_paiement: paymentPhone.value.trim(),
+      },
+    );
+    checkoutUrl.value = payment.checkout_url || "";
+    if (payment.statut === "ECHOUE") paymentKey.value = crypto.randomUUID();
+    try {
+      localStorage.setItem(
+        `reservation-payment:${payment.reference_paiement}`,
+        JSON.stringify({
+          reservationNumber: createdReservation.value,
+          token: accessToken.value,
+        }),
+      );
+      // Keep the booking command until the customer explicitly starts another booking.
+    } catch {
+      /* The reference and token remain visible on this page. */
+    }
+    if (payment.checkout_url) window.location.assign(payment.checkout_url);
+    else error.value = payment.message;
+  } catch (value) {
+    error.value = userError(
+      value,
+      "La réservation n’a pas pu être créée. Vérifiez les informations saisies.",
+      "PUBLIC_BOOKING_ERROR",
+    );
+  } finally {
+    submitting.value = false;
+  }
 }
-onMounted(load)
+watch(phone, (value, previous) => {
+  if (!paymentPhone.value.trim() || paymentPhone.value === previous)
+    paymentPhone.value = value;
+});
+onMounted(load);
 </script>
 
 <template>
-  <main class="booking-page">
-    <header class="booking-header"><RouterLink class="booking-brand" to="/"><span>C</span><strong>Coopérative</strong></RouterLink><RouterLink to="/recherche">← Modifier la recherche</RouterLink></header>
-    <section v-if="loading" class="booking-state" aria-live="polite">Chargement du départ…</section>
-    <section v-else-if="error && !depart" class="booking-state error-state" role="alert"><strong>{{ error }}</strong><RouterLink class="booking-button secondary" to="/recherche">Retour aux départs</RouterLink></section>
-    <template v-else-if="depart">
-      <section class="booking-hero"><p>RÉSERVATION SANS COMPTE</p><h1>Préparez votre voyage.</h1><span>Choisissez vos places, indiquez vos coordonnées et payez une avance mobile money d’au moins 25 %.</span></section>
+  <PublicLayout class="booking-refactored" compact-footer>
+    <section v-if="loading" class="booking-state">
+      <h1>Préparation de votre voyage</h1>
+      <p>Chargement du départ…</p>
+    </section>
+    <section
+      v-else-if="error && !depart"
+      class="booking-state error"
+      role="alert"
+    >
+      <h1>Réservation indisponible</h1>
+      <p>{{ error }}</p>
+      <RouterLink class="booking-outline" to="/recherche"
+        >Retour aux départs</RouterLink
+      >
+    </section>
+    <template v-else-if="depart"
+      ><section class="booking-heading">
+        <div>
+          <p>RÉSERVER UN VOYAGE</p>
+          <h1>Préparez votre réservation.</h1>
+          <span
+            >Choisissez vos places, renseignez le nom du réservataire et payez
+            l’avance depuis votre mobile.</span
+          >
+        </div>
+      </section>
+      <nav
+        class="booking-steps booking-step-navigation"
+        aria-label="Étapes de réservation"
+      >
+        <ol>
+          <li
+            v-for="(label, index) in [
+              'Places',
+              'Coordonnées',
+              'Règlement',
+              'Suivi',
+            ]"
+            :key="label"
+          >
+            <button
+              type="button"
+              :class="{
+                active: step === index + 1,
+                complete: step > index + 1,
+              }"
+              :aria-current="step === index + 1 ? 'step' : undefined"
+              :disabled="
+                submitting ||
+                (createdReservation
+                  ? index !== 3
+                  : index + 1 > Math.min(3, furthestStep))
+              "
+              @click="goStep(index + 1)"
+            >
+              <b>{{ index + 1 }}</b
+              >{{ label }}
+            </button>
+          </li>
+        </ol>
+      </nav>
+      <div class="booking-trip-summary">
+        <div>
+          <strong
+            >{{ depart.itineraire?.destination_depart?.nom }} →
+            {{ depart.itineraire?.destination_arrivee?.nom }}</strong
+          ><span
+            >{{ date(depart.date_depart) }} ·
+            {{ depart.heure_depart?.slice(0, 5) }}</span
+          >
+        </div>
+        <div>
+          <small>{{ selected.length }} place(s)</small
+          ><strong>{{ price(total) }}</strong>
+        </div>
+        <details class="booking-mobile-details">
+          <summary>Détails du voyage</summary>
+          <p>
+            Gare : {{ depart.gare?.nom || "À confirmer" }} · Coopérative :
+            {{ depart.cooperative?.nom || "À confirmer" }} ·
+            {{ price(Number(depart.tarif?.prix || 0)) }} par place.
+          </p>
+        </details>
+      </div>
       <section class="booking-layout">
         <div class="booking-main">
-          <article class="trip-summary"><div><p class="booking-kicker">VOTRE DÉPART</p><h2>{{ depart.itineraire?.destination_depart?.nom }} <span>→</span> {{ depart.itineraire?.destination_arrivee?.nom }}</h2><p>{{ displayDate(depart.date_depart) }} · départ à <strong>{{ depart.heure_depart.slice(0, 5) }}</strong></p></div><strong class="trip-price">{{ displayPrice(Number(depart.tarif?.prix || 0)) }}<small>par place</small></strong></article>
-          <article class="booking-card"><div class="booking-card-heading"><div><p class="booking-kicker">ÉTAPE 1</p><h2>Choisissez vos places</h2></div><span>{{ availablePlaces.length }} disponible(s)</span></div><div class="seat-grid"><button v-for="place in places" :key="place.id" type="button" :class="['seat', { selected: selected.includes(place.id) }]" :disabled="place.statut !== 'DISPONIBLE'" :aria-label="`Place ${place.numero_place}`" :aria-pressed="selected.includes(place.id)" @click="togglePlace(place.id)">{{ place.numero_place }}</button></div><p class="booking-help">Les places sélectionnées seront retenues pendant le délai de paiement indiqué sur votre réservation.</p></article>
-          <article class="booking-card"><div class="booking-card-heading"><div><p class="booking-kicker">ÉTAPE 2</p><h2>Vos coordonnées</h2></div><span>Pas de compte nécessaire</span></div><div class="booking-fields"><label>Nom du réservataire<input v-model="name" autocomplete="name" required placeholder="Votre nom complet" /></label><label>Téléphone<input v-model="phone" autocomplete="tel" required placeholder="034 00 000 00" /></label><label class="wide">E-mail (facultatif)<input v-model="email" type="email" autocomplete="email" placeholder="vous@exemple.com" /></label></div><p class="booking-help">Un seul nom est nécessaire pour créer la réservation. Les autres passagers peuvent être ajoutés par la gare si besoin.</p></article>
-          <article class="booking-card"><div class="booking-card-heading"><div><p class="booking-kicker">ÉTAPE 3</p><h2>Votre avance</h2></div><span>Paiement sécurisé Papi</span></div><div class="payment-fields"><label>Moyen de paiement<select v-model="provider"><option value="MVOLA">MVola</option><option value="ORANGE_MONEY">Orange Money</option><option value="AIRTEL_MONEY">Airtel Money</option></select></label><label>Montant de l’avance ({{ currency }})<input v-model.number="advance" type="number" :min="minimum" :max="total" step="1" required /></label></div><div class="advance-note"><strong>Minimum : {{ displayPrice(minimum) }}</strong><span>Total sélectionné : {{ displayPrice(total) }} · Solde éventuel : {{ displayPrice(Math.max(0, total - advance)) }}</span></div></article>
+          <article
+            v-if="step === 1"
+            class="booking-card"
+            aria-labelledby="booking-step-1"
+          >
+            <div class="card-heading">
+              <div>
+                <p class="booking-kicker">ÉTAPE 1</p>
+                <h2 id="booking-step-1" tabindex="-1">Choisissez vos places</h2>
+              </div>
+              <span>{{ availablePlaces.length }} disponible(s)</span>
+            </div>
+            <p class="hint">
+              Votre recherche : {{ requestedPassengers }} passager(s).
+              Sélectionnez une place par passager.
+            </p>
+            <div class="seat-legend">
+              <span>□ Disponible</span><span>■ Sélectionnée</span
+              ><span>▨ Indisponible</span>
+            </div>
+            <div
+              class="seat-grid"
+              :style="{
+                gridTemplateColumns: `repeat(${seatColumns}, minmax(0, 48px))`,
+              }"
+            >
+              <button
+                v-for="placeItem in places"
+                :key="placeItem.id"
+                :style="seatStyle(placeItem.numero_place)"
+                type="button"
+                :class="['seat', { selected: selected.includes(placeItem.id) }]"
+                :disabled="
+                  placeItem.statut !== 'DISPONIBLE' ||
+                  submitting ||
+                  Boolean(createdReservation)
+                "
+                :aria-label="`Place ${placeItem.numero_place}, ${placeItem.statut.toLowerCase()}`"
+                :aria-pressed="selected.includes(placeItem.id)"
+                @click="togglePlace(placeItem.id)"
+              >
+                {{ placeItem.numero_place }}
+              </button>
+            </div>
+            <p class="hint">
+              Les places sont retenues pendant le délai de paiement de la
+              réservation.
+            </p>
+            <div class="booking-stage-actions">
+              <button
+                type="button"
+                class="booking-next"
+                :disabled="!selected.length"
+                @click="goStep(2)"
+              >
+                Continuer vers les coordonnées →
+              </button>
+            </div>
+          </article>
+          <form
+            v-if="step === 2"
+            class="booking-card"
+            aria-labelledby="booking-step-2"
+            @submit.prevent="goStep(3)"
+          >
+            <div class="card-heading">
+              <div>
+                <p class="booking-kicker">ÉTAPE 2</p>
+                <h2 id="booking-step-2" tabindex="-1">Vos coordonnées</h2>
+              </div>
+              <span>Pas de compte nécessaire</span>
+            </div>
+            <div class="fields">
+              <label
+                >Nom du réservataire<input
+                  v-model="name"
+                  minlength="2"
+                  autocomplete="name"
+                  placeholder="Votre nom complet"
+                  required /></label
+              ><label
+                >Téléphone<input
+                  v-model="phone"
+                  minlength="8"
+                  type="tel"
+                  autocomplete="tel"
+                  placeholder="034 00 000 00"
+                  required /></label
+              ><label class="wide"
+                >E-mail <small>(facultatif)</small
+                ><input
+                  v-model="email"
+                  type="email"
+                  autocomplete="email"
+                  placeholder="vous@exemple.com"
+              /></label>
+            </div>
+            <p class="hint">
+              Un seul nom est nécessaire. Les noms des autres passagers restent
+              facultatifs.
+            </p>
+            <div class="booking-stage-actions">
+              <button type="button" class="booking-back" @click="goStep(1)">
+                Retour aux places</button
+              ><button type="submit" class="booking-next">
+                Continuer vers le règlement →
+              </button>
+            </div>
+          </form>
+          <form
+            v-if="step === 3"
+            class="booking-card"
+            aria-labelledby="booking-step-3"
+            @submit.prevent="submit"
+          >
+            <div class="card-heading">
+              <div>
+                <p class="booking-kicker">ÉTAPE 3</p>
+                <h2 id="booking-step-3" tabindex="-1">
+                  {{
+                    policy?.online_payment_enabled
+                      ? "Payez votre avance"
+                      : "Règlement au guichet"
+                  }}
+                </h2>
+              </div>
+              <span>{{
+                policy?.online_payment_enabled
+                  ? "Mobile money sécurisé"
+                  : "Selon le délai de réservation"
+              }}</span>
+            </div>
+            <p v-if="!policy?.online_payment_enabled" class="hint">
+              Le paiement en ligne est indisponible pour le moment. Retrouvez le
+              délai de règlement dans le suivi de votre réservation. Au guichet,
+              le montant restant est à régler intégralement.
+            </p>
+            <div v-else class="fields">
+              <label
+                >Moyen de paiement<select v-model="provider">
+                  <option value="MVOLA">MVola</option>
+                  <option value="ORANGE_MONEY">Orange Money</option>
+                  <option value="AIRTEL_MONEY">Airtel Money</option>
+                </select></label
+              ><label
+                >Numéro Mobile Money<input
+                  v-model.trim="paymentPhone"
+                  type="tel"
+                  inputmode="tel"
+                  autocomplete="tel"
+                  placeholder="034 00 000 00"
+                  minlength="10"
+                  maxlength="30"
+                  required
+                /><small
+                  >Le compte qui recevra la demande de paiement. Il peut être
+                  différent du numéro de contact.</small
+                ></label
+              ><label
+                >Montant de l’avance ({{ currency }})<input
+                  v-model.number="advance"
+                  type="number"
+                  :min="minimum"
+                  :max="total"
+                  step="1"
+                  required
+              /></label>
+            </div>
+            <div class="advance-box">
+              <strong
+                >Minimum à payer :
+                {{
+                  price(policy?.online_payment_enabled ? minimum : total)
+                }}</strong
+              ><span
+                >Total : {{ price(total) }} · Solde éventuel :
+                {{
+                  price(
+                    policy?.online_payment_enabled
+                      ? Math.max(0, total - advance)
+                      : 0,
+                  )
+                }}</span
+              >
+            </div>
+            <div class="booking-stage-actions">
+              <button
+                type="button"
+                class="booking-back"
+                :disabled="submitting"
+                @click="goStep(2)"
+              >
+                Retour aux coordonnées</button
+              ><button
+                class="booking-submit"
+                type="submit"
+                :disabled="submitting || !selected.length"
+              >
+                {{
+                  submitting
+                    ? "Enregistrement…"
+                    : policy?.online_payment_enabled
+                      ? "Continuer vers le paiement"
+                      : "Réserver et régler au guichet"
+                }}
+                →
+              </button>
+            </div>
+          </form>
+          <article
+            v-if="step === 4"
+            class="booking-card"
+            aria-labelledby="booking-step-4"
+          >
+            <p class="booking-kicker">ÉTAPE 4</p>
+            <h2 id="booking-step-4" tabindex="-1">{{ stepTitles[3] }}</h2>
+            <p>
+              Référence : <strong>{{ createdReservation }}</strong
+              >. Votre réservation reste accessible depuis son suivi.
+            </p>
+            <p v-if="submitting" role="status">Préparation du paiement…</p>
+            <div v-if="storageWarning" class="booking-error" role="alert">
+              <p>{{ storageWarning }}</p>
+              <p>
+                Référence : <strong>{{ createdReservation }}</strong>
+              </p>
+              <label
+                >Code d’accès<input
+                  :value="accessToken"
+                  readonly
+                  aria-label="Code d’accès à conserver"
+                  @focus="($event.target as HTMLInputElement).select()"
+              /></label>
+              <a
+                v-if="checkoutUrl"
+                :href="checkoutUrl"
+                target="_blank"
+                rel="noopener noreferrer"
+                >Ouvrir le paiement ↗</a
+              >
+            </div>
+            <RouterLink
+              v-if="createdReservation"
+              class="booking-outline"
+              :to="{
+                name: 'public-reservation-lookup',
+                query: { reference: createdReservation },
+              }"
+              >Retrouver la réservation {{ createdReservation }} →</RouterLink
+            >
+            <button
+              v-if="createdReservation && !storageWarning"
+              class="booking-outline"
+              type="button"
+              @click="startNewBooking"
+            >
+              Commencer une autre réservation
+            </button>
+            <RouterLink
+              v-if="previousReservation && !createdReservation"
+              :to="{
+                name: 'public-reservation-lookup',
+                query: { reference: previousReservation },
+              }"
+              >Retrouver la précédente réservation
+              {{ previousReservation }}</RouterLink
+            >
+            <button
+              v-if="policy?.online_payment_enabled"
+              class="booking-submit"
+              type="button"
+              :disabled="submitting"
+              @click="submit"
+            >
+              {{ submitting ? "Préparation…" : "Reprendre le paiement" }} →
+            </button>
+          </article>
           <p v-if="error" class="booking-error" role="alert">{{ error }}</p>
-          <button class="booking-button primary" type="button" :disabled="submitting || !selected.length" @click="submit">{{ submitting ? 'Préparation du paiement…' : 'Continuer vers le paiement' }} <span>→</span></button>
+          <RouterLink
+            v-if="previousReservation && !createdReservation"
+            :to="{
+              name: 'public-reservation-lookup',
+              query: { reference: previousReservation },
+            }"
+            >Retrouver la précédente réservation
+            {{ previousReservation }}</RouterLink
+          >
         </div>
-        <aside class="booking-trust"><h2>Après votre réservation</h2><ol><li><b>Réservation en attente</b><span>Vos places sont retenues pendant le délai de paiement.</span></li><li><b>Paiement confirmé</b><span>Papi confirme le paiement mobile money par notification sécurisée.</span></li><li><b>Billet disponible</b><span>Le billet et le QR Code sont générés après confirmation.</span></li></ol><p>Vos informations de réservation et votre code d’accès seront conservés dans votre navigateur pour consulter le résultat du paiement.</p></aside>
-      </section>
-    </template>
-  </main>
+        <aside class="booking-summary">
+          <div class="summary-sticky">
+            <p class="booking-kicker">RÉCAPITULATIF</p>
+            <h2>Votre voyage</h2>
+            <div class="summary-route">
+              <strong>{{
+                depart.itineraire?.destination_depart?.nom || "Départ"
+              }}</strong
+              ><b>→</b
+              ><strong>{{
+                depart.itineraire?.destination_arrivee?.nom || "Destination"
+              }}</strong>
+            </div>
+            <dl>
+              <div>
+                <dt>Date</dt>
+                <dd>{{ date(depart.date_depart) }}</dd>
+              </div>
+              <div>
+                <dt>Heure</dt>
+                <dd>{{ depart.heure_depart?.slice(0, 5) }}</dd>
+              </div>
+              <div>
+                <dt>Places</dt>
+                <dd>{{ selected.length || "Aucune" }}</dd>
+              </div>
+              <div>
+                <dt>Gare</dt>
+                <dd>{{ depart.gare?.nom || "À confirmer" }}</dd>
+              </div>
+              <div>
+                <dt>Coopérative</dt>
+                <dd>{{ depart.cooperative?.nom || "À confirmer" }}</dd>
+              </div>
+            </dl>
+            <div class="summary-price">
+              <span>Total sélectionné</span><strong>{{ price(total) }}</strong>
+            </div>
+            <div class="summary-trust">
+              <strong>Après le paiement</strong
+              ><span
+                >Les billets sont disponibles après confirmation du
+                paiement.</span
+              >
+            </div>
+          </div>
+        </aside>
+      </section></template
+    >
+  </PublicLayout>
 </template>
-
-<style scoped>
-.booking-page { min-height: 100vh; color: #173b59; background: #f4f7fb; font-family: Inter, system-ui, sans-serif; }.booking-header { display: flex; justify-content: space-between; align-items: center; gap: 1rem; padding: .9rem max(1rem, calc((100vw - 1240px) / 2)); border-bottom: 1px solid #e1e9ef; background: white; }.booking-header a { color: #e9782a; font-size: .8rem; font-weight: 800; text-decoration: none; }.booking-brand { display: inline-flex; align-items: center; gap: .6rem; color: #123452 !important; }.booking-brand span { display: grid; place-items: center; width: 2.2rem; height: 2.2rem; border-radius: .55rem; color: white; background: #ef8d2f; }.booking-hero { padding: 4rem max(1rem, calc((100vw - 1180px) / 2)) 6.5rem; color: white; background: linear-gradient(115deg, #0b2c4b, #164d74 70%, #d8752e); }.booking-hero p, .booking-kicker { margin: 0 0 .55rem; color: #e9782a; font-size: .7rem; font-weight: 900; letter-spacing: .14em; }.booking-hero p { color: #ffc270; }.booking-hero h1 { margin: 0 0 .8rem; font: 800 clamp(2.2rem, 5vw, 4rem)/1.08 Manrope, sans-serif; letter-spacing: -.06em; }.booking-hero span { display: block; max-width: 680px; color: #d6e3ec; line-height: 1.6; }.booking-layout { display: grid; grid-template-columns: minmax(0, 1.35fr) minmax(260px, .65fr); gap: 1rem; max-width: 1180px; margin: -3.8rem auto 0; padding: 0 1rem 4rem; }.booking-main { display: grid; gap: 1rem; }.trip-summary, .booking-card, .booking-trust { padding: 1.3rem; border: 1px solid #e1e9ef; border-radius: .7rem; background: white; box-shadow: 0 10px 25px #18324b0b; }.trip-summary { display: flex; justify-content: space-between; gap: 1rem; }.trip-summary h2 { margin: 0; color: #123452; font: 800 1.4rem Manrope, sans-serif; }.trip-summary h2 span { color: #e9782a; }.trip-summary p { margin: .6rem 0 0; color: #718596; font-size: .8rem; }.trip-price { color: #e56822; font-size: 1.1rem; text-align: right; }.trip-price small { display: block; margin-top: .25rem; color: #8192a1; font-size: .68rem; font-weight: 500; }.booking-card-heading { display: flex; justify-content: space-between; align-items: start; gap: 1rem; }.booking-card-heading h2, .booking-trust h2 { margin: 0; color: #123452; font: 800 1.15rem Manrope, sans-serif; }.booking-card-heading > span { color: #7a8d9c; font-size: .72rem; }.booking-kicker { margin-bottom: .4rem; }.seat-grid { display: grid; grid-template-columns: repeat(6, minmax(38px, 1fr)); gap: .6rem; margin-top: 1.2rem; }.seat { min-height: 44px; border: 1px solid #b7dcc8; border-radius: .4rem; color: #287153; background: #effaf3; font-weight: 800; }.seat:hover:not(:disabled), .seat.selected { border-color: #ef7828; color: white; background: #ef7828; }.seat:disabled { border-color: #e1e6ea; color: #a2adb5; background: #f1f4f6; cursor: not-allowed; }.booking-help { margin: 1rem 0 0; color: #718596; font-size: .75rem; line-height: 1.5; }.booking-fields, .payment-fields { display: grid; grid-template-columns: 1fr 1fr; gap: .8rem; margin-top: .9rem; }.booking-fields label, .payment-fields label { display: grid; gap: .35rem; color: #536d81; font-size: .75rem; font-weight: 800; }.booking-fields .wide { grid-column: 1 / -1; }.booking-fields input, .payment-fields input, .payment-fields select { min-height: 44px; padding: 0 .7rem; border: 1px solid #d9e3eb; border-radius: .35rem; color: #18324b; background: white; font: inherit; }.advance-note { display: grid; gap: .3rem; margin-top: 1rem; padding: .75rem; border-left: 3px solid #ef7828; color: #607487; background: #fff8f1; font-size: .76rem; }.advance-note strong { color: #d86521; }.booking-button { display: inline-flex; justify-content: center; align-items: center; gap: .5rem; min-height: 44px; padding: 0 1.1rem; border-radius: .4rem; font-weight: 800; }.booking-button.primary { border: 0; color: white; background: #ef7828; box-shadow: 0 8px 18px #ef782833; }.booking-button.secondary { color: #e9782a; background: white; border: 1px solid #efb17d; }.booking-button:disabled { opacity: .55; cursor: wait; }.booking-error { margin: 0; padding: .8rem; border-radius: .4rem; color: #a43f36; background: #fff0ed; font-size: .8rem; }.booking-trust { align-self: start; }.booking-trust ol { display: grid; gap: 1.1rem; margin: 1.4rem 0; padding-left: 1.5rem; }.booking-trust li { padding-left: .3rem; }.booking-trust b, .booking-trust span { display: block; }.booking-trust b { color: #123452; font-size: .82rem; }.booking-trust span, .booking-trust p { color: #718596; font-size: .75rem; line-height: 1.5; }.booking-trust p { margin: 0; padding-top: 1rem; border-top: 1px solid #edf1f4; }.booking-state { display: grid; justify-items: center; gap: 1rem; min-height: 50vh; place-content: center; padding: 1rem; color: #607487; text-align: center; }.error-state strong { color: #a43f36; }
-@media (max-width: 800px) { .booking-layout { grid-template-columns: 1fr; }.booking-trust { order: -1; }.seat-grid { grid-template-columns: repeat(6, 1fr); } }.booking-trust { min-width: 0; }
-@media (max-width: 560px) { .booking-header { align-items: flex-start; flex-direction: column; }.booking-hero { padding: 3rem 1rem 5.5rem; }.booking-layout { margin-top: -3rem; padding-right: .75rem; padding-left: .75rem; }.trip-summary { align-items: flex-start; flex-direction: column; }.trip-price { text-align: left; }.booking-fields, .payment-fields { grid-template-columns: 1fr; }.booking-fields .wide { grid-column: auto; }.seat-grid { gap: .35rem; }.seat { min-height: 40px; } }
-</style>

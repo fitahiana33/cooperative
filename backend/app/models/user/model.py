@@ -39,6 +39,8 @@ class User(Base):
     email: Mapped[str] = mapped_column(String(150), nullable=False)
     telephone: Mapped[str | None] = mapped_column(String(30))
     address: Mapped[str | None] = mapped_column("adresse", String(255))
+    # Opaque version; filenames and storage paths never come from the client.
+    photo_version: Mapped[str | None] = mapped_column(String(32))
     password_hash: Mapped[str] = mapped_column("password", String(255), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True, nullable=False)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)

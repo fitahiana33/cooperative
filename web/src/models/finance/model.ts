@@ -15,6 +15,11 @@ export interface Caisse {
 }
 
 export interface Paiement {
+  verification_requise?: boolean;
+  date_validation?: string | null;
+  date_remboursement?: string | null;
+  methode_remboursement?: string | null;
+  reference_remboursement?: string | null;
   id: number
   id_reservation: number
   numero_reservation?: string | null
@@ -28,6 +33,7 @@ export interface Paiement {
 }
 
 export interface OnlinePayment {
+  verification_requise?: boolean;
   id_paiement: number
   statut: string
   fournisseur: string

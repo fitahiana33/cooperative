@@ -5,6 +5,7 @@ class UserEntity {
   final String email;
   final String? telephone;
   final String? address;
+  final String? photoVersion;
   final String role;
   final List<String> permissions;
   final bool isActive;
@@ -17,6 +18,7 @@ class UserEntity {
     required this.email,
     this.telephone,
     this.address,
+    this.photoVersion,
     required this.role,
     this.permissions = const [],
     required this.isActive,

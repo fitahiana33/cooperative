@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../../../data/models/auth/login_request_dto.dart';
 import '../../../data/models/auth/register_request_dto.dart';
 import '../../entities/user/user_entity.dart';
@@ -38,10 +39,18 @@ class AuthService {
     return await _repository.fetchCurrentUser();
   }
 
-  Future<UserEntity> updateProfile(Map<String, dynamic> fields) => _repository.updateProfile(fields);
+  Future<UserEntity> updateProfile(Map<String, dynamic> fields) =>
+      _repository.updateProfile(fields);
 
-  Future<void> changePassword({required String currentPassword, required String newPassword}) =>
-      _repository.changePassword(currentPassword: currentPassword, newPassword: newPassword);
+  Future<Uint8List> profilePhoto() => _repository.profilePhoto();
+  Future<UserEntity> uploadPhoto(Uint8List bytes, String filename) =>
+      _repository.uploadPhoto(bytes, filename);
+  Future<UserEntity> removePhoto() => _repository.removePhoto();
+
+  Future<void> changePassword(
+          {required String currentPassword, required String newPassword}) =>
+      _repository.changePassword(
+          currentPassword: currentPassword, newPassword: newPassword);
 
   Future<void> logout() async {
     final token = await _repository.getRefreshTokenForLogout();

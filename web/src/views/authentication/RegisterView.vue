@@ -1,32 +1,33 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-document.title = 'Créer un compte | Coopérative'
+import AuthLayout from "../../components/layout/AuthLayout.vue";
+import { ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+document.title = "Créer un compte | Coopérative";
 
-const router = useRouter()
-const route = useRoute()
-const auth = useAuthenticationStore()
+const router = useRouter();
+const route = useRoute();
+const auth = useAuthenticationStore();
 
-const name = ref('')
-const firstName = ref('')
-const email = ref('')
-const telephone = ref('')
-const address = ref('')
-const password = ref('')
-const confirmPassword = ref('')
-const showPassword = ref(false)
-const localError = ref('')
+const name = ref("");
+const firstName = ref("");
+const email = ref("");
+const telephone = ref("");
+const address = ref("");
+const password = ref("");
+const confirmPassword = ref("");
+const showPassword = ref(false);
+const localError = ref("");
 
 async function submit() {
-  localError.value = ''
+  localError.value = "";
   if (password.value !== confirmPassword.value) {
-    localError.value = 'Les mots de passe ne correspondent pas.'
-    return
+    localError.value = "Les mots de passe ne correspondent pas.";
+    return;
   }
   if (password.value.length < 8) {
-    localError.value = 'Le mot de passe doit contenir au moins 8 caractères.'
-    return
+    localError.value = "Le mot de passe doit contenir au moins 8 caractères.";
+    return;
   }
 
   try {
@@ -37,37 +38,49 @@ async function submit() {
       telephone: telephone.value,
       address: address.value,
       password: password.value,
-    })
-    const redirect = typeof route.query.redirect === 'string' && route.query.redirect.startsWith('/')
-      ? route.query.redirect
-      : { name: 'client-space' }
-    await router.push(redirect)
+    });
+    const redirect =
+      typeof route.query.redirect === "string" &&
+      route.query.redirect.startsWith("/")
+        ? route.query.redirect
+        : { name: "client-space" };
+    await router.push(redirect);
   } catch (error) {
-    console.error('[REGISTER_ERROR]', error)
+    if (import.meta.env.DEV) console.error("[REGISTER_ERROR]", error);
   }
 }
 </script>
 
 <template>
-  <main class="register-page">
-    <div class="register-card">
-      <div class="brand">
-        <span class="brand-mark">C</span>
-        <span>Coopérative</span>
-      </div>
-
+  <AuthLayout>
+    <div>
       <h1>Créer un compte</h1>
-      <p class="subtitle">Créez votre espace client pour retrouver vos réservations et vos billets.</p>
+      <p class="auth-lead">
+        Créez votre espace client pour retrouver vos réservations et vos
+        billets.
+      </p>
 
       <form @submit.prevent="submit">
         <div class="form-row">
           <div>
             <label for="name">Nom</label>
-            <input id="name" v-model="name" type="text" placeholder="Dupont" required />
+            <input
+              id="name"
+              v-model="name"
+              type="text"
+              placeholder="Dupont"
+              required
+            />
           </div>
           <div>
             <label for="firstName">Prénom</label>
-            <input id="firstName" v-model="firstName" type="text" placeholder="Jean" required />
+            <input
+              id="firstName"
+              v-model="firstName"
+              type="text"
+              placeholder="Jean"
+              required
+            />
           </div>
         </div>
 
@@ -83,11 +96,21 @@ async function submit() {
         <div class="form-row">
           <div>
             <label for="telephone">Téléphone (optionnel)</label>
-            <input id="telephone" v-model="telephone" type="tel" placeholder="034 12 345 67" />
+            <input
+              id="telephone"
+              v-model="telephone"
+              type="tel"
+              placeholder="034 12 345 67"
+            />
           </div>
           <div>
             <label for="address">Adresse / Ville</label>
-            <input id="address" v-model="address" type="text" placeholder="Antananarivo" />
+            <input
+              id="address"
+              v-model="address"
+              type="text"
+              placeholder="Antananarivo"
+            />
           </div>
         </div>
 
@@ -95,191 +118,46 @@ async function submit() {
         <div class="password-field">
           <input
             id="password"
+            autocomplete="new-password"
+            minlength="8"
             v-model="password"
             :type="showPassword ? 'text' : 'password'"
             placeholder="Au moins 8 caractères"
             required
           />
-          <button type="button" class="toggle-pwd" @click="showPassword = !showPassword">
-            {{ showPassword ? 'Masquer' : 'Afficher' }}
+          <button
+            type="button"
+            class="toggle-pwd"
+            @click="showPassword = !showPassword"
+          >
+            {{ showPassword ? "Masquer" : "Afficher" }}
           </button>
         </div>
 
         <label for="confirmPassword">Confirmer le mot de passe</label>
         <input
           id="confirmPassword"
+          autocomplete="new-password"
           v-model="confirmPassword"
           :type="showPassword ? 'text' : 'password'"
           placeholder="Répétez le mot de passe"
           required
         />
 
-        <p v-if="localError || auth.error" class="form-error">
+        <p v-if="localError || auth.error" class="form-error" role="alert">
           {{ localError || auth.error }}
         </p>
 
         <button class="primary-button" type="submit" :disabled="auth.loading">
-          {{ auth.loading ? 'Inscription…' : 'Créer mon compte' }} <span>→</span>
+          {{ auth.loading ? "Inscription…" : "Créer mon compte" }}
+          <span>→</span>
         </button>
       </form>
 
-      <div class="login-footer">
+      <div class="auth-switch">
         <span>Déjà un compte ?</span>
         <router-link to="/login" class="login-link">Se connecter</router-link>
       </div>
     </div>
-  </main>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.register-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #f8fafc;
-  padding: 2rem 1rem;
-}
-
-.register-card {
-  width: 100%;
-  max-width: 520px;
-  background: rgba(30, 41, 59, 0.85);
-  padding: 2.5rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-weight: 700;
-  font-size: 1.2rem;
-  margin-bottom: 1.5rem;
-}
-
-.brand-mark {
-  background: #3b82f6;
-  color: white;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.subtitle {
-  color: #94a3b8;
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-.form-row {
-  display: grid;
-  grid-template-columns: 1fr 1fr;
-  gap: 1rem;
-}
-
-label {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  margin-top: 1rem;
-  margin-bottom: 0.4rem;
-}
-
-input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 0.5rem;
-  color: white;
-  font-size: 0.95rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-input:focus {
-  border-color: #3b82f6;
-}
-
-.password-field {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.toggle-pwd {
-  position: absolute;
-  right: 0.75rem;
-  background: none;
-  border: none;
-  color: #94a3b8;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.form-error {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.5rem;
-  font-size: 0.85rem;
-  margin-top: 1rem;
-}
-
-.primary-button {
-  width: 100%;
-  padding: 0.85rem;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 0.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  transition: background 0.2s;
-}
-
-.primary-button:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.login-footer {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.9rem;
-  color: #94a3b8;
-  display: flex;
-  gap: 0.5rem;
-  justify-content: center;
-}
-
-.login-link {
-  color: #60a5fa;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.login-link:hover {
-  text-decoration: underline;
-}
-</style>

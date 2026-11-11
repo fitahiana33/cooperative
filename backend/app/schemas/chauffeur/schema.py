@@ -94,6 +94,7 @@ class VehiculeChauffeurRead(BaseModel):
     date_debut: date
     date_fin: date | None = None
     is_active: bool
+    is_cancelled: bool = False
     created_at: datetime
 
     model_config = ConfigDict(from_attributes=True)

@@ -79,9 +79,12 @@ class UserService:
         user = self.repository.find_by_id(user_id)
         if not user:
             raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+        photo_version = user.photo_version
         try:
             self.repository.db.delete(user)
             self.repository.db.commit()
         except IntegrityError:
             self.repository.db.rollback()
             raise HTTPException(status_code=400, detail="Impossible de supprimer cet utilisateur.")
+        from app.services.user.profile import remove_photo_file
+        remove_photo_file(photo_version)

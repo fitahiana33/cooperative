@@ -1,7 +1,17 @@
 from datetime import datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+
+def _payment_phone(value: str) -> str:
+    value = value.strip()
+    digits = "".join(character for character in value if character.isdigit())
+    valid_local = len(digits) == 10 and digits.startswith("0")
+    valid_international = len(digits) == 12 and digits.startswith("261")
+    if not (valid_local or valid_international):
+        raise ValueError("Renseignez un numéro malgache valide (ex. 034 00 000 00).")
+    return value
 
 
 class PaiementCreate(BaseModel):
@@ -19,6 +29,11 @@ class PaiementRead(BaseModel):
     methode: str
     reference_paiement: str | None = None
     statut: str
+    date_validation: datetime | None = None
+    date_remboursement: datetime | None = None
+    verification_requise: bool = False
+    methode_remboursement: str | None = None
+    reference_remboursement: str | None = None
     date_paiement: datetime
     id_agent: int | None = None
     remboursement_demande_le: datetime | None = None
@@ -33,9 +48,32 @@ class PaiementEnLigneCreate(BaseModel):
     id_reservation: int
     montant: Decimal = Field(gt=0)
     cle_idempotence: str = Field(min_length=8, max_length=100)
+    fournisseur: str = Field(default="MVOLA", pattern="^(MVOLA|ORANGE_MONEY|AIRTEL_MONEY)$")
+    telephone_paiement: str = Field(min_length=10, max_length=30)
+
+    _validate_phone = field_validator("telephone_paiement")(_payment_phone)
+
+
+class PublicPaymentCreate(BaseModel):
+    montant: Decimal = Field(gt=0)
+    cle_idempotence: str = Field(min_length=20, max_length=100)
+    fournisseur: str = Field(default="MVOLA", pattern="^(MVOLA|ORANGE_MONEY|AIRTEL_MONEY)$")
+    telephone_paiement: str = Field(min_length=10, max_length=30)
+
+    _validate_phone = field_validator("telephone_paiement")(_payment_phone)
+
+
+class RefundCreate(BaseModel):
+    methode: str = Field(default="ESPECES", pattern="^(ESPECES|MOBILE_MONEY|VIREMENT|CARTE)$")
+    reference: str | None = Field(default=None, min_length=8, max_length=150)
+
+
+class PaymentVerification(BaseModel):
+    reference_verification: str = Field(min_length=8, max_length=150)
 
 
 class PaiementEnLigneRead(BaseModel):
+    verification_requise: bool = False
     id_paiement: int
     statut: str
     fournisseur: str
@@ -81,6 +119,7 @@ class OperationCreate(BaseModel):
 
 
 class OperationRead(BaseModel):
+    id_agent: int | None = None
     id: int
     id_caisse: int
     type_operation: str

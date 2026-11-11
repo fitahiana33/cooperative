@@ -1,3 +1,5 @@
+import 'dart:math';
+import 'package:shared_preferences/shared_preferences.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../core/network/api_client.dart';
@@ -6,7 +8,8 @@ import '../../../domain/repositories/travel/travel_repository.dart';
 import '../../../presentation/controllers/auth/auth_controller.dart';
 import '../../models/travel/travel_models.dart';
 
-final travelRepositoryProvider = Provider<TravelRepository>((ref) => TravelRepositoryImpl(ref.watch(authApiClientProvider)));
+final travelRepositoryProvider = Provider<TravelRepository>(
+    (ref) => TravelRepositoryImpl(ref.watch(authApiClientProvider)));
 
 class TravelRepositoryImpl implements TravelRepository {
   final ApiClient _api;
@@ -14,15 +17,64 @@ class TravelRepositoryImpl implements TravelRepository {
   TravelRepositoryImpl(this._api);
 
   @override
+  Future<BookingPolicy> bookingPolicy() async {
+    final response = await _api.get('/reservations/policy');
+    return BookingPolicy.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
+  }
+
+  @override
+  Future<OnlinePayment> createOnlinePayment(int reservationId, double amount,
+      String provider, String paymentPhone) async {
+    final pending = await _api.get('/paiements/en-cours/$reservationId');
+    if (pending.data != null)
+      return OnlinePayment.fromJson(
+          Map<String, dynamic>.from(pending.data as Map));
+    final preferences = await SharedPreferences.getInstance();
+    final storageKey = 'payment-command:$reservationId:$amount:$provider';
+    var key = preferences.getString(storageKey);
+    if (key == null) {
+      final random = Random.secure();
+      key = List.generate(
+              32, (_) => random.nextInt(256).toRadixString(16).padLeft(2, '0'))
+          .join();
+      await preferences.setString(storageKey, key);
+    }
+    final response = await _api.post('/paiements/en-ligne', data: {
+      'id_reservation': reservationId,
+      'montant': amount,
+      'fournisseur': provider,
+      'cle_idempotence': key,
+      'telephone_paiement': paymentPhone.trim(),
+    });
+    return OnlinePayment.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
+  }
+
+  @override
   Future<List<Destination>> listDestinations() async {
-    final response = await _api.get('/destinations', queryParameters: {'page': 1, 'page_size': 100});
+    final destinations = <Destination>[];
+    var page = 1;
+    var hasMore = true;
+    while (hasMore) {
+      final response = await _api.get('/destinations',
+          queryParameters: {'page': page, 'page_size': 100});
+      final result = PageResult.fromJson(response.data, Destination.fromJson);
+      destinations.addAll(result.items);
+      hasMore = result.hasMore;
+      page++;
+    }
     // Cities no longer served are not offered to passengers.
-    return PageResult.fromJson(response.data, Destination.fromJson).items.where((city) => city.isActive).toList()
+    return destinations.where((city) => city.isActive).toList()
       ..sort((a, b) => a.name.compareTo(b.name));
   }
 
   @override
-  Future<PageResult<Departure>> searchDepartures({int? originId, int? destinationId, required DateTime date, int page = 1}) async {
+  Future<PageResult<Departure>> searchDepartures(
+      {int? originId,
+      int? destinationId,
+      required DateTime date,
+      int page = 1}) async {
     final day = Fmt.apiDate(date);
     final response = await _api.get('/departs', queryParameters: {
       'page': page,
@@ -40,47 +92,66 @@ class TravelRepositoryImpl implements TravelRepository {
 
   @override
   Future<List<Seat>> listSeats(int departureId) async {
-    final response = await _api.get('/departs/$departureId/places', queryParameters: {'available_only': false});
-    final items = response.data is List ? response.data as List : (response.data as Map)['items'] as List;
-    return items.map((item) => Seat.fromJson(Map<String, dynamic>.from(item as Map))).toList()..sort((a, b) => a.number.compareTo(b.number));
+    final response = await _api.get('/departs/$departureId/places',
+        queryParameters: {'available_only': false});
+    final items = response.data is List
+        ? response.data as List
+        : (response.data as Map)['items'] as List;
+    return items
+        .map((item) => Seat.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList()
+      ..sort((a, b) => a.number.compareTo(b.number));
   }
 
   @override
-  Future<Reservation> createReservation(int departureId, List<Map<String, dynamic>> passengers) async {
-    final response = await _api.post('/reservations', data: {'id_depart': departureId, 'places': passengers});
-    return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));
+  Future<Reservation> createReservation(
+      int departureId, List<Map<String, dynamic>> passengers) async {
+    final response = await _api.post('/reservations',
+        data: {'id_depart': departureId, 'places': passengers});
+    return Reservation.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
   }
 
   @override
   Future<PageResult<Reservation>> listReservations({int page = 1}) async {
-    final response = await _api.get('/reservations', queryParameters: {'page': page, 'page_size': 20, 'sort_by': 'created_at', 'sort_order': 'desc'});
+    final response = await _api.get('/reservations', queryParameters: {
+      'page': page,
+      'page_size': 20,
+      'sort_by': 'created_at',
+      'sort_order': 'desc'
+    });
     return PageResult.fromJson(response.data, Reservation.fromJson);
   }
 
   @override
   Future<Reservation> getReservation(int id) async {
     final response = await _api.get('/reservations/$id');
-    return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return Reservation.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
   }
 
   @override
-  Future<Reservation> updateReservation(int id, int departureId, List<Map<String, dynamic>> passengers) async {
+  Future<Reservation> updateReservation(
+      int id, int departureId, List<Map<String, dynamic>> passengers) async {
     final response = await _api.patch('/reservations/$id', data: {
       'id_depart': departureId,
       'places': passengers,
     });
-    return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return Reservation.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
   }
 
   @override
   Future<Reservation> cancelReservation(int id) async {
     final response = await _api.post('/reservations/$id/cancel');
-    return Reservation.fromJson(Map<String, dynamic>.from(response.data as Map));
+    return Reservation.fromJson(
+        Map<String, dynamic>.from(response.data as Map));
   }
 
   @override
   Future<PageResult<Ticket>> listTickets({int page = 1}) async {
-    final response = await _api.get('/billets', queryParameters: {'page': page, 'page_size': 20});
+    final response = await _api
+        .get('/billets', queryParameters: {'page': page, 'page_size': 20});
     return PageResult.fromJson(response.data, Ticket.fromJson);
   }
 
@@ -91,30 +162,45 @@ class TravelRepositoryImpl implements TravelRepository {
   }
 
   @override
-  Future<PageResult<AppNotification>> listNotifications({int page = 1, bool unreadOnly = false}) async {
-    final response = await _api.get('/notifications', queryParameters: {'page': page, 'page_size': 20, 'unread_only': unreadOnly});
+  Future<PageResult<AppNotification>> listNotifications(
+      {int page = 1, bool unreadOnly = false}) async {
+    final response = await _api.get('/notifications', queryParameters: {
+      'page': page,
+      'page_size': 20,
+      'unread_only': unreadOnly
+    });
     return PageResult.fromJson(response.data, AppNotification.fromJson);
   }
 
   @override
-  Future<void> markNotificationRead(int id) => _api.patch('/notifications/$id/read');
+  Future<void> markNotificationRead(int id) =>
+      _api.patch('/notifications/$id/read');
 
   @override
-  Future<void> markAllNotificationsRead() => _api.patch('/notifications/read-all');
+  Future<void> markAllNotificationsRead() =>
+      _api.patch('/notifications/read-all');
 
   @override
   Future<PageResult<Departure>> listMyDriverDepartures({int page = 1}) async {
-    final response = await _api.get('/departs/mes-departs', queryParameters: {'page': page, 'page_size': 30, 'date_from': Fmt.apiDate(DateTime.now())});
+    final response = await _api.get('/departs/mes-departs', queryParameters: {
+      'page': page,
+      'page_size': 30,
+      'date_from': Fmt.apiDate(DateTime.now())
+    });
     return PageResult.fromJson(response.data, Departure.fromJson);
   }
 
   @override
-  Future<void> driverCheckIn(int departureId, String type) => _api.post('/departs/$departureId/pointage', data: {'type': type});
+  Future<void> driverCheckIn(int departureId, String type) =>
+      _api.post('/departs/$departureId/pointage', data: {'type': type});
 
   @override
   Future<List<ManifestRow>> listPassengers(int departureId) async {
     final response = await _api.get('/departs/$departureId/passagers');
-    return (response.data as List).map((item) => ManifestRow.fromJson(Map<String, dynamic>.from(item as Map))).toList()
+    return (response.data as List)
+        .map((item) =>
+            ManifestRow.fromJson(Map<String, dynamic>.from(item as Map)))
+        .toList()
       ..sort((a, b) => a.seat.compareTo(b.seat));
   }
 }

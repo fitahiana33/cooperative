@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import { allPages } from "../../services/pagination";
 import { computed, onMounted, ref, watch } from 'vue'
 import { RouterLink, useRoute } from 'vue-router'
 import AppLayout from '../../components/layout/AppLayout.vue'
@@ -62,9 +63,9 @@ function showError(errorValue: unknown, fallback: string) {
 
 async function loadReferences() {
   const results = await Promise.allSettled([
-    marqueService.listMarques({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
-    modeleService.listModeles({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
-    cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
+    allPages((params) => marqueService.listMarques(params), { page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
+    allPages((params) => modeleService.listModeles(params), { page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
+    allPages((params) => cooperativeService.listCooperatives(params), { page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
   ])
   if (results[0].status === 'fulfilled') marques.value = results[0].value.items
   if (results[1].status === 'fulfilled') modeles.value = results[1].value.items
@@ -75,20 +76,23 @@ async function load() {
   loading.value = true
   error.value = ''
   try {
-    const result = section.value === 'vehicules'
-      ? await vehiculeService.listVehicules({ page: page.value, page_size: 20, search: search.value || undefined, sort_by: 'immatriculation', sort_order: sortOrder.value })
-      : section.value === 'chauffeurs'
-        ? await chauffeurService.listChauffeurs({ page: page.value, page_size: 20, search: search.value || undefined, sort_by: 'created_at', sort_order: sortOrder.value })
-        : section.value === 'marques'
-          ? await marqueService.listMarques({ page: page.value, page_size: 20, search: search.value || undefined, sort_by: 'nom', sort_order: sortOrder.value })
-          : await modeleService.listModeles({ page: page.value, page_size: 20, search: search.value || undefined, sort_by: 'nom', sort_order: sortOrder.value })
-
-    if (section.value === 'vehicules') vehicules.value = result.items
-    if (section.value === 'chauffeurs') chauffeurs.value = result.items
-    if (section.value === 'marques') marques.value = result.items
-    if (section.value === 'modeles') modeles.value = result.items
-    total.value = result.total
-    pages.value = result.pages || 1
+    const params = { page: page.value, page_size: 20, search: search.value || undefined, sort_order: sortOrder.value };
+    let pagination: { total: number; pages: number };
+    if (section.value === 'vehicules') {
+      const result = await vehiculeService.listVehicules({ ...params, sort_by: 'immatriculation' });
+      vehicules.value = result.items; pagination = result;
+    } else if (section.value === 'chauffeurs') {
+      const result = await chauffeurService.listChauffeurs({ ...params, sort_by: 'created_at' });
+      chauffeurs.value = result.items; pagination = result;
+    } else if (section.value === 'marques') {
+      const result = await marqueService.listMarques({ ...params, sort_by: 'nom' });
+      marques.value = result.items; pagination = result;
+    } else {
+      const result = await modeleService.listModeles({ ...params, sort_by: 'nom' });
+      modeles.value = result.items; pagination = result;
+    }
+    total.value = pagination.total;
+    pages.value = pagination.pages || 1;
   } catch (errorValue: unknown) {
     showError(errorValue, 'Impossible de charger cette liste.')
   } finally {

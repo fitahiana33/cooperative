@@ -1,8 +1,9 @@
+import type { Page } from "../pagination";
 import { api } from '../api'
 import type { Cooperative, CooperativeCreate } from '../../models/cooperative/model'
 
 export const cooperativeService = {
-  async listCooperatives(params?: Record<string, any>) {
+  async listCooperatives(params?: Record<string, any>): Promise<Page<Cooperative>> {
     return (await api.get('/cooperatives', { params })).data
   },
   async getCooperative(id: number): Promise<Cooperative> {

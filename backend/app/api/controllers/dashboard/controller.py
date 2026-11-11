@@ -3,7 +3,7 @@ from datetime import date
 from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import get_user_cooperative_ids, has_global_cooperative_access, require_permission
+from app.api.controllers.authentication.dependencies import get_user_cooperative_ids, has_global_cooperative_access, require_permission, station_agent_scope
 from app.db.session import get_db
 from app.models.user import User
 from app.services.dashboard import DashboardService
@@ -17,7 +17,7 @@ def _scope(db: Session, user: User) -> set[int] | None:
 
 @router.get("/dashboard/summary")
 def dashboard_summary(current_user: User = Depends(require_permission("DASHBOARD_READ")), db: Session = Depends(get_db)):
-    return DashboardService(db).summary(cooperative_ids=_scope(db, current_user))
+    return DashboardService(db, gare_ids=station_agent_scope(db, current_user)).summary(cooperative_ids=_scope(db, current_user))
 
 
 @router.get("/statistiques")
@@ -28,10 +28,10 @@ def statistics(
     if date_from and date_to and date_to < date_from:
         from fastapi import HTTPException
         raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
-    return DashboardService(db).statistics(date_from=date_from, date_to=date_to, cooperative_ids=_scope(db, current_user))
+    return DashboardService(db, gare_ids=station_agent_scope(db, current_user)).statistics(date_from=date_from, date_to=date_to, cooperative_ids=_scope(db, current_user))
 
 
 @router.post("/notifications/reminders")
 def generate_reminders(current_user: User = Depends(require_permission("NOTIFICATION_MANAGE")), db: Session = Depends(get_db)):
-    return {"created": DashboardService(db).generate_reminders()}
+    return {"created": DashboardService(db, gare_ids=station_agent_scope(db, current_user)).generate_reminders()}
 

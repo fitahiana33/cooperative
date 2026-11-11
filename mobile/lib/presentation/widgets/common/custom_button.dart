@@ -22,8 +22,9 @@ class CustomButton extends StatelessWidget {
       style: ElevatedButton.styleFrom(
         padding: const EdgeInsets.symmetric(vertical: 16),
         backgroundColor: backgroundColor ?? AppTheme.primary,
-        foregroundColor: Colors.white,
-        elevation: 4,
+        foregroundColor:
+            backgroundColor == null ? AppTheme.background : Colors.white,
+        elevation: 0,
         shape: RoundedRectangleBorder(
           borderRadius: BorderRadius.circular(14),
         ),

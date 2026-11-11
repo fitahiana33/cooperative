@@ -1,12 +1,14 @@
 import logging
 
 from fastapi import HTTPException
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.core.pagination import paginate
 from app.models.destination import Destination
+from app.models.itineraire import Itineraire
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.destination")
 
@@ -58,6 +60,8 @@ class DestinationService:
 
     def update_destination(self, destination_id: int, **fields) -> Destination:
         item = self.get_destination(destination_id)
+        if fields.get("is_active") is False:
+            self._ensure_no_planning(destination_id)
         if "nom" in fields and fields["nom"] is not None:
             clean_name = fields["nom"].strip()
             if not clean_name:
@@ -82,10 +86,18 @@ class DestinationService:
 
     def toggle_destination(self, destination_id: int) -> Destination:
         item = self.get_destination(destination_id)
+        if item.is_active:
+            self._ensure_no_planning(destination_id)
         item.is_active = not item.is_active
         self.db.commit()
         self.db.refresh(item)
         return item
+
+    def _ensure_no_planning(self, destination_id: int) -> None:
+        for route_id in self.db.scalars(select(Itineraire.id).where(or_(
+            Itineraire.id_destination_depart == destination_id, Itineraire.id_destination_arrivee == destination_id,
+        ))):
+            ensure_planning_covered(self.db, resource="Cette destination", id_itineraire=route_id, inactive=True)
 
     def delete_destination(self, destination_id: int) -> None:
         item = self.get_destination(destination_id)

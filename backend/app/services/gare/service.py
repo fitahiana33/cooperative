@@ -9,17 +9,19 @@ from app.core.pagination import paginate
 from app.core.roles import normalize_role
 from app.models import Emplacement, Gare, GareAgent, Quai, User, Zone
 from app.models.user import UserRole
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.gare")
 
 
 class GareService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, *, gare_ids: set[int] | None = None):
         self.db = db
+        self.gare_ids = gare_ids
 
     def list_gares(self, **kwargs):
         return paginate(
-            self.db, Gare, page=kwargs.get("page", 1), page_size=kwargs.get("page_size", 20),
+            self.db, Gare, statement=select(Gare).where(Gare.id.in_(self.gare_ids)) if self.gare_ids is not None else None, page=kwargs.get("page", 1), page_size=kwargs.get("page_size", 20),
             search=kwargs.get("search"), search_fields=("nom", "ville", "adresse"),
             sort_by=kwargs.get("sort_by", "nom"),
             sort_fields=("nom", "ville", "adresse", "created_at"),
@@ -28,7 +30,7 @@ class GareService:
 
     def get_gare(self, gare_id: int) -> Gare:
         gare = self.db.get(Gare, gare_id)
-        if not gare:
+        if not gare or (self.gare_ids is not None and gare_id not in self.gare_ids):
             raise HTTPException(404, "Gare introuvable.")
         return gare
 
@@ -79,6 +81,8 @@ class GareService:
 
     def toggle_gare(self, gare_id: int) -> Gare:
         gare = self.get_gare(gare_id)
+        if gare.is_active:
+            ensure_planning_covered(self.db, resource="Cette gare", id_gare=gare_id, inactive=True)
         gare.is_active = not gare.is_active
         self.db.commit()
         self.db.refresh(gare)
@@ -86,8 +90,12 @@ class GareService:
 
     def delete_gare(self, gare_id: int) -> None:
         gare = self.get_gare(gare_id)
-        self.db.delete(gare)
-        self.db.commit()
+        try:
+            self.db.delete(gare)
+            self.db.commit()
+        except IntegrityError:
+            self.db.rollback()
+            raise HTTPException(409, "Cette gare possède un historique ou des rattachements. Désactivez-la plutôt que la supprimer.")
 
     def add_quai(self, gare_id: int, *, numero: str, nom=None, description=None) -> Quai:
         gare = self.get_gare(gare_id)
@@ -183,6 +191,8 @@ class GareService:
 
     def add_emplacement(self, zone_id: int, *, code: str, nom=None, type_emplacement=None, description=None) -> Emplacement:
         zone = self.db.get(Zone, zone_id)
+        if zone:
+            self.get_gare(zone.id_gare)
         if not zone:
             raise HTTPException(404, "Zone introuvable.")
         if not zone.is_active or not zone.gare.is_active:
@@ -248,8 +258,10 @@ class GareService:
         user = self.db.get(User, user_id)
         if not user:
             raise HTTPException(404, "Utilisateur introuvable.")
-        if not any(normalize_role(role.libelle) == UserRole.AGENT_GARE and role.is_active for role in user.roles):
-            raise HTTPException(422, "Seul un utilisateur ayant le rôle agent de gare peut être rattaché à une gare.")
+        if not gare.is_active or not user.is_active:
+            raise HTTPException(422, "La gare et l'agent doivent être actifs pour ce rattachement.")
+        if not any(normalize_role(role.libelle) in {UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE} and role.is_active for role in user.roles):
+            raise HTTPException(422, "Un agent ou responsable de gare actif peut être rattaché à une gare.")
         current = self.db.scalar(select(GareAgent).where(GareAgent.id_user == user_id))
         if current and current.id_gare == gare.id:
             return self.list_agents(gare_id)
@@ -268,12 +280,13 @@ class GareService:
             select(User)
             .join(users_roles, users_roles.c.id_user == User.id)
             .join(Role, Role.id == users_roles.c.id_role)
-            .where(func.lower(Role.libelle) == UserRole.AGENT_GARE, Role.is_active.is_(True), User.is_active.is_(True))
+            .where(func.lower(Role.libelle).in_([UserRole.AGENT_GARE, UserRole.RESPONSABLE_GARE]), Role.is_active.is_(True), User.is_active.is_(True))
             .where(User.id.not_in(select(GareAgent.id_user)))
             .order_by(User.name, User.first_name)
         ).unique())
 
     def remove_agent(self, gare_id: int, user_id: int) -> None:
+        self.get_gare(gare_id)
         link = self.db.get(GareAgent, {"id_gare": gare_id, "id_user": user_id})
         if not link:
             raise HTTPException(404, "Cet agent n'est pas rattaché à cette gare.")

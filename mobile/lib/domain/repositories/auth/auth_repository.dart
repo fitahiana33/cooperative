@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import '../../../data/models/auth/login_request_dto.dart';
 import '../../../data/models/auth/register_request_dto.dart';
 import '../../entities/user/user_entity.dart';
@@ -20,7 +21,12 @@ abstract class AuthRepository {
 
   Future<UserEntity> updateProfile(Map<String, dynamic> fields);
 
-  Future<void> changePassword({required String currentPassword, required String newPassword});
+  Future<Uint8List> profilePhoto();
+  Future<UserEntity> uploadPhoto(Uint8List bytes, String filename);
+  Future<UserEntity> removePhoto();
+
+  Future<void> changePassword(
+      {required String currentPassword, required String newPassword});
 
   Future<String?> getRefreshTokenForLogout();
 

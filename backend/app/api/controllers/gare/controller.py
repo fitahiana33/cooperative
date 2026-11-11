@@ -1,5 +1,5 @@
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy import or_, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.core.clock import local_today
@@ -14,7 +14,7 @@ from app.schemas.gare import (
 )
 from app.schemas.common import PageResponse
 from app.services.gare import GareService
-from app.api.controllers.authentication.dependencies import require_permission
+from app.api.controllers.authentication.dependencies import require_permission, get_user_gare_ids
 
 router = APIRouter(prefix="/gares", tags=["gares"])
 
@@ -39,7 +39,8 @@ def list_public_gares(
             Gare.region.ilike(term),
         ))
 
-    rows = list(db.scalars(statement.order_by(Gare.nom, Gare.id)))
+    total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0
+    rows = list(db.scalars(statement.order_by(Gare.nom, Gare.id).offset((page - 1) * page_size).limit(page_size)))
     today = local_today()
     items = []
     for gare in rows:
@@ -65,10 +66,8 @@ def list_public_gares(
             "cooperatives": sorted(cooperatives, key=lambda item: item["nom"].lower()),
         })
 
-    total = len(items)
-    offset = (page - 1) * page_size
     return {
-        "items": items[offset:offset + page_size],
+        "items": items,
         "total": total,
         "page": page,
         "page_size": page_size,
@@ -82,18 +81,18 @@ def list_gares(
     search: str | None = Query(None, max_length=100),
     sort_by: str = Query("nom", pattern="^(nom|ville|adresse|created_at)$"),
     sort_order: str = Query("asc", pattern="^(asc|desc)$"),
-    _: User = Depends(require_permission("GARE_READ")),
+    current_user: User = Depends(require_permission("GARE_READ")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).list_gares(page=page, page_size=page_size, search=search, sort_by=sort_by, sort_order=sort_order)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).list_gares(page=page, page_size=page_size, search=search, sort_by=sort_by, sort_order=sort_order)
 
 @router.post("", response_model=GareRead, status_code=status.HTTP_201_CREATED)
 def create_gare(
     data: GareCreate,
-    _: User = Depends(require_permission("GARE_CREATE")),
+    current_user: User = Depends(require_permission("GARE_CREATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).create_gare(
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).create_gare(
         nom=data.nom,
         ville=data.ville,
         adresse=data.adresse,
@@ -108,128 +107,128 @@ def create_gare(
 @router.get("/{gare_id}", response_model=GareRead)
 def get_gare(
     gare_id: int,
-    _: User = Depends(require_permission("GARE_READ")),
+    current_user: User = Depends(require_permission("GARE_READ")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).get_gare(gare_id)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).get_gare(gare_id)
 
 @router.put("/{gare_id}", response_model=GareRead)
 def update_gare(
     gare_id: int,
     data: GareUpdate,
-    _: User = Depends(require_permission("GARE_UPDATE")),
+    current_user: User = Depends(require_permission("GARE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).update_gare(gare_id, **data.model_dump(exclude_unset=True))
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).update_gare(gare_id, **data.model_dump(exclude_unset=True))
 
 @router.patch("/{gare_id}/toggle", response_model=GareRead)
 def toggle_gare(
     gare_id: int,
-    _: User = Depends(require_permission("GARE_UPDATE")),
+    current_user: User = Depends(require_permission("GARE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).toggle_gare(gare_id)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).toggle_gare(gare_id)
 
 @router.delete("/{gare_id}", status_code=status.HTTP_204_NO_CONTENT)
 def delete_gare(
     gare_id: int,
-    _: User = Depends(require_permission("GARE_DELETE")),
+    current_user: User = Depends(require_permission("GARE_DELETE")),
     db: Session = Depends(get_db),
 ):
-    GareService(db).delete_gare(gare_id)
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).delete_gare(gare_id)
 
 @router.post("/{gare_id}/quais", response_model=QuaiRead, status_code=status.HTTP_201_CREATED)
 def add_quai(
     gare_id: int,
     data: QuaiCreate,
-    _: User = Depends(require_permission("GARE_UPDATE")),
+    current_user: User = Depends(require_permission("GARE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).add_quai(gare_id, numero=data.numero, nom=data.nom, description=data.description)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).add_quai(gare_id, numero=data.numero, nom=data.nom, description=data.description)
 
 @router.post("/{gare_id}/zones", response_model=ZoneRead, status_code=status.HTTP_201_CREATED)
 def add_zone(
     gare_id: int,
     data: ZoneCreate,
-    _: User = Depends(require_permission("GARE_UPDATE")),
+    current_user: User = Depends(require_permission("GARE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).add_zone(gare_id, nom=data.nom, type_zone=data.type_zone, description=data.description)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).add_zone(gare_id, nom=data.nom, type_zone=data.type_zone, description=data.description)
 
 @router.post("/zones/{zone_id}/emplacements", response_model=EmplacementRead, status_code=status.HTTP_201_CREATED)
 def add_emplacement(
     zone_id: int,
     data: EmplacementCreate,
-    _: User = Depends(require_permission("GARE_UPDATE")),
+    current_user: User = Depends(require_permission("GARE_UPDATE")),
     db: Session = Depends(get_db),
 ):
-    return GareService(db).add_emplacement(zone_id, code=data.code, nom=data.nom, type_emplacement=data.type_emplacement, description=data.description)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).add_emplacement(zone_id, code=data.code, nom=data.nom, type_emplacement=data.type_emplacement, description=data.description)
 
 @router.get("/{gare_id}/quais", response_model=list[QuaiRead])
-def list_quais(gare_id: int, _: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
-    return GareService(db).list_quais(gare_id)
+def list_quais(gare_id: int, current_user: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).list_quais(gare_id)
 
 @router.put("/{gare_id}/quais/{quai_id}", response_model=QuaiRead)
-def update_quai(gare_id: int, quai_id: int, data: QuaiUpdate, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).update_quai(gare_id, quai_id, **data.model_dump(exclude_unset=True))
+def update_quai(gare_id: int, quai_id: int, data: QuaiUpdate, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).update_quai(gare_id, quai_id, **data.model_dump(exclude_unset=True))
 
 @router.patch("/{gare_id}/quais/{quai_id}/toggle", response_model=QuaiRead)
-def toggle_quai(gare_id: int, quai_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).toggle_quai(gare_id, quai_id)
+def toggle_quai(gare_id: int, quai_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).toggle_quai(gare_id, quai_id)
 
 @router.delete("/{gare_id}/quais/{quai_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_quai(gare_id: int, quai_id: int, _: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
-    GareService(db).delete_quai(gare_id, quai_id)
+def delete_quai(gare_id: int, quai_id: int, current_user: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).delete_quai(gare_id, quai_id)
 
 @router.get("/{gare_id}/zones", response_model=list[ZoneRead])
-def list_zones(gare_id: int, _: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
-    return GareService(db).list_zones(gare_id)
+def list_zones(gare_id: int, current_user: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).list_zones(gare_id)
 
 @router.put("/{gare_id}/zones/{zone_id}", response_model=ZoneRead)
-def update_zone(gare_id: int, zone_id: int, data: ZoneUpdate, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).update_zone(gare_id, zone_id, **data.model_dump(exclude_unset=True))
+def update_zone(gare_id: int, zone_id: int, data: ZoneUpdate, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).update_zone(gare_id, zone_id, **data.model_dump(exclude_unset=True))
 
 @router.patch("/{gare_id}/zones/{zone_id}/toggle", response_model=ZoneRead)
-def toggle_zone(gare_id: int, zone_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).toggle_zone(gare_id, zone_id)
+def toggle_zone(gare_id: int, zone_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).toggle_zone(gare_id, zone_id)
 
 @router.delete("/{gare_id}/zones/{zone_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_zone(gare_id: int, zone_id: int, _: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
-    GareService(db).delete_zone(gare_id, zone_id)
+def delete_zone(gare_id: int, zone_id: int, current_user: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).delete_zone(gare_id, zone_id)
 
 @router.get("/{gare_id}/zones/{zone_id}/emplacements", response_model=list[EmplacementRead])
-def list_emplacements(gare_id: int, zone_id: int, _: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
-    return GareService(db).list_emplacements(gare_id, zone_id)
+def list_emplacements(gare_id: int, zone_id: int, current_user: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).list_emplacements(gare_id, zone_id)
 
 @router.put("/{gare_id}/zones/{zone_id}/emplacements/{emplacement_id}", response_model=EmplacementRead)
-def update_emplacement(gare_id: int, zone_id: int, emplacement_id: int, data: EmplacementUpdate, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).update_emplacement(gare_id, zone_id, emplacement_id, **data.model_dump(exclude_unset=True))
+def update_emplacement(gare_id: int, zone_id: int, emplacement_id: int, data: EmplacementUpdate, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).update_emplacement(gare_id, zone_id, emplacement_id, **data.model_dump(exclude_unset=True))
 
 @router.patch("/{gare_id}/zones/{zone_id}/emplacements/{emplacement_id}/toggle", response_model=EmplacementRead)
-def toggle_emplacement(gare_id: int, zone_id: int, emplacement_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).toggle_emplacement(gare_id, zone_id, emplacement_id)
+def toggle_emplacement(gare_id: int, zone_id: int, emplacement_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).toggle_emplacement(gare_id, zone_id, emplacement_id)
 
 @router.delete("/{gare_id}/zones/{zone_id}/emplacements/{emplacement_id}", status_code=status.HTTP_204_NO_CONTENT)
-def delete_emplacement(gare_id: int, zone_id: int, emplacement_id: int, _: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
-    GareService(db).delete_emplacement(gare_id, zone_id, emplacement_id)
+def delete_emplacement(gare_id: int, zone_id: int, emplacement_id: int, current_user: User = Depends(require_permission("GARE_DELETE")), db: Session = Depends(get_db)):
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).delete_emplacement(gare_id, zone_id, emplacement_id)
 
 
 @router.get("/{gare_id}/agents", response_model=list[GareAgentRead])
-def list_gare_agents(gare_id: int, _: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
-    return GareService(db).list_agents(gare_id)
+def list_gare_agents(gare_id: int, current_user: User = Depends(require_permission("GARE_READ")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).list_agents(gare_id)
 
 
 @router.get("/{gare_id}/eligible-agents", response_model=list[GareAgentRead])
-def list_eligible_gare_agents(gare_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    GareService(db).get_gare(gare_id)
-    return GareService(db).eligible_agents()
+def list_eligible_gare_agents(gare_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).get_gare(gare_id)
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).eligible_agents()
 
 
 @router.post("/{gare_id}/agents/{user_id}", response_model=list[GareAgentRead])
-def add_gare_agent(gare_id: int, user_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    return GareService(db).add_agent(gare_id, user_id)
+def add_gare_agent(gare_id: int, user_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    return GareService(db, gare_ids=get_user_gare_ids(db, current_user)).add_agent(gare_id, user_id)
 
 
 @router.delete("/{gare_id}/agents/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
-def remove_gare_agent(gare_id: int, user_id: int, _: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
-    GareService(db).remove_agent(gare_id, user_id)
+def remove_gare_agent(gare_id: int, user_id: int, current_user: User = Depends(require_permission("GARE_UPDATE")), db: Session = Depends(get_db)):
+    GareService(db, gare_ids=get_user_gare_ids(db, current_user)).remove_agent(gare_id, user_id)

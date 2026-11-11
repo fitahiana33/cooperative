@@ -1,3 +1,4 @@
+from datetime import date
 from io import BytesIO
 from math import ceil
 from uuid import UUID, uuid4
@@ -31,7 +32,10 @@ class BilletService:
                 qr_code_uuid=uuid4(),
                 statut=BilletStatus.VALIDE,
             )
-            BilletService.generate_qr(billet)
+            # Keep the identity map consistent when confirmation and collection
+            # run in the same transaction; a second issuance sees this ticket.
+            place.billet = billet
+            # QR images are generated on demand by the authenticated endpoint.
             db.add(billet)
             created.append(billet)
         db.flush()
@@ -94,12 +98,16 @@ class BilletService:
             "nom_cooperative": cooperative.nom if cooperative else None,
         }
 
-    def _get(self, billet_id: int, *, owner_id: int | None = None, cooperative_ids: set[int] | None = None) -> Billet:
+    def _get(self, billet_id: int, *, owner_id: int | None = None, cooperative_ids: set[int] | None = None, chauffeur_id: int | None = None, gare_ids: set[int] | None = None) -> Billet:
         statement = select(Billet).where(Billet.id == billet_id).options(*self._options()).join(ReservationPlace).join(Reservation).join(Depart)
         if owner_id is not None:
             statement = statement.where(Reservation.id_user == owner_id)
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
+        if gare_ids is not None:
+            statement = statement.where(Depart.id_gare.in_(gare_ids))
+        if chauffeur_id is not None:
+            statement = statement.where(Depart.id_chauffeur == chauffeur_id)
         item = self.db.scalar(statement)
         if not item:
             raise HTTPException(404, "Billet introuvable.")
@@ -108,17 +116,44 @@ class BilletService:
     def get(self, billet_id: int, **scope) -> dict:
         return self._to_dict(self._get(billet_id, **scope))
 
-    def list(self, *, page: int = 1, page_size: int = 20, search: str | None = None, statut: str | None = None, sort_by: str = "date_emission", sort_order: str = "desc", owner_id: int | None = None, cooperative_ids: set[int] | None = None):
+    def list(self, *, page: int = 1, page_size: int = 20, search: str | None = None,
+             statut: str | None = None, date_from: date | None = None,
+             date_to: date | None = None, id_cooperative: int | None = None,
+             id_gare: int | None = None, id_itineraire: int | None = None,
+             id_depart: int | None = None, sort_by: str = "date_emission",
+             sort_order: str = "desc", owner_id: int | None = None,
+             cooperative_ids: set[int] | None = None, chauffeur_id: int | None = None,
+             gare_ids: set[int] | None = None):
         statement = select(Billet).options(*self._options()).join(ReservationPlace).join(Reservation).join(Depart)
         if owner_id is not None:
             statement = statement.where(Reservation.id_user == owner_id)
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
+        if gare_ids is not None:
+            statement = statement.where(Depart.id_gare.in_(gare_ids))
+        if chauffeur_id is not None:
+            statement = statement.where(Depart.id_chauffeur == chauffeur_id)
+        if id_cooperative is not None:
+            statement = statement.where(Depart.id_cooperative == id_cooperative)
+        if id_gare is not None:
+            statement = statement.where(Depart.id_gare == id_gare)
+        if id_itineraire is not None:
+            statement = statement.where(Depart.id_itineraire == id_itineraire)
+        if id_depart is not None:
+            statement = statement.where(Depart.id == id_depart)
+        if date_from is not None:
+            statement = statement.where(Depart.date_depart >= date_from)
+        if date_to is not None:
+            statement = statement.where(Depart.date_depart <= date_to)
         if statut:
             statement = statement.where(Billet.statut == statut)
         if search and search.strip():
             term = f"%{search.strip()}%"
-            statement = statement.where(or_(Billet.numero_billet.ilike(term), Reservation.numero_reservation.ilike(term)))
+            statement = statement.where(or_(
+                Billet.numero_billet.ilike(term),
+                Reservation.numero_reservation.ilike(term),
+                ReservationPlace.nom_passager.ilike(term),
+            ))
         total = self.db.scalar(select(func.count()).select_from(statement.order_by(None).subquery())) or 0
         sort_columns = {
             "date_emission": Billet.date_emission,

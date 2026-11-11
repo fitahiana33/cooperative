@@ -20,11 +20,11 @@ sans changer le code.
 
 - API et documentation OpenAPI : http://localhost:8000/docs
 - Web : http://localhost:5173
-- PostgreSQL : localhost:5432
+- PostgreSQL du projet : 127.0.0.1:5433 (port interne Docker : 5432)
 
 Identifiants administrateur de développement : `admin@cooperative.local` / `Admin123!`. Ils sont configurés par `DEFAULT_ADMIN_EMAIL` et `DEFAULT_ADMIN_PASSWORD` dans `.env` et ne doivent pas être conservés tels quels en production.
 
-Si une ancienne base de développement existe déjà avec l’ancien schéma, supprimer uniquement le volume du projet puis relancer les services : `docker compose down -v` suivi de `docker compose up -d --build`.
+La base applicative unique est celle du service Docker `db`, conservée dans le volume `postgres_data`. Dans Docker, l’API utilise `db:5432` ; depuis Windows, les outils utilisent `127.0.0.1:5433`. Ces deux adresses désignent la même base. Le port 5433 évite le conflit avec un PostgreSQL Windows déjà installé. Pour mettre à jour le schéma, exécuter `docker compose exec backend alembic upgrade head` ; conserver le volume et les données existantes.
 
 Flutter doit être installé localement pour lancer `mobile`. Pour l'émulateur Android, l'URL API par défaut est `http://10.0.2.2:8000/api/v1`; sur un appareil physique, remplacer cette adresse par l'IP de la machine.
 

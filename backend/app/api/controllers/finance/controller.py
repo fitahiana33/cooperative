@@ -1,6 +1,6 @@
 import json
 
-from fastapi import APIRouter, Depends, Header, Query, Request, status
+from fastapi import APIRouter, Body, HTTPException, Depends, Header, Query, Request, status
 from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import (
@@ -9,19 +9,21 @@ from app.api.controllers.authentication.dependencies import (
     get_user_gare_ids,
     has_global_cooperative_access,
     require_permission,
+    station_agent_scope, has_active_role,
 )
 from app.db.session import get_db
-from app.models.user import User
+from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
 from app.schemas.finance import CaisseClose, CaisseOpen, CaisseRead, OperationCreate, OperationRead, PaiementCreate, PaiementEnLigneCreate, PaiementEnLigneRead, PaiementRead
 from app.services.finance import FinanceService
+from app.schemas.finance.schema import PaymentVerification, RefundCreate
 
 router = APIRouter(tags=["finance"])
 
 
 @router.post("/paiements/en-ligne", response_model=PaiementEnLigneRead, status_code=status.HTTP_201_CREATED)
 def create_online_payment(data: PaiementEnLigneCreate, current_user: User = Depends(require_permission("PAIEMENT_ONLINE")), db: Session = Depends(get_db)):
-    return FinanceService(db).create_online_payment(reservation_id=data.id_reservation, amount=data.montant, idempotency_key=data.cle_idempotence, user_id=current_user.id)
+    return FinanceService(db).create_online_payment(reservation_id=data.id_reservation, amount=data.montant, idempotency_key=data.cle_idempotence, user_id=current_user.id, provider=data.fournisseur, payer_phone=data.telephone_paiement)
 
 
 @router.post("/paiements/webhooks/{provider}")
@@ -79,24 +81,25 @@ def open_caisse(data: CaisseOpen, current_user: User = Depends(require_permissio
 def close_caisse(caisse_id: int, data: CaisseClose, current_user: User = Depends(require_permission("CAISSE_CLOSE")), db: Session = Depends(get_db)):
     return FinanceService(db).close_caisse(
         caisse_id, montant_cloture=data.montant_cloture, gare_ids=get_user_gare_ids(db, current_user),
-        user_id=current_user.id, is_manager=has_global_cooperative_access(current_user),
+        user_id=current_user.id, is_manager=has_global_cooperative_access(current_user) or has_active_role(current_user, UserRole.RESPONSABLE_GARE),
     )
 
 
 @router.post("/caisses/{caisse_id}/operations", response_model=OperationRead, status_code=status.HTTP_201_CREATED)
 def create_operation(caisse_id: int, data: OperationCreate, current_user: User = Depends(require_permission("CAISSE_MANAGE")), db: Session = Depends(get_db)):
-    return FinanceService(db).add_operation(caisse_id, type_operation=data.type_operation, montant=data.montant, id_cooperative=data.id_cooperative, description=data.description, gare_ids=get_user_gare_ids(db, current_user))
+    return FinanceService(db).add_operation(caisse_id, type_operation=data.type_operation, montant=data.montant, id_cooperative=data.id_cooperative, description=data.description, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user))
 
 
 @router.get("/paiements", response_model=PageResponse[PaiementRead])
 def list_payments(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), id_reservation: int | None = None,
+    a_verifier: bool = Query(False),
     a_rembourser: bool = Query(False, description="Seulement les paiements à rembourser par un caissier."),
     search: str | None = Query(None, max_length=100), sort_by: str = Query("date_paiement", pattern="^(date_paiement|statut|montant)$"), sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(require_permission("PAIEMENT_READ")), db: Session = Depends(get_db),
 ):
     cooperative_ids = None if has_global_cooperative_access(current_user) else get_user_cooperative_ids(db, current_user)
-    return FinanceService(db).list_payments(page=page, page_size=page_size, reservation_id=id_reservation, cooperative_ids=cooperative_ids, to_refund=a_rembourser, search=search, sort_by=sort_by, sort_order=sort_order)
+    return FinanceService(db).list_payments(page=page, page_size=page_size, reservation_id=id_reservation, cooperative_ids=cooperative_ids, gare_ids=station_agent_scope(db, current_user), to_verify=a_verifier, to_refund=a_rembourser, search=search, sort_by=sort_by, sort_order=sort_order)
 
 
 @router.post("/paiements", response_model=PaiementRead, status_code=status.HTTP_201_CREATED)
@@ -105,5 +108,19 @@ def create_payment(data: PaiementCreate, current_user: User = Depends(require_pe
 
 
 @router.post("/paiements/{payment_id}/rembourser", response_model=PaiementRead)
-def refund_payment(payment_id: int, id_caisse: int = Query(...), current_user: User = Depends(require_permission("PAIEMENT_REFUND")), db: Session = Depends(get_db)):
-    return FinanceService(db).refund(payment_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user))
+def refund_payment(payment_id: int, data: RefundCreate | None = Body(default=None), id_caisse: int | None = Query(default=None), current_user: User = Depends(require_permission("PAIEMENT_REFUND")), db: Session = Depends(get_db)):
+    return FinanceService(db).refund(payment_id, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), method=data.methode if data else "ESPECES", refund_reference=data.reference if data else None)
+
+
+@router.post("/paiements/{payment_id}/verification-echec", response_model=PaiementRead)
+def verify_payment_failure(payment_id: int, data: PaymentVerification,
+                           current_user: User = Depends(require_permission("PAIEMENT_REFUND")), db: Session = Depends(get_db)):
+    if not any(has_active_role(current_user, role) for role in (UserRole.ADMIN, UserRole.RESPONSABLE_GARE)):
+        raise HTTPException(403, "La vérification du prestataire est réservée au responsable de gare.")
+    return FinanceService(db).confirm_provider_failure(payment_id, agent_id=current_user.id,
+        reference=data.reference_verification, gare_ids=get_user_gare_ids(db, current_user))
+
+
+@router.get("/paiements/en-cours/{reservation_id}", response_model=PaiementEnLigneRead | None)
+def pending_online_payment(reservation_id: int, current_user: User = Depends(require_permission("PAIEMENT_ONLINE")), db: Session = Depends(get_db)):
+    return FinanceService(db).pending_online_payment(reservation_id, user_id=current_user.id)

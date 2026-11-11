@@ -8,6 +8,7 @@ class UserDto extends UserEntity {
     required super.email,
     super.telephone,
     super.address,
+    super.photoVersion,
     required super.role,
     super.permissions,
     required super.isActive,
@@ -22,8 +23,11 @@ class UserDto extends UserEntity {
       email: json['email'] as String? ?? '',
       telephone: json['telephone'] as String?,
       address: json['address'] as String?,
+      photoVersion: json['photo_version'] as String?,
       role: json['role'] as String? ?? 'passenger',
-      permissions: (json['permissions'] as List? ?? const []).whereType<String>().toList(),
+      permissions: (json['permissions'] as List? ?? const [])
+          .whereType<String>()
+          .toList(),
       isActive: json['is_active'] as bool? ?? true,
       createdAt: json['created_at'] as String? ?? '',
     );
@@ -36,6 +40,7 @@ class UserDto extends UserEntity {
         'email': email,
         'telephone': telephone,
         'address': address,
+        'photo_version': photoVersion,
         'role': role,
         'permissions': permissions,
         'is_active': isActive,

@@ -16,7 +16,7 @@ class FinanceRepository:
         return self.db.get(OperationCaisse, id_operation)
 
     def find_caisse_ouverte(self, id_gare: int) -> Caisse | None:
-        return self.db.scalar(select(Caisse).where(Caisse.id_gare == id_gare, Caisse.statut == "ouverte"))
+        return self.db.scalar(select(Caisse).where(Caisse.id_gare == id_gare, Caisse.statut == "OUVERTE"))
 
     def create_paiement(self, paiement: Paiement) -> Paiement:
         self.db.add(paiement)

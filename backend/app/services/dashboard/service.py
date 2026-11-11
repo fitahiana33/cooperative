@@ -16,15 +16,18 @@ from app.models.place import DepartPlace, DepartPlaceStatus
 from app.models.user import User
 from app.models.vehicule import Vehicule
 from app.services.notification import NotificationService
-from app.core.clock import local_date, local_today
+from app.core.clock import local_date, local_today, local_moment
 from app.core.config import settings
 
 
 class DashboardService:
-    def __init__(self, db: Session):
+    def __init__(self, db: Session, *, gare_ids: set[int] | None = None):
         self.db = db
+        self.gare_ids = gare_ids
 
     def _depart_scope(self, statement, cooperative_ids: set[int] | None):
+        if self.gare_ids is not None:
+            statement = statement.where(Depart.id_gare.in_(self.gare_ids))
         if cooperative_ids is not None:
             statement = statement.where(Depart.id_cooperative.in_(cooperative_ids))
         return statement
@@ -49,6 +52,8 @@ class DashboardService:
         revenue_statement = select(func.coalesce(func.sum(OperationCaisse.montant), 0)).where(func.date(func.timezone(settings.timezone, OperationCaisse.date_operation)) == today, OperationCaisse.type_operation == OperationType.RECETTE)
         if cooperative_ids is not None:
             revenue_statement = revenue_statement.where(OperationCaisse.id_cooperative.in_(cooperative_ids))
+        if self.gare_ids is not None:
+            revenue_statement = revenue_statement.where(OperationCaisse.id_caisse.in_(select(Caisse.id).where(Caisse.id_gare.in_(self.gare_ids))))
         revenue = self.db.scalar(revenue_statement) or Decimal("0")
         upcoming = self._depart_scope(
             select(Depart).where(Depart.date_depart >= today, Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE])).options(selectinload(Depart.itineraire)),
@@ -85,15 +90,15 @@ class DashboardService:
     def statistics(self, *, date_from: date | None = None, date_to: date | None = None, cooperative_ids: set[int] | None = None) -> dict:
         start = date_from or local_today() - timedelta(days=30)
         end = date_to or local_today()
-        if end < start:
-            raise ValueError("La date de fin ne peut pas être antérieure à la date de début.")
+        if end < start or (end - start).days > 366 or start.year < 2:
+            from fastapi import HTTPException
+            raise HTTPException(422, "La période doit être valide et ne pas dépasser 366 jours.")
         previous_start = start - (end - start) - timedelta(days=1)
         previous_end = start - timedelta(days=1)
         departures = self._depart_scope(select(Depart.date_depart, func.count().label("total"), func.sum(Depart.places_reservees).label("places_reservees"), func.sum(Depart.nombre_places).label("places_total")).where(Depart.date_depart.between(start, end)).group_by(Depart.date_depart).order_by(Depart.date_depart), cooperative_ids)
         rows = self.db.execute(departures).all()
         reservations = select(Depart.date_depart, func.count(Reservation.id).label("total")).join(Reservation, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(start, end), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE])).group_by(Depart.date_depart).order_by(Depart.date_depart)
         reservations = self._depart_scope(reservations, cooperative_ids)
-        reservation_rows = self.db.execute(reservations).all()
         destinations = select(Depart.id_itineraire, func.count(Reservation.id).label("reservations")).join(Reservation, Reservation.id_depart == Depart.id).where(Depart.date_depart.between(start, end), Reservation.statut.not_in([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE])).group_by(Depart.id_itineraire).order_by(func.count(Reservation.id).desc()).limit(10)
         destinations = self._depart_scope(destinations, cooperative_ids)
         departure_rows = {row.date_depart: {"date": row.date_depart, "total": row.total, "places_reservees": row.places_reservees or 0, "places_total": row.places_total or 0} for row in rows}
@@ -142,17 +147,22 @@ class DashboardService:
         moment = now or datetime.now(timezone.utc)
         target_date = local_date(moment)
         target_limit = target_date + timedelta(days=1)
+        self.db.execute(select(func.pg_advisory_xact_lock(640218)))
         rows = self.db.execute(
-            select(Reservation, Depart)
+            self._depart_scope(select(Reservation, Depart)
             .join(Depart, Depart.id == Reservation.id_depart)
-            .where(Depart.date_depart.between(target_date, target_limit), Reservation.statut.in_([ReservationStatus.CONFIRMEE, ReservationStatus.PAYEE]))
+            .where(Depart.date_depart.between(target_date, target_limit), Reservation.statut.in_([ReservationStatus.CONFIRMEE, ReservationStatus.PAYEE]),
+                   Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.RETARDE, DepartStatus.EMBARQUEMENT])), None)
         ).all()
         created = 0
         for reservation, depart in rows:
-            exists = self.db.scalar(select(func.count()).select_from(Notification).where(Notification.id_user == reservation.id_user, Notification.id_depart == depart.id, Notification.type_notification == "RAPPEL_DEPART", Notification.date_envoi >= moment - timedelta(hours=20)))
+            if not moment <= local_moment(depart.date_depart, depart.heure_depart) <= moment + timedelta(hours=24):
+                continue
+            message = f"Votre départ est prévu le {depart.date_depart} à {depart.heure_depart}."
+            exists = self.db.scalar(select(func.count()).select_from(Notification).where(Notification.id_reservation == reservation.id, Notification.id_depart == depart.id, Notification.type_notification == "RAPPEL_DEPART", Notification.message == message))
             if exists:
                 continue
-            NotificationService.add(self.db, user_id=reservation.id_user, type_notification="RAPPEL_DEPART", titre="Rappel de départ", message=f"Votre départ est prévu le {depart.date_depart} à {depart.heure_depart}.", reservation_id=reservation.id, depart_id=depart.id)
+            NotificationService.add(self.db, user_id=reservation.id_user, type_notification="RAPPEL_DEPART", titre="Rappel de départ", message=message, reservation_id=reservation.id, depart_id=depart.id)
             created += 1
         self.db.commit()
         return created

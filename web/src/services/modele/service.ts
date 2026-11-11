@@ -1,8 +1,9 @@
+import type { Page } from "../pagination";
 import { api } from '../api'
 import type { Modele, ModeleCreate } from '../../models/modele/model'
 
 export const modeleService = {
-  async listModeles(params?: Record<string, any>) {
+  async listModeles(params?: Record<string, any>): Promise<Page<Modele>> {
     return (await api.get('/modeles', { params })).data
   },
   async getModele(id: number): Promise<Modele> {

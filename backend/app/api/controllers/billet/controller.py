@@ -1,7 +1,9 @@
+from datetime import date
+
 from fastapi import APIRouter, Depends, Query, Response
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import resolve_owner_scope, is_staff, get_user_cooperative_ids, has_active_role, has_global_cooperative_access, require_permission
+from app.api.controllers.authentication.dependencies import driver_scope, ensure_depart_access, station_agent_scope, resolve_owner_scope, is_staff, get_user_cooperative_ids, has_active_role, has_global_cooperative_access, require_permission
 from app.db.session import get_db
 from app.models.user import User, UserRole
 from app.schemas.billet import BilletRead
@@ -19,12 +21,24 @@ def _scope(db: Session, user: User) -> tuple[int | None, set[int] | None]:
 def list_billets(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100), search: str | None = Query(None, max_length=100),
     statut: str | None = Query(None, pattern="^(VALIDE|UTILISE|ANNULE|EXPIRE)$"),
+    date_from: date | None = None, date_to: date | None = None,
+    id_cooperative: int | None = Query(None, ge=1),
+    id_gare: int | None = Query(None, ge=1),
+    id_itineraire: int | None = Query(None, ge=1),
+    id_depart: int | None = Query(None, ge=1),
     sort_by: str = Query("date_emission", pattern="^(date_emission|numero_billet|numero_reservation|statut)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(require_permission("BILLET_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return BilletService(db).list(page=page, page_size=page_size, search=search, statut=statut, sort_by=sort_by, sort_order=sort_order, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return BilletService(db).list(
+        page=page, page_size=page_size, search=search, statut=statut,
+        date_from=date_from, date_to=date_to, id_cooperative=id_cooperative,
+        id_gare=id_gare, id_itineraire=id_itineraire, id_depart=id_depart,
+        sort_by=sort_by, sort_order=sort_order, owner_id=owner_id,
+        cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user),
+        gare_ids=station_agent_scope(db, current_user),
+    )
 
 
 @router.get("/{billet_id}", response_model=BilletRead)
@@ -33,7 +47,7 @@ def get_billet(
     current_user: User = Depends(require_permission("BILLET_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user))
 
 
 @router.get("/{billet_id}/qr.png", response_class=Response)
@@ -42,7 +56,7 @@ def get_billet_qr(
     current_user: User = Depends(require_permission("BILLET_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    billet = BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    billet = BilletService(db).get(billet_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user))
     return Response(
         content=BilletService.qr_png(billet["qr_code_uuid"]),
         media_type="image/png",
@@ -63,5 +77,7 @@ def get_billet_by_code(
     if cooperative_ids is not None and item.reservation_place.reservation.depart.id_cooperative not in cooperative_ids:
         from fastapi import HTTPException
         raise HTTPException(404, "Billet introuvable.")
+    if owner_id is None:
+        ensure_depart_access(db, current_user, item.reservation_place.reservation.depart)
     return BilletService(db)._to_dict(item)
 

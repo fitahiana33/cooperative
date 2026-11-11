@@ -8,7 +8,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.models.chauffeur import Chauffeur
-from app.models.billet import BilletStatus
+from app.models.billet import Billet, BilletStatus
 from app.models.cooperative import Cooperative, GareCooperative
 from app.models.depart import Depart, DepartStatus
 from app.models.destination import Destination
@@ -78,17 +78,25 @@ class DepartService:
         id_vehicule: int | None = None,
         reservable: bool = False,
         public_programme: bool = False,
+        id_depart: int | None = None,
     ):
+        from app.services.depart.status import mark_overdue_departures
+
+        # Keep the planning truthful immediately after a restart, before the
+        # periodic maintenance tick gets a chance to run.
+        mark_overdue_departures(self.db)
         if date_from and date_to and date_to < date_from:
             raise HTTPException(422, "La date de fin ne peut pas être antérieure à la date de début.")
 
         statement = select(Depart).options(*self._options())
+        if id_depart is not None:
+            statement = statement.where(Depart.id == id_depart)
         if id_cooperative is not None:
             statement = statement.where(Depart.id_cooperative == id_cooperative)
         if id_gare is not None:
             statement = statement.where(Depart.id_gare == id_gare)
         if min_places is not None:
-            statement = statement.where((Depart.nombre_places - Depart.places_reservees) >= min_places)
+            statement = statement.where((Depart.nombre_places - Depart.places_reservees - Depart.places_bloquees) >= min_places)
         if id_chauffeur is not None:
             statement = statement.where(Depart.id_chauffeur == id_chauffeur)
         if cooperative_ids is not None:
@@ -127,37 +135,48 @@ class DepartService:
                 ))
             )
         if reservable:
-            # What a passenger can still book: open, not full, and a scheduled
-            # departure whose time has not passed (delayed/boarding ones still count).
-            now = local_now()
+            # New sales close before the operational boarding window. A delay
+            # must be rescheduled by staff before it can reopen for booking.
+            from app.services.booking_policy import booking_policy
+
+            deadline = local_now() + timedelta(
+                minutes=int(booking_policy(self.db)["booking_close_minutes"])
+            )
             statement = statement.where(
-                Depart.statut.in_([DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE]),
-                Depart.places_reservees < Depart.nombre_places,
+                Depart.statut == DepartStatus.PROGRAMME,
+                (Depart.places_reservees + Depart.places_bloquees) < Depart.nombre_places,
                 or_(
-                    Depart.statut != DepartStatus.PROGRAMME,
-                    Depart.date_depart > now.date(),
-                    and_(Depart.date_depart == now.date(), Depart.heure_depart > now.time().replace(tzinfo=None)),
+                    Depart.date_depart > deadline.date(),
+                    and_(
+                        Depart.date_depart == deadline.date(),
+                        Depart.heure_depart > deadline.time().replace(tzinfo=None),
+                    ),
                 ),
             )
-        if public_programme:
-            # The public catalogue only contains future/current operational
-            # departures. Capacity is deliberately not filtered here: a full
-            # departure remains visible so the client understands the program.
-            now = local_now()
+        if reservable or public_programme:
             statement = statement.where(
-                Depart.statut.in_([
-                    DepartStatus.PROGRAMME,
-                    DepartStatus.EMBARQUEMENT,
-                    DepartStatus.RETARDE,
-                ]),
+                Depart.cooperative.has(Cooperative.is_active.is_(True)),
+                or_(Depart.id_gare.is_(None), Depart.gare.has(Gare.is_active.is_(True))),
+                Depart.vehicule.has(and_(Vehicule.is_active.is_(True), Vehicule.disponibilite.is_(True), Vehicule.etat != "HORS_SERVICE")),
+                Depart.chauffeur.has(and_(Chauffeur.is_active.is_(True), Chauffeur.disponibilite.is_(True), Chauffeur.date_expiration_permis >= Depart.date_depart)),
+                Depart.itineraire.has(Itineraire.is_active.is_(True)),
+            )
+        if public_programme:
+            # The public catalogue is a booking catalogue: it should not offer
+            # an imminent or already closed trip. A full but still open trip
+            # remains visible so its lack of availability is understandable.
+            from app.services.booking_policy import booking_policy
+
+            deadline = local_now() + timedelta(
+                minutes=int(booking_policy(self.db)["booking_close_minutes"])
+            )
+            statement = statement.where(
+                Depart.statut == DepartStatus.PROGRAMME,
                 or_(
-                    Depart.date_depart > now.date(),
+                    Depart.date_depart > deadline.date(),
                     and_(
-                        Depart.date_depart == now.date(),
-                        or_(
-                            Depart.statut != DepartStatus.PROGRAMME,
-                            Depart.heure_depart > now.time().replace(tzinfo=None),
-                        ),
+                        Depart.date_depart == deadline.date(),
+                        Depart.heure_depart > deadline.time().replace(tzinfo=None),
                     ),
                 ),
             )
@@ -209,6 +228,12 @@ class DepartService:
             raise HTTPException(404, "Itinéraire introuvable.")
         if not itinerary.is_active:
             raise HTTPException(422, "L'itinéraire sélectionné est inactif.")
+        if not itinerary.duree_estimee_minutes:
+            raise HTTPException(422, "Renseignez la durée estimée de l'itinéraire avant de planifier un départ ; une durée arbitraire ne permet pas de vérifier le planning.")
+        if local_moment(date_depart, heure_depart) <= local_now():
+            existing = self.db.get(Depart, depart_id) if depart_id is not None else None
+            if existing is None or existing.statut != DepartStatus.RETARDE:
+                raise HTTPException(422, "L'heure du départ doit être future. Utilisez le statut retardé pour un voyage réellement en retard.")
 
         cooperative = self.db.get(Cooperative, id_cooperative)
         if not cooperative:
@@ -270,7 +295,7 @@ class DepartService:
             select(VehiculeChauffeur).where(
                 VehiculeChauffeur.id_vehicule == id_vehicule,
                 VehiculeChauffeur.id_chauffeur == id_chauffeur,
-                VehiculeChauffeur.is_active.is_(True),
+                VehiculeChauffeur.is_cancelled.is_(False),
                 VehiculeChauffeur.date_debut <= date_depart,
                 or_(
                     VehiculeChauffeur.date_fin.is_(None),
@@ -318,20 +343,20 @@ class DepartService:
         """Refuse a departure whose trip overlaps another trip of the same vehicle or driver."""
         def window(day: date, at: time, route: Itineraire | None) -> tuple[datetime, datetime]:
             start = local_moment(day, at)
-            return start, start + timedelta(minutes=(route.duree_estimee_minutes if route and route.duree_estimee_minutes else 60))
+            if route is None or not route.duree_estimee_minutes:
+                raise HTTPException(409, "La durée d'un voyage existant est inconnue ; complétez son itinéraire avant de modifier le planning.")
+            return start, start + timedelta(minutes=route.duree_estimee_minutes)
 
         start, end = window(date_depart, heure_depart, itinerary)
         candidates = self.db.scalars(
             select(Depart).where(
                 Depart.id != depart_id if depart_id is not None else True,
                 Depart.statut.not_in([DepartStatus.ANNULE, DepartStatus.TERMINE]),
-                # Long trips run overnight, so look at the neighbouring days too.
-                Depart.date_depart.between(date_depart - timedelta(days=2), date_depart + timedelta(days=2)),
                 or_(Depart.id_vehicule == id_vehicule, Depart.id_chauffeur == id_chauffeur),
             ).options(selectinload(Depart.itineraire))
         )
         for other in candidates:
-            other_start, other_end = window(other.date_depart, other.heure_depart, other.itineraire)
+            other_start, other_end = (other.planifie_depart_at, other.planifie_arrivee_at) if other.planifie_depart_at and other.planifie_arrivee_at else window(other.date_depart, other.heure_depart, other.itineraire)
             driver_buffer = timedelta(minutes=settings.driver_min_rest_minutes) if other.id_chauffeur == id_chauffeur else timedelta(0)
             if start < other_end + driver_buffer and other_start < end + driver_buffer:
                 who = "Le véhicule" if other.id_vehicule == id_vehicule else "Le chauffeur"
@@ -382,6 +407,14 @@ class DepartService:
         }
         if values["id_gare"] is None:
             raise HTTPException(422, "La gare d'origine est obligatoire pour modifier ce dÃ©part.")
+        changed_contract = any(values[key] != getattr(item, key) for key in (
+            "id_itineraire", "id_cooperative", "id_gare", "id_vehicule", "id_tarif",
+        ))
+        if changed_contract and self.db.scalar(select(Reservation.id).where(
+            Reservation.id_depart == item.id,
+            Reservation.statut.notin_([ReservationStatus.ANNULEE, ReservationStatus.EXPIREE]),
+        ).limit(1)):
+            raise HTTPException(409, "Ce départ possède des réservations actives : le trajet, la gare, la coopérative, le véhicule et le tarif doivent être conservés. Annulez ou transférez les réservations avant de les remplacer.")
         values["nombre_places"] = self._validate_schedule(depart_id=depart_id, **values)
         itinerary = self.db.get(Itineraire, values["id_itineraire"])
         planned_start = local_moment(values["date_depart"], values["heure_depart"])
@@ -418,6 +451,8 @@ class DepartService:
             raise HTTPException(422, "Utilisez l'action d'annulation dédiée pour annuler un départ.")
         if target != current and target not in transitions[current]:
             raise HTTPException(409, "Cette transition de statut n'est pas autorisée.")
+        if target != current and target in {DepartStatus.EMBARQUEMENT, DepartStatus.PARTI} and item.date_depart != local_today():
+            raise HTTPException(409, "L'embarquement et le départ effectif doivent être pointés le jour du voyage.")
         if target == DepartStatus.RETARDE and current != DepartStatus.RETARDE:
             self._notify_passengers(
                 item, type_notification="RETARD", titre="Départ retardé",
@@ -445,26 +480,22 @@ class DepartService:
         item = self._get(depart_id)
         if item.id_chauffeur != chauffeur.id:
             raise HTTPException(403, "Vous n'êtes pas le chauffeur affecté à ce départ.")
-        now = datetime.now(timezone.utc)
-        if pointage_type == "DEPART":
-            if item.statut not in {DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE}:
-                raise HTTPException(409, "Ce départ ne peut plus être pointé au départ.")
-            item.statut = DepartStatus.PARTI
-            item.date_heure_depart = item.date_heure_depart or now
-        elif pointage_type == "ARRIVEE":
-            if item.statut != DepartStatus.PARTI:
-                raise HTTPException(409, "Le départ doit être pointé avant de pointer l'arrivée.")
-            item.statut = DepartStatus.TERMINE
-            item.date_heure_arrivee = item.date_heure_arrivee or now
-        else:
+        if pointage_type not in {"DEPART", "ARRIVEE"}:
             raise HTTPException(422, "Le type de pointage est invalide.")
-        self.db.commit()
-        return self._get(item.id)
+        if pointage_type == "DEPART" and item.statut not in {DepartStatus.PROGRAMME, DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE}:
+            raise HTTPException(409, "Ce départ ne peut plus être pointé au départ.")
+        if pointage_type == "ARRIVEE" and item.statut != DepartStatus.PARTI:
+            raise HTTPException(409, "Le départ doit être pointé avant de pointer l'arrivée.")
+        return self.update_status(item.id, DepartStatus.PARTI if pointage_type == "DEPART" else DepartStatus.TERMINE)
 
     def cancel_depart(self, depart_id: int, *, caisse_id: int | None = None, agent_id: int | None = None, gare_ids: set[int] | None = None, can_refund_now: bool = False) -> Depart:
         item = self._get(depart_id)
         if item.statut in {DepartStatus.ANNULE, DepartStatus.PARTI, DepartStatus.TERMINE}:
             raise HTTPException(409, "Ce départ ne peut plus être annulé.")
+        if self.db.scalar(select(ReservationPlace.id).join(Reservation).join(ReservationPlace.billet).where(
+            Reservation.id_depart == item.id, Billet.statut == BilletStatus.UTILISE,
+        ).limit(1)):
+            raise HTTPException(409, "Ce départ ne peut plus être annulé après l'embarquement d'un passager.")
         reservations = list(self.db.scalars(
             select(Reservation)
             .where(Reservation.id_depart == item.id)

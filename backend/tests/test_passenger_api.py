@@ -10,6 +10,27 @@ from tests.helpers import API
 from tests.test_reservations import new_passenger
 
 
+def test_public_departure_detail_is_not_limited_to_first_departure_of_day(client):
+    """Every visible offer must open, including one outside the first list page."""
+    response = client.get(f"{API}/departs/public/programme", params={"page_size": 100})
+    assert response.status_code == 200
+    items = response.json()["items"]
+    by_date = {}
+    for item in items:
+        by_date.setdefault(item["date_depart"], []).append(item)
+    same_day = next(group for group in by_date.values() if len(group) > 1)
+    for item in same_day[:3]:
+        detail = client.get(f"{API}/departs/public/{item['id']}")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["id"] == item["id"]
+
+
+def test_public_departure_detail_rejects_closed_departure(client, db):
+    departure = db.scalar(select(Depart).where(Depart.statut == DepartStatus.ANNULE))
+    assert departure is not None
+    assert client.get(f"{API}/departs/public/{departure.id}").status_code == 404
+
+
 def test_search_by_origin_destination_and_date(client, db):
     passenger = new_passenger(client)
     origin = db.scalar(select(Destination.id).where(Destination.nom == "Antananarivo"))
@@ -32,7 +53,7 @@ def test_search_by_origin_destination_and_date(client, db):
 
 def test_free_text_search_matches_city_names(client, login):
     """I-B24: searching "Toamasina" used to return nothing (only the status was searched)."""
-    response = client.get(f"{API}/departs", headers=login("responsable.gare1@cooperative.com"), params={"search": "Toamasina", "page_size": 100})
+    response = client.get(f"{API}/departs", headers=login("admin@cooperative.com"), params={"search": "Toamasina", "page_size": 100})
     items = response.json()["items"]
     assert items
     assert all("Toamasina" in (item["itineraire"]["destination_depart"]["nom"], item["itineraire"]["destination_arrivee"]["nom"]) for item in items)

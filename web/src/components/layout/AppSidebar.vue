@@ -1,183 +1,182 @@
 <script setup lang="ts">
-import { computed, nextTick, onMounted, reactive, ref, watch } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import { useSidebarStore } from './sidebarStore'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-
-type SidebarSection = 'principal' | 'administration' | 'stations' | 'fleet' | 'network' | 'planning' | 'operations' | 'finance'
-
-const sidebar = useSidebarStore()
-const auth = useAuthenticationStore()
-const route = useRoute()
-const navElement = ref<HTMLElement | null>(null)
-const sidebarScrollKey = 'cooperative-sidebar-scroll-top'
-
-const canSeeUsers = computed(() => auth.hasPermission('USER_READ'))
-const canSeeGares = computed(() => auth.hasPermission('GARE_READ'))
-const canSeeCooperatives = computed(() => auth.hasPermission('COOPERATIVE_READ'))
-const canSeeRoles = computed(() => auth.hasPermission('ROLE_MANAGE'))
-const canSeeVehicles = computed(() => auth.hasPermission('VEHICULE_READ'))
-const canSeeChauffeurs = computed(() => auth.hasPermission('CHAUFFEUR_READ'))
-const canSeeFleetCatalog = computed(() => auth.hasPermission('VEHICULE_READ'))
-const canSeeDestinations = computed(() => auth.hasPermission('DESTINATION_READ'))
-const canSeeItineraires = computed(() => auth.hasPermission('ITINERAIRE_READ'))
-const canSeeTarifs = computed(() => auth.hasPermission('TARIF_READ'))
-const canSeeDeparts = computed(() => auth.hasPermission('DEPART_READ'))
-const canSeeReservations = computed(() => auth.hasPermission('RESERVATION_READ'))
-const canSeeBillets = computed(() => auth.hasPermission('BILLET_READ'))
-const canSeeBoarding = computed(() => auth.hasPermission('EMBARQUEMENT_MANAGE'))
-const canSeeFinance = computed(() => auth.hasPermission('CAISSE_READ'))
-const canSeeNotifications = computed(() => auth.hasPermission('NOTIFICATION_READ'))
-const canSeeStats = computed(() => auth.hasPermission('STATISTIQUE_READ'))
-const canSeeReports = computed(() => auth.hasPermission('RAPPORT_READ'))
-const canSeeDecision = computed(() => auth.hasPermission('AIDE_DECISION_READ'))
-
-const openSections = reactive<Record<SidebarSection, boolean>>({
-  principal: true,
-  administration: true,
-  stations: true,
-  fleet: true,
-  network: true,
-  planning: true,
-  operations: true,
-  finance: true,
-})
-
-function toggleSection(section: SidebarSection) {
-  openSections[section] = !openSections[section]
+import {
+  computed,
+  nextTick,
+  onMounted,
+  onBeforeUnmount,
+  ref,
+  watch,
+} from "vue";
+import { RouterLink, useRoute } from "vue-router";
+import AppIcon from "../ui/AppIcon.vue";
+import { navigation } from "./navigation";
+import { useSidebarStore } from "./sidebarStore";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+const auth = useAuthenticationStore();
+const sidebar = useSidebarStore();
+const route = useRoute();
+const aside = ref<HTMLElement>();
+const nav = ref<HTMLElement>();
+const filter = ref("");
+const groups = computed(() =>
+  navigation
+    .map((group) => ({
+      ...group,
+      items: group.items.filter(
+        (item) =>
+          (!item.permission || auth.hasPermission(item.permission)) &&
+          (!item.admin || auth.userRole?.toLowerCase() === "admin") &&
+          item.label
+            .toLocaleLowerCase("fr")
+            .includes(filter.value.toLocaleLowerCase("fr")),
+      ),
+    }))
+    .filter((group) => group.items.length),
+);
+function active(to: string) {
+  return to === "/backoffice"
+    ? route.path === to
+    : route.path === to || route.path.startsWith(to + "/");
 }
-
-function isSectionOpen(section: SidebarSection) {
-  return openSections[section]
+function rememberScroll() {
+  sidebar.rememberNavScroll(nav.value?.scrollTop || 0);
 }
-
-function rememberNavScroll() {
-  const value = navElement.value?.scrollTop || 0
-  sidebar.rememberNavScroll(value)
-  sessionStorage.setItem(sidebarScrollKey, String(value))
+let previousFocus: HTMLElement | null = null;
+watch(
+  () => sidebar.mobileOpen,
+  async (open) => {
+    document.body.classList.toggle("navigation-open", open);
+    if (open) {
+      previousFocus = document.activeElement as HTMLElement;
+      await nextTick();
+      aside.value?.querySelector<HTMLElement>("button")?.focus();
+    } else previousFocus?.focus();
+  },
+);
+function keyboard(event: KeyboardEvent) {
+  if (!sidebar.mobileOpen) return;
+  if (event.key === "Escape") {
+    event.preventDefault();
+    sidebar.closeMobile();
+  }
+  if (event.key === "Tab") {
+    const controls = Array.from(
+      aside.value?.querySelectorAll<HTMLElement>("a, button, input") || [],
+    ).filter((element) => element.offsetParent !== null);
+    if (!controls?.length) return;
+    const first = controls[0],
+      last = controls[controls.length - 1];
+    if (event.shiftKey && document.activeElement === first) {
+      event.preventDefault();
+      last?.focus();
+    } else if (!event.shiftKey && document.activeElement === last) {
+      event.preventDefault();
+      first?.focus();
+    }
+  }
 }
-
-async function restoreNavScroll() {
-  await nextTick()
-  if (!navElement.value) return
-  const saved = Number(sessionStorage.getItem(sidebarScrollKey) || sidebar.navScrollTop || 0)
-  navElement.value.scrollTop = saved
+watch(
+  () => route.fullPath,
+  async () => {
+    sidebar.closeMobile();
+    await nextTick();
+    if (nav.value) nav.value.scrollTop = sidebar.navScrollTop;
+  },
+);
+function resize() {
+  if (window.innerWidth > 900 && sidebar.mobileOpen) sidebar.closeMobile();
 }
-
-onMounted(restoreNavScroll)
-watch(() => route.fullPath, restoreNavScroll)
+onMounted(() => {
+  document.addEventListener("keydown", keyboard);
+  window.addEventListener("resize", resize);
+  if (nav.value) nav.value.scrollTop = sidebar.navScrollTop;
+});
+onBeforeUnmount(() => {
+  document.removeEventListener("keydown", keyboard);
+  window.removeEventListener("resize", resize);
+  document.body.classList.remove("navigation-open");
+});
 </script>
-
 <template>
-  <div v-if="sidebar.mobileOpen" class="sidebar-backdrop" @click="sidebar.closeMobile" />
-  <aside class="app-sidebar" :class="{ collapsed: sidebar.collapsed, 'mobile-open': sidebar.mobileOpen }" aria-label="Navigation de l’application">
+  <div
+    v-if="sidebar.mobileOpen"
+    class="sidebar-backdrop"
+    aria-hidden="true"
+    @click="sidebar.closeMobile"
+  />
+  <aside
+    ref="aside"
+    id="workspace-navigation"
+    class="app-sidebar"
+    :class="{ collapsed: sidebar.collapsed, 'mobile-open': sidebar.mobileOpen }"
+    :role="sidebar.mobileOpen ? 'dialog' : undefined"
+    :aria-modal="sidebar.mobileOpen ? true : undefined"
+    aria-label="Navigation de l’application"
+  >
     <div class="sidebar-brand">
-      <span class="brand-symbol">C</span>
-      <span class="sidebar-name">Coopérative</span>
-      <button class="sidebar-toggle" aria-label="Réduire la barre latérale" @click="sidebar.toggle">
-        {{ sidebar.collapsed ? '→' : '←' }}
+      <RouterLink
+        to="/backoffice"
+        class="workspace-brand"
+        aria-label="Coopérative, tableau de bord"
+        ><span class="brand-symbol"><AppIcon name="route" :size="23" /></span
+        ><span class="sidebar-name"
+          >Coopérative<small>Espace de gestion</small></span
+        ></RouterLink
+      >
+      <button
+        class="sidebar-mobile-close"
+        type="button"
+        aria-label="Fermer le menu"
+        @click="sidebar.closeMobile"
+      >
+        <AppIcon name="close" />
       </button>
     </div>
-
-    <div v-if="auth.user" class="sidebar-profile">
-      <span class="profile-initial">{{ auth.user.first_name?.charAt(0) || auth.user.name.charAt(0) }}</span>
-      <div class="profile-copy">
-        <strong>{{ auth.user.first_name }} {{ auth.user.name }}</strong>
-        <small>{{ auth.user.role.toUpperCase() }}</small>
-      </div>
-    </div>
-
-    <nav ref="navElement" class="sidebar-nav" @scroll="rememberNavScroll">
-      <div class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('principal')" @click="toggleSection('principal')">
-          <span>PRINCIPAL</span><b>{{ isSectionOpen('principal') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('principal')" class="sidebar-submenu">
-          <RouterLink to="/backoffice" class="sidebar-link" @click="sidebar.closeMobile"><span>⌂</span><b>Vue d’ensemble</b></RouterLink>
+    <label class="sidebar-filter"
+      ><AppIcon name="search" :size="17" /><input
+        v-model="filter"
+        type="search"
+        placeholder="Trouver un module…"
+        aria-label="Filtrer les modules"
+    /></label>
+    <nav ref="nav" class="sidebar-nav" @scroll.passive="rememberScroll">
+      <div v-for="group in groups" :key="group.label" class="sidebar-group">
+        <p class="sidebar-section">{{ group.label }}</p>
+        <div class="sidebar-submenu">
+          <RouterLink
+            v-for="item in group.items"
+            :key="item.to"
+            :to="item.to"
+            class="sidebar-link"
+            :class="{ 'is-current': active(item.to) }"
+            :title="item.label"
+            :aria-current="active(item.to) ? 'page' : undefined"
+            @click="sidebar.closeMobile"
+            ><AppIcon :name="item.icon" :size="19" /><b>{{ item.label }}</b
+            ><span v-if="active(item.to)" class="nav-current-dot"
+          /></RouterLink>
         </div>
       </div>
-
-      <div v-if="canSeeUsers || canSeeRoles" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('administration')" @click="toggleSection('administration')">
-          <span>ADMINISTRATION</span><b>{{ isSectionOpen('administration') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('administration')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeUsers" to="/users" class="sidebar-link" @click="sidebar.closeMobile"><span>♙</span><b>Utilisateurs</b></RouterLink>
-          <RouterLink v-if="canSeeRoles" to="/roles" class="sidebar-link" @click="sidebar.closeMobile"><span>⚿</span><b>Rôles & permissions</b></RouterLink>
-          <RouterLink v-if="auth.userRole?.toLowerCase() === 'admin'" to="/system/reset" class="sidebar-link" @click="sidebar.closeMobile"><span>!</span><b>Réinitialiser les données</b></RouterLink>
-        </div>
-      </div>
-
-      <div v-if="canSeeGares || canSeeCooperatives" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('stations')" @click="toggleSection('stations')">
-          <span>GARES & COOPÉRATIVES</span><b>{{ isSectionOpen('stations') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('stations')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeGares" to="/gares" class="sidebar-link" @click="sidebar.closeMobile"><span>□</span><b>Gares</b></RouterLink>
-          <RouterLink v-if="canSeeCooperatives" to="/cooperatives" class="sidebar-link" @click="sidebar.closeMobile"><span>◉</span><b>Coopératives</b></RouterLink>
-        </div>
-      </div>
-
-      <div v-if="canSeeVehicles || canSeeChauffeurs || canSeeFleetCatalog" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('fleet')" @click="toggleSection('fleet')">
-          <span>FLOTTE</span><b>{{ isSectionOpen('fleet') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('fleet')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeVehicles" to="/vehicules" class="sidebar-link" @click="sidebar.closeMobile"><span>🚐</span><b>Véhicules</b></RouterLink>
-          <RouterLink v-if="canSeeChauffeurs" to="/chauffeurs" class="sidebar-link" @click="sidebar.closeMobile"><span>🪪</span><b>Chauffeurs</b></RouterLink>
-          <RouterLink v-if="canSeeFleetCatalog" to="/marques" class="sidebar-link" @click="sidebar.closeMobile"><span>©</span><b>Marques</b></RouterLink>
-          <RouterLink v-if="canSeeFleetCatalog" to="/modeles" class="sidebar-link" @click="sidebar.closeMobile"><span>▤</span><b>Modèles</b></RouterLink>
-        </div>
-      </div>
-
-      <div v-if="canSeeDestinations || canSeeItineraires || canSeeTarifs" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('network')" @click="toggleSection('network')">
-          <span>RESEAU & TARIFS</span><b>{{ isSectionOpen('network') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('network')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeDestinations" to="/destinations" class="sidebar-link" @click="sidebar.closeMobile"><span>⌖</span><b>Destinations</b></RouterLink>
-          <RouterLink v-if="canSeeItineraires" to="/itineraires" class="sidebar-link" @click="sidebar.closeMobile"><span>↔</span><b>Itineraires</b></RouterLink>
-          <RouterLink v-if="canSeeTarifs" to="/tarifs" class="sidebar-link" @click="sidebar.closeMobile"><span>¤</span><b>Tarifs</b></RouterLink>
-        </div>
-      </div>
-
-      <div v-if="canSeeDeparts" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('planning')" @click="toggleSection('planning')">
-          <span>DÉPARTS & PLANNING</span><b>{{ isSectionOpen('planning') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('planning')" class="sidebar-submenu">
-          <RouterLink to="/departs" class="sidebar-link" @click="sidebar.closeMobile"><span>◷</span><b>Départs</b></RouterLink>
-          <RouterLink to="/planning" class="sidebar-link" @click="sidebar.closeMobile"><span>▦</span><b>Calendrier</b></RouterLink>
-        </div>
-      </div>
-      <div v-if="canSeeReservations || canSeeBillets || canSeeBoarding || canSeeNotifications" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('operations')" @click="toggleSection('operations')">
-          <span>RESERVATIONS & CONTROLE</span><b>{{ isSectionOpen('operations') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('operations')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeReservations" to="/reservations" class="sidebar-link" @click="sidebar.closeMobile"><span>◫</span><b>Reservations</b></RouterLink>
-          <RouterLink v-if="canSeeBillets" to="/billets" class="sidebar-link" @click="sidebar.closeMobile"><span>▣</span><b>Billets & QR Code</b></RouterLink>
-          <RouterLink v-if="canSeeBoarding" to="/embarquement" class="sidebar-link" @click="sidebar.closeMobile"><span>✓</span><b>Embarquement</b></RouterLink>
-          <RouterLink v-if="canSeeNotifications" to="/notifications" class="sidebar-link" @click="sidebar.closeMobile"><span>●</span><b>Notifications</b></RouterLink>
-        </div>
-      </div>
-
-      <div v-if="canSeeFinance || canSeeStats || canSeeReports || canSeeDecision" class="sidebar-group">
-        <button class="sidebar-section" type="button" :aria-expanded="isSectionOpen('finance')" @click="toggleSection('finance')">
-          <span>FINANCES & PILOTAGE</span><b>{{ isSectionOpen('finance') ? '⌃' : '⌄' }}</b>
-        </button>
-        <div v-if="isSectionOpen('finance')" class="sidebar-submenu">
-          <RouterLink v-if="canSeeReports" to="/rapports" class="sidebar-link" @click="sidebar.closeMobile"><span>R</span><b>Rapports</b></RouterLink>
-          <RouterLink v-if="canSeeDecision" to="/aide-decision" class="sidebar-link" @click="sidebar.closeMobile"><span>A</span><b>Aide à la décision</b></RouterLink>
-          <RouterLink v-if="canSeeFinance" to="/finance" class="sidebar-link" @click="sidebar.closeMobile"><span>¤</span><b>Paiements & caisse</b></RouterLink>
-          <RouterLink v-if="canSeeStats" to="/statistiques" class="sidebar-link" @click="sidebar.closeMobile"><span>▥</span><b>Statistiques</b></RouterLink>
-        </div>
-      </div>
+      <p v-if="!groups.length" class="sidebar-no-results">
+        Aucun module trouvé.
+      </p>
     </nav>
-
     <div class="sidebar-footer">
-      <span class="sidebar-help">?</span>
-      <span class="sidebar-name">Centre d’aide</span>
+      <RouterLink to="/" title="Voir le site voyageur"
+        ><AppIcon name="external" :size="18" /><span class="sidebar-name"
+          >Site voyageur</span
+        ></RouterLink
+      ><button
+        class="sidebar-toggle"
+        type="button"
+        :aria-label="
+          sidebar.collapsed ? 'Développer le menu' : 'Réduire le menu'
+        "
+        :aria-expanded="!sidebar.collapsed"
+        @click="sidebar.toggle"
+      >
+        <AppIcon :name="sidebar.collapsed ? 'chevron' : 'back'" :size="17" />
+      </button>
     </div>
   </aside>
 </template>

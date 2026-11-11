@@ -13,7 +13,7 @@ logger = logging.getLogger("cooperative.system")
 
 class SystemService:
     # revoked_tokens is kept so logged-out sessions stay revoked.
-    _protected_tables = {"users", "roles", "permissions", "users_roles", "roles_permissions", "revoked_tokens"}
+    _protected_tables = {"users", "roles", "permissions", "users_roles", "roles_permissions", "revoked_tokens", "booking_settings"}
 
     def __init__(self, db: Session):
         self.db = db

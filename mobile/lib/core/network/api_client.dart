@@ -57,6 +57,9 @@ class ApiClient {
               opts.extra['authRetry'] = true;
               opts.headers['Authorization'] = 'Bearer $newAccessToken';
               try {
+                if (opts.data is FormData) {
+                  opts.data = (opts.data as FormData).clone();
+                }
                 final response = await dio.fetch(opts);
                 return handler.resolve(response);
               } on DioException catch (retryError) {
@@ -87,7 +90,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     Options? options,
   }) =>
-      dio.post<T>(path, data: data, queryParameters: queryParameters, options: options);
+      dio.post<T>(path,
+          data: data, queryParameters: queryParameters, options: options);
 
   Future<Response<T>> put<T>(
     String path, {
@@ -95,7 +99,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     Options? options,
   }) =>
-      dio.put<T>(path, data: data, queryParameters: queryParameters, options: options);
+      dio.put<T>(path,
+          data: data, queryParameters: queryParameters, options: options);
 
   Future<Response<T>> patch<T>(
     String path, {
@@ -103,7 +108,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     Options? options,
   }) =>
-      dio.patch<T>(path, data: data, queryParameters: queryParameters, options: options);
+      dio.patch<T>(path,
+          data: data, queryParameters: queryParameters, options: options);
 
   Future<Response<T>> delete<T>(
     String path, {
@@ -111,7 +117,8 @@ class ApiClient {
     Map<String, dynamic>? queryParameters,
     Options? options,
   }) =>
-      dio.delete<T>(path, data: data, queryParameters: queryParameters, options: options);
+      dio.delete<T>(path,
+          data: data, queryParameters: queryParameters, options: options);
 
   Future<bool> _attemptRefreshToken() async {
     if (_refreshInProgress != null) return _refreshInProgress!;

@@ -1,8 +1,9 @@
+import type { Page } from "../pagination";
 import { api } from '../api'
 import type { Role, RoleCreate } from '../../models/role/model'
 
 export const roleService = {
-  async listRoles(params?: Record<string, any>) {
+  async listRoles(params?: Record<string, any>): Promise<Page<Role>> {
     return (await api.get('/roles', { params })).data
   },
   async createRole(data: RoleCreate): Promise<Role> {

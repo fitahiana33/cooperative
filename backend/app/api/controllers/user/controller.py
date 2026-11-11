@@ -1,7 +1,10 @@
 from math import ceil
-from fastapi import APIRouter, Depends, HTTPException, Query, status
+from datetime import date, timedelta
+
+from fastapi import APIRouter, Depends, File, HTTPException, Query, UploadFile, status
+from fastapi.responses import FileResponse
 from sqlalchemy import asc, desc, func, or_, select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, selectinload
 
 from app.services.authentication.password import hash_password, verify_password
 from app.api.controllers.authentication.dependencies import ensure_admin_protected, get_current_user, require_permission
@@ -12,6 +15,7 @@ from app.schemas.user import PasswordChange, ProfileUpdate, UserCreate, UserRead
 from app.schemas.common import PageResponse
 from app.services.user import UserService
 from app.services.role import RoleService
+from app.services.user.profile import MAX_PHOTO_BYTES, photo_path, replace_photo
 
 
 def _guard_admin_role_change(db: Session, current_user: User, user_id: int, role_id: int) -> None:
@@ -62,20 +66,67 @@ def change_my_password(data: PasswordChange, current_user: User = Depends(get_cu
     db.commit()
 
 
+def _photo_response(user: User):
+    path = photo_path(user.photo_version)
+    if not path.is_file():
+        raise HTTPException(status_code=404, detail="Aucune photo de profil.")
+    return FileResponse(path, media_type="image/jpeg", headers={"Cache-Control": "private, no-store", "X-Content-Type-Options": "nosniff"})
+
+
+@router.get("/me/photo")
+def get_my_photo(current_user: User = Depends(get_current_user)):
+    return _photo_response(current_user)
+
+
+@router.put("/me/photo", response_model=UserRead)
+def upload_my_photo(file: UploadFile = File(...), current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    # Bound the read even when Content-Length is missing or forged.
+    return replace_photo(db, current_user.id, file.file.read(MAX_PHOTO_BYTES + 1))
+
+
+@router.delete("/me/photo", response_model=UserRead)
+def delete_my_photo(current_user: User = Depends(get_current_user), db: Session = Depends(get_db)):
+    return replace_photo(db, current_user.id, None)
+
+
+@router.get("/{user_id}/photo")
+def get_user_photo(user_id: int, _: User = Depends(require_permission("USER_READ")), db: Session = Depends(get_db)):
+    user = db.get(User, user_id)
+    if user is None:
+        raise HTTPException(status_code=404, detail="Utilisateur introuvable.")
+    return _photo_response(user)
+
+
 @router.get("", response_model=PageResponse[UserRead])
 def list_users(
     _: User = Depends(require_permission("USER_READ")),
     page: int = Query(1, ge=1),
     page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None, max_length=100),
+    role: str | None = Query(None, max_length=100),
+    is_active: bool | None = None,
+    created_from: date | None = None,
+    created_to: date | None = None,
     sort_by: str = Query("created_at", pattern="^(created_at|name|email|is_active)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     db: Session = Depends(get_db),
 ):
-    statement = select(User)
+    if created_from and created_to and created_to < created_from:
+        raise HTTPException(422, detail="La date de fin doit suivre la date de début.")
+    statement = select(User).options(selectinload(User.roles))
     if search:
         term = f"%{search.strip()}%"
         statement = statement.where(or_(User.name.ilike(term), User.first_name.ilike(term), User.email.ilike(term)))
+    if role and role.strip():
+        statement = statement.where(
+            User.roles.any(Role.libelle == role.strip())
+        )
+    if is_active is not None:
+        statement = statement.where(User.is_active.is_(is_active))
+    if created_from:
+        statement = statement.where(User.created_at >= created_from)
+    if created_to:
+        statement = statement.where(User.created_at < created_to + timedelta(days=1))
     column = getattr(User, sort_by)
     statement = statement.order_by((asc if sort_order == "asc" else desc)(column))
     total = db.scalar(select(func.count()).select_from(statement.subquery())) or 0

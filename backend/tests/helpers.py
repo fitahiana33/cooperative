@@ -40,9 +40,19 @@ def open_caisse_for(db, depart: Depart) -> Caisse:
     caisse = db.scalar(
         select(Caisse).join(GareCooperative, GareCooperative.id_gare == Caisse.id_gare)
         .where(Caisse.statut == CaisseStatus.OUVERTE, GareCooperative.id_cooperative == depart.id_cooperative, GareCooperative.is_active.is_(True))
+        .where(Caisse.id_gare == depart.id_gare if depart.id_gare is not None else True)
         .order_by(Caisse.id)
     )
-    assert caisse is not None, "Aucune caisse ouverte pour ce départ."
+    if caisse is None:
+        # Another scenario may have closed the seeded desk. Provision the
+        # dependency explicitly instead of relying on test execution order.
+        from app.core.config import settings
+        from app.models import User
+        from app.services.finance import FinanceService
+        agent = db.scalar(select(User.id).where(User.email == settings.default_admin_email))
+        station_id = depart.id_gare or db.scalar(select(GareCooperative.id_gare).where(GareCooperative.id_cooperative == depart.id_cooperative))
+        created = FinanceService(db).open_caisse(gare_id=station_id, agent_id=agent, montant_ouverture=500000)
+        caisse = db.get(Caisse, created["id"])
     return caisse
 
 
