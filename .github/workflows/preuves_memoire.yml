@@ -1,84 +1,38 @@
-name: Preuves pour memoire ITU
+name: Memoire ITU preuves
 on:
   push:
-    branches: [evidence/memoire-2026-11-11]
+    branches:
+      - evidence/memoire-2026-11-11
   workflow_dispatch:
 permissions:
   contents: read
 jobs:
   web:
-    name: Navigation navigateur et captures web
     runs-on: ubuntu-latest
-    timeout-minutes: 35
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
-          node-version: "22"
-      - name: Tester le build et prendre des captures de l application deployee
-        shell: bash
+          node-version: '22'
+      - name: Build et tests web
         run: |
           mkdir -p preuves/web
-          npm ci --prefix web > preuves/web/npm-ci.log 2>&1 || true
-          npm run build --prefix web > preuves/web/build.log 2>&1 || true
-          npm run test:e2e --prefix web > preuves/web/e2e.log 2>&1 || true
-          mkdir -p /tmp/evidence
-          cd /tmp/evidence
-          npm init -y >/dev/null 2>&1
-          npm install playwright@1.56.1 --no-audit --no-fund
+          (cd web && npm ci && npm run build && npm run test:e2e) > preuves/web/tests.log 2>&1 || true
+      - name: Installer navigateur
+        run: |
+          cd tools/evidence
+          npm install playwright@1.56.1 --no-save
           npx playwright install --with-deps chromium
-          node --input-type=module <<'JAVASCRIPT'
-          import {chromium,devices} from 'playwright';
-          import {mkdir,writeFile} from 'node:fs/promises';
-          import path from 'node:path';
-          const dir=path.join(process.env.GITHUB_WORKSPACE,'preuves','web');
-          await mkdir(dir,{recursive:true});
-          const res={date:new Date().toISOString(),commit:process.env.GITHUB_SHA,tests:[],captures:[],errors:[]};
-          const browser=await chromium.launch({headless:true});
-          const targets=[
-          ['Accueil public','accueil.png','/'],
-          ['Programme','programme.png','/programme'],
-          ['Recherche','recherche.png','/recherche'],
-          ['Réservation publique','reservation.png','/reserver'],
-          ['Suivi de réservation','suivi_reservation.png','/ma-reservation'],
-          ['Connexion','connexion.png','/login'],
-          ['Inscription','inscription.png','/register']
-          ];
-          try {
-            const context=await browser.newContext({viewport:{width:1440,height:900},deviceScaleFactor:1,ignoreHTTPSErrors:false});
-            for (const [label,file,route] of targets){
-              const page=await context.newPage(),errors=[];
-              page.on('pageerror',e=>errors.push(String(e)));
-              try{
-                const response=await page.goto('https://cooperative-opal.vercel.app'+route,{waitUntil:'domcontentloaded',timeout:80000});
-                await page.waitForTimeout(4200);
-                const text=(await page.locator('body').innerText()).trim();
-                const status=response?.status()??0;
-                const verdict=status<400 && text.length>40?'CAPTURE_REELLE':'NON_VALIDE';
-                if(verdict==='CAPTURE_REELLE') {await page.screenshot({path:path.join(dir,file),fullPage:true,animations:'disabled'});res.captures.push({label,file,route,status,description:text.slice(0,300)});}
-                res.tests.push({label,status,verdict,jsErrors:errors});
-              }catch(e){res.tests.push({label,verdict:'ECHEC',error:String(e)});}
-              await page.close();
-            }
-            await context.close();
-            const phone=await browser.newContext({...devices['iPhone 13']});
-            const p=await phone.newPage();
-            try{const r=await p.goto('https://cooperative-opal.vercel.app/',{waitUntil:'domcontentloaded',timeout:80000});await p.waitForTimeout(4500);await p.screenshot({path:path.join(dir,'responsive_web_iphone.png'),fullPage:true});res.captures.push({label:'Web responsive iPhone (pas Flutter)',file:'responsive_web_iphone.png',status:r?.status()??0});}catch(e){res.errors.push('responsive: '+String(e));}
-            await phone.close();await p.close();
-            const api=await browser.newContext();try {const response=await api.request.get('https://cooperative-api-3yuz.onrender.com/openapi.json',{timeout:120000});res.tests.push({label:'OpenAPI public',status:response.status(),verdict:response.ok()?'OK':'ECHEC'});}catch(e){res.tests.push({label:'OpenAPI public',verdict:'ECHEC',error:String(e)});}await api.close();
-          }finally{await browser.close();await writeFile(path.join(dir,'rapport.json'),JSON.stringify(res,null,2)+'\n');}
-          if(!res.captures.length)process.exitCode=1;
-          JAVASCRIPT
-      - name: Sauvegarder les captures et les journaux
+      - name: Captures reelles web
+        run: node tools/evidence/capture_web.mjs
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: preuves-web-memoire
           path: preuves/web
           if-no-files-found: warn
-          retention-days: 30
   android:
-    name: Flutter et captures sur emulateur Android
     runs-on: ubuntu-latest
     timeout-minutes: 55
     steps:
@@ -87,29 +41,24 @@ jobs:
         with:
           channel: stable
           cache: true
-      - name: Analyse Flutter, tests et compilation APK
-        shell: bash
+      - name: Analyse et compilation mobile
         run: |
           mkdir -p preuves/mobile
-          flutter --version > preuves/mobile/flutter_version.log 2>&1
-          (cd mobile && flutter pub get) > preuves/mobile/pub_get.log 2>&1
-          (cd mobile && flutter analyze --no-fatal-infos) > preuves/mobile/analyse.log 2>&1 || true
-          (cd mobile && flutter test) > preuves/mobile/tests.log 2>&1 || true
-          (cd mobile && flutter build apk --debug --dart-define=MOBILE_API_BASE_URL=https://cooperative-api-3yuz.onrender.com/api/v1) > preuves/mobile/construction.log 2>&1
-      - name: Executer sur Android et prendre des captures
+          cd mobile
+          flutter pub get > ../preuves/mobile/pubget.log 2>&1
+          flutter analyze --no-fatal-infos > ../preuves/mobile/analyse.log 2>&1 || true
+          flutter test > ../preuves/mobile/tests.log 2>&1 || true
+          flutter build apk --debug --dart-define=MOBILE_API_BASE_URL=https://cooperative-api-3yuz.onrender.com/api/v1 > ../preuves/mobile/build.log 2>&1
+      - name: Captures reelles Android
         uses: reactivecircus/android-emulator-runner@v2
         with:
           api-level: 35
           arch: x86_64
-          target: google_apis
           profile: pixel_6
-          disable-animations: true
-          script: bash -eo pipefail -c "set -euo pipefail\nmkdir -p preuves/mobile\napk=mobile/build/app/outputs/flutter-apk/app-debug.apk\ntest -s \"$apk\"\nadb wait-for-device\nadb install -r \"$apk\" | tee preuves/mobile/installation.log\npackage=$(\"$ANDROID_HOME\"/build-tools/35.0.0/aapt dump badging \"$apk\" | sed -n \"s/^package: name='\\([^']*\\)'.*/\\1/p\" | head -1)\necho \"package=$package\" > preuves/mobile/application.txt\nadb shell monkey -p \"$package\" -c android.intent.category.LAUNCHER 1 | tee preuves/mobile/lancement.log\nsleep 40\nadb exec-out screencap -p > preuves/mobile/flutter_01_login.png\nadb shell input swipe 500 1600 500 750 800\nsleep 3\nadb exec-out screencap -p > preuves/mobile/flutter_02_apres_defilement.png\nadb logcat -d -t 250 > preuves/mobile/logcat_extrait.log || true\necho 'Captures authentiques de l application Flutter sur emulateur Android. La navigation apres connexion n a pas ete testee.' > preuves/mobile/NOTICE.txt"
-      - name: Sauvegarder les captures et les journaux
+          script: bash tools/evidence/capture_mobile.sh
+      - uses: actions/upload-artifact@v4
         if: always()
-        uses: actions/upload-artifact@v4
         with:
           name: preuves-android-memoire
           path: preuves/mobile
           if-no-files-found: warn
-          retention-days: 30
