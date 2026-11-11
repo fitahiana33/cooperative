@@ -71,6 +71,12 @@ void main() {
       loader.addFont(File(p).readAsBytes().then((bytes) => ByteData.sublistView(bytes)));
       await loader.load();
     }
+    final icons = Platform.environment['MATERIAL_ICONS_FONT_PATH'];
+    if (icons != null && icons.isNotEmpty) {
+      final loader = FontLoader('MaterialIcons');
+      loader.addFont(File(icons).readAsBytes().then((bytes) => ByteData.sublistView(bytes)));
+      await loader.load();
+    }
   });
   setUp(() { });
   testWidgets('Capture de la page de connexion Flutter', (tester) async {
@@ -80,7 +86,7 @@ void main() {
     addTearDown(tester.view.resetDevicePixelRatio);
     await tester.pumpWidget(ProviderScope(
       overrides: [authControllerProvider.overrideWith((ref) => AuthCaptureController())],
-      child: MaterialApp(theme: AppTheme.darkTheme, home: const LoginPage()),
+      child: MaterialApp(debugShowCheckedModeBanner: false, theme: AppTheme.darkTheme, home: const LoginPage()),
     ));
     await tester.pumpAndSettle();
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/login_flutter.png'));
@@ -95,7 +101,7 @@ void main() {
         travelRepositoryProvider.overrideWithValue(CatalogueTestRepository()),
         authControllerProvider.overrideWith((ref) => AuthCaptureController()),
       ],
-      child: MaterialApp(theme: AppTheme.darkTheme, home: DeparturePage(
+      child: MaterialApp(debugShowCheckedModeBanner: false, theme: AppTheme.darkTheme, home: DeparturePage(
         departure: Departure.fromJson({
           'id': 1,
           'date_depart': '2026-12-01',
@@ -123,7 +129,7 @@ void main() {
       overrides: [
         travelRepositoryProvider.overrideWithValue(CatalogueTestRepository()),
       ],
-      child: MaterialApp(theme: AppTheme.darkTheme, home: const ReservationDetailPage(reservationId: 1)),
+      child: MaterialApp(debugShowCheckedModeBanner: false, theme: AppTheme.darkTheme, home: const ReservationDetailPage(reservationId: 1)),
     ));
     await tester.pumpAndSettle();
     await expectLater(find.byType(MaterialApp), matchesGoldenFile('goldens/reservation_flutter.png'));
