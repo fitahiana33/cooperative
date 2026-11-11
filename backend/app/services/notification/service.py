@@ -4,6 +4,7 @@ from sqlalchemy import func, or_, select, update
 from sqlalchemy.orm import Session
 
 from app.models.notification import Notification, NotificationChannel, NotificationType
+from app.core.config import settings
 
 
 class NotificationService:
@@ -20,8 +21,9 @@ class NotificationService:
         message: str,
         reservation_id: int | None = None,
         depart_id: int | None = None,
-        canal: NotificationChannel | str = NotificationChannel.PUSH,
+        canal: NotificationChannel | str = NotificationChannel.IN_APP,
     ) -> Notification:
+        email_enabled = settings.notification_email_enabled and bool(settings.smtp_host)
         item = Notification(
             id_user=user_id,
             type_notification=getattr(type_notification, "value", str(type_notification)),
@@ -29,7 +31,8 @@ class NotificationService:
             message=message,
             id_reservation=reservation_id,
             id_depart=depart_id,
-            canal=getattr(canal, "value", str(canal)),
+            canal="EMAIL" if email_enabled and canal == NotificationChannel.IN_APP else getattr(canal, "value", str(canal)),
+            delivery_status="PENDING" if email_enabled and canal in {NotificationChannel.IN_APP, NotificationChannel.EMAIL} else "IN_APP",
         )
         db.add(item)
         return item

@@ -1,246 +1,999 @@
 <script setup lang="ts">
-import { computed, onMounted, ref, watch } from 'vue'
-import { localIsoDate } from '../../utils/date'
-import { RouterLink, useRoute } from 'vue-router'
-import AppLayout from '../../components/layout/AppLayout.vue'
-import BaseCard from '../../components/ui/BaseCard.vue'
-import PageTabs from '../../components/ui/PageTabs.vue'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-import { vehiculeService } from '../../services/vehicule/service'
-import { chauffeurService } from '../../services/chauffeur/service'
-import { marqueService } from '../../services/marque/service'
-import { modeleService } from '../../services/modele/service'
-import { cooperativeService } from '../../services/cooperative/service'
-import type { DocumentType, Vehicule, VehiculeDocument } from '../../models/vehicule/model'
-import type { Chauffeur } from '../../models/chauffeur/model'
-import type { Marque } from '../../models/marque/model'
-import type { Modele } from '../../models/modele/model'
-import type { Cooperative } from '../../models/cooperative/model'
-import { userError } from '../../utils/errors'
+import { allPages } from "../../services/pagination";
+import { computed, onMounted, ref, watch } from "vue";
+import { localIsoDate } from "../../utils/date";
+import { RouterLink, useRoute } from "vue-router";
+import AppLayout from "../../components/layout/AppLayout.vue";
+import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabPanel from "../../components/ui/PageTabPanel.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+import { vehiculeService } from "../../services/vehicule/service";
+import { chauffeurService } from "../../services/chauffeur/service";
+import { marqueService } from "../../services/marque/service";
+import { modeleService } from "../../services/modele/service";
+import { cooperativeService } from "../../services/cooperative/service";
+import type {
+  DocumentType,
+  Vehicule,
+  VehiculeDocument,
+} from "../../models/vehicule/model";
+import type { Chauffeur } from "../../models/chauffeur/model";
+import type { Marque } from "../../models/marque/model";
+import type { Modele } from "../../models/modele/model";
+import type { Cooperative } from "../../models/cooperative/model";
+import { userError } from "../../utils/errors";
 
-type FleetSection = 'vehicules' | 'chauffeurs' | 'marques' | 'modeles'
-const route = useRoute()
-const auth = useAuthenticationStore()
-const section = computed<FleetSection>(() => (({
-  'vehicule-detail': 'vehicules', 'chauffeur-detail': 'chauffeurs',
-  'marque-detail': 'marques', 'modele-detail': 'modeles',
-} as Record<string, FleetSection>)[String(route.name || 'vehicule-detail')] || 'vehicules'))
-const id = computed(() => Number(route.params.id))
-const listPath = computed(() => `/${section.value}`)
-const editPath = computed(() => `/${section.value}/${id.value}/edit`)
-const title = computed(() => ({ vehicules: 'Détail du véhicule', chauffeurs: 'Détail du chauffeur', marques: 'Détail de la marque', modeles: 'Détail du modèle' }[section.value]))
-const canManageDocuments = computed(() => auth.hasPermission('VEHICULE_UPDATE'))
-const fleetTab = ref('overview')
+type FleetSection = "vehicules" | "chauffeurs" | "marques" | "modeles";
+const route = useRoute();
+const auth = useAuthenticationStore();
+const section = computed<FleetSection>(
+  () =>
+    (
+      ({
+        "vehicule-detail": "vehicules",
+        "chauffeur-detail": "chauffeurs",
+        "marque-detail": "marques",
+        "modele-detail": "modeles",
+      }) as Record<string, FleetSection>
+    )[String(route.name || "vehicule-detail")] || "vehicules",
+);
+const id = computed(() => Number(route.params.id));
+const listPath = computed(() => `/${section.value}`);
+const editPath = computed(() => `/${section.value}/${id.value}/edit`);
+const title = computed(
+  () =>
+    ({
+      vehicules: "Détail du véhicule",
+      chauffeurs: "Détail du chauffeur",
+      marques: "Détail de la marque",
+      modeles: "Détail du modèle",
+    })[section.value],
+);
+const canManageDocuments = computed(() =>
+  auth.hasPermission("VEHICULE_UPDATE"),
+);
+const driverTab = ref("overview");
+const fleetTab = ref("overview");
 
-const vehicule = ref<Vehicule | null>(null)
-const chauffeur = ref<Chauffeur | null>(null)
-const marque = ref<Marque | null>(null)
-const modele = ref<Modele | null>(null)
-const marqueModeles = ref<Modele[]>([])
-const marques = ref<Marque[]>([])
-const cooperatives = ref<Cooperative[]>([])
-const loading = ref(true)
-const error = ref('')
-const success = ref('')
-const documentSubmitting = ref(false)
-const documentType = ref<DocumentType>('CARTE_GRISE')
-const documentNumber = ref('')
-const documentIssueDate = ref('')
-const documentExpirationDate = ref('')
-const documentIsValid = ref(true)
-const documentFile = ref<File | null>(null)
-const assignments = ref<Array<{ id_vehicule: number; id_chauffeur: number; date_debut: string; date_fin?: string; is_active: boolean }>>([])
-const assignmentVehicles = ref<Vehicule[]>([])
-const assignmentVehicleCatalog = ref<Vehicule[]>([])
-const assignmentForm = ref({ id_vehicule: 0, date_debut: localIsoDate(), date_fin: '' })
-const assignmentSubmitting = ref(false)
-const canManageAssignment = computed(() => auth.hasPermission('CHAUFFEUR_UPDATE'))
-const hasActiveAssignment = computed(() => assignments.value.some(item => item.is_active))
+const vehicule = ref<Vehicule | null>(null);
+const chauffeur = ref<Chauffeur | null>(null);
+const marque = ref<Marque | null>(null);
+const modele = ref<Modele | null>(null);
+const marqueModeles = ref<Modele[]>([]);
+const marques = ref<Marque[]>([]);
+const cooperatives = ref<Cooperative[]>([]);
+const loading = ref(true);
+const error = ref("");
+const success = ref("");
+const documentSubmitting = ref(false);
+const documentType = ref<DocumentType>("CARTE_GRISE");
+const documentNumber = ref("");
+const documentIssueDate = ref("");
+const documentExpirationDate = ref("");
+const documentIsValid = ref(true);
+const documentFile = ref<File | null>(null);
+const assignments = ref<
+  Array<{
+    id_vehicule: number;
+    id_chauffeur: number;
+    date_debut: string;
+    date_fin?: string;
+    is_active: boolean;
+    is_cancelled?: boolean;
+  }>
+>([]);
+const assignmentVehicles = ref<Vehicule[]>([]);
+const assignmentVehicleCatalog = ref<Vehicule[]>([]);
+const assignmentForm = ref({
+  id_vehicule: 0,
+  date_debut: localIsoDate(),
+  date_fin: "",
+});
+const assignmentSubmitting = ref(false);
+const canManageAssignment = computed(() =>
+  auth.hasPermission("CHAUFFEUR_UPDATE"),
+);
+const hasAssignmentConflict = computed(() =>
+  assignments.value.some(
+    (item) =>
+      !item.is_cancelled &&
+      (!item.date_fin || item.date_fin >= assignmentForm.value.date_debut) &&
+      (!assignmentForm.value.date_fin ||
+        item.date_debut <= assignmentForm.value.date_fin),
+  ),
+);
 
-function displayCooperative(value?: number) { return cooperatives.value.find(item => item.id === value)?.nom || `Coopérative #${value || ''}` }
-function displayUser(value?: number) { return chauffeur.value?.user ? `${chauffeur.value.user.first_name || ''} ${chauffeur.value.user.name}`.trim() : `Utilisateur #${value || ''}` }
-function displayBrand(value?: number) { return marques.value.find(item => item.id === value)?.nom || `Marque #${value || ''}` }
-function formatDate(value?: string | null) { return value ? new Date(value).toLocaleDateString('fr-FR') : '—' }
-function documentStatus(document: VehiculeDocument) { if (document.is_expired) return 'Expiré'; if (!document.is_active) return 'Inactif'; if (!document.is_valid) return 'Invalide'; return 'Valide' }
-function documentStatusClass(document: VehiculeDocument) { return document.is_expired || !document.is_active || !document.is_valid ? 'inactive' : 'active' }
-function documentTypeLabel(type: DocumentType) { return ({ CARTE_GRISE: 'Carte grise', ASSURANCE: 'Assurance', VISITE_TECHNIQUE: 'Visite technique', AUTRE_DOCUMENT: 'Autre document' }[type]) }
-function onDocumentFileChange(event: Event) { documentFile.value = (event.target as HTMLInputElement).files?.[0] || null }
+function displayCooperative(value?: number) {
+  return (
+    cooperatives.value.find((item) => item.id === value)?.nom ||
+    `Coopérative #${value || ""}`
+  );
+}
+function displayUser(value?: number) {
+  return chauffeur.value?.user
+    ? `${chauffeur.value.user.first_name || ""} ${chauffeur.value.user.name}`.trim()
+    : `Utilisateur #${value || ""}`;
+}
+function displayBrand(value?: number) {
+  return (
+    marques.value.find((item) => item.id === value)?.nom ||
+    `Marque #${value || ""}`
+  );
+}
+function formatDate(value?: string | null) {
+  return value ? new Date(value).toLocaleDateString("fr-FR") : "—";
+}
+function documentStatus(document: VehiculeDocument) {
+  if (document.is_expired) return "Expiré";
+  if (!document.is_active) return "Inactif";
+  if (!document.is_valid) return "Invalide";
+  return "Valide";
+}
+function documentStatusClass(document: VehiculeDocument) {
+  return document.is_expired || !document.is_active || !document.is_valid
+    ? "inactive"
+    : "active";
+}
+function documentTypeLabel(type: DocumentType) {
+  return {
+    CARTE_GRISE: "Carte grise",
+    ASSURANCE: "Assurance",
+    VISITE_TECHNIQUE: "Visite technique",
+    AUTRE_DOCUMENT: "Autre document",
+  }[type];
+}
+function onDocumentFileChange(event: Event) {
+  documentFile.value = (event.target as HTMLInputElement).files?.[0] || null;
+}
 function resetDocumentForm() {
-  documentNumber.value = ''; documentIssueDate.value = ''; documentExpirationDate.value = ''; documentIsValid.value = true; documentFile.value = null
-  const input = document.getElementById('vehicle-document-file') as HTMLInputElement | null
-  if (input) input.value = ''
+  documentNumber.value = "";
+  documentIssueDate.value = "";
+  documentExpirationDate.value = "";
+  documentIsValid.value = true;
+  documentFile.value = null;
+  const input = document.getElementById(
+    "vehicle-document-file",
+  ) as HTMLInputElement | null;
+  if (input) input.value = "";
 }
 
 async function addVehicleDocument() {
-  if (!vehicule.value || !documentFile.value) { error.value = 'Sélectionnez un fichier à rattacher au document.'; return }
-  if (documentIssueDate.value && documentExpirationDate.value && documentExpirationDate.value < documentIssueDate.value) { error.value = "La date d'expiration doit être postérieure ou égale à la date de délivrance."; return }
-  documentSubmitting.value = true; error.value = ''; success.value = ''
-  const data = new FormData()
-  data.append('type_document', documentType.value)
-  if (documentNumber.value) data.append('numero_document', documentNumber.value)
-  if (documentIssueDate.value) data.append('date_delivrance', documentIssueDate.value)
-  if (documentExpirationDate.value) data.append('date_expiration', documentExpirationDate.value)
-  data.append('is_valid', String(documentIsValid.value)); data.append('file', documentFile.value)
+  if (!vehicule.value || !documentFile.value) {
+    error.value = "Sélectionnez un fichier à rattacher au document.";
+    return;
+  }
+  if (
+    documentIssueDate.value &&
+    documentExpirationDate.value &&
+    documentExpirationDate.value < documentIssueDate.value
+  ) {
+    error.value =
+      "La date d'expiration doit être postérieure ou égale à la date de délivrance.";
+    return;
+  }
+  documentSubmitting.value = true;
+  error.value = "";
+  success.value = "";
+  const data = new FormData();
+  data.append("type_document", documentType.value);
+  if (documentNumber.value)
+    data.append("numero_document", documentNumber.value);
+  if (documentIssueDate.value)
+    data.append("date_delivrance", documentIssueDate.value);
+  if (documentExpirationDate.value)
+    data.append("date_expiration", documentExpirationDate.value);
+  data.append("is_valid", String(documentIsValid.value));
+  data.append("file", documentFile.value);
   try {
-    const created = await vehiculeService.uploadDocument(vehicule.value.id, data)
-    vehicule.value.documents.push(created)
-    vehicule.value.documents.sort((a, b) => (a.date_expiration || '9999').localeCompare(b.date_expiration || '9999'))
-    resetDocumentForm(); success.value = 'Document ajouté avec succès.'
-  } catch (errorValue: unknown) { error.value = userError(errorValue, "Impossible d'ajouter le document.", 'DOCUMENT_ADD_ERROR') }
-  finally { documentSubmitting.value = false }
+    const created = await vehiculeService.uploadDocument(
+      vehicule.value.id,
+      data,
+    );
+    vehicule.value.documents.push(created);
+    vehicule.value.documents.sort((a, b) =>
+      (a.date_expiration || "9999").localeCompare(b.date_expiration || "9999"),
+    );
+    resetDocumentForm();
+    success.value = "Document ajouté avec succès.";
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible d'ajouter le document.",
+      "DOCUMENT_ADD_ERROR",
+    );
+  } finally {
+    documentSubmitting.value = false;
+  }
 }
-async function toggleVehicleDocument(document: VehiculeDocument) { try { Object.assign(document, await vehiculeService.toggleDocument(document.id)); success.value = 'Statut du document mis à jour.' } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de modifier le statut du document.', 'DOCUMENT_TOGGLE_ERROR') } }
+async function toggleVehicleDocument(document: VehiculeDocument) {
+  try {
+    Object.assign(document, await vehiculeService.toggleDocument(document.id));
+    success.value = "Statut du document mis à jour.";
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible de modifier le statut du document.",
+      "DOCUMENT_TOGGLE_ERROR",
+    );
+  }
+}
 async function removeVehicleDocument(document: VehiculeDocument) {
-  if (!window.confirm('Supprimer définitivement ce document ?')) return
-  try { await vehiculeService.deleteDocument(document.id); if (vehicule.value) vehicule.value.documents = vehicule.value.documents.filter(item => item.id !== document.id); success.value = 'Document supprimé.' }
-  catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de supprimer le document.', 'DOCUMENT_DELETE_ERROR') }
+  if (!window.confirm("Supprimer définitivement ce document ?")) return;
+  try {
+    await vehiculeService.deleteDocument(document.id);
+    if (vehicule.value)
+      vehicule.value.documents = vehicule.value.documents.filter(
+        (item) => item.id !== document.id,
+      );
+    success.value = "Document supprimé.";
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible de supprimer le document.",
+      "DOCUMENT_DELETE_ERROR",
+    );
+  }
 }
 async function openVehicleDocument(document: VehiculeDocument) {
-  if (!document.fichier_path) return
+  if (!document.fichier_path) return;
   try {
-    const file = await vehiculeService.downloadDocument(document.id)
-    const url = URL.createObjectURL(file)
-    const link = window.document.createElement('a')
-    link.href = url
-    link.target = '_blank'
-    link.rel = 'noopener'
-    link.click()
-    window.setTimeout(() => URL.revokeObjectURL(url), 60_000)
+    const file = await vehiculeService.downloadDocument(document.id);
+    const url = URL.createObjectURL(file);
+    const link = window.document.createElement("a");
+    link.href = url;
+    link.target = "_blank";
+    link.rel = "noopener";
+    link.click();
+    window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
   } catch (errorValue: unknown) {
-    error.value = userError(errorValue, 'Impossible d’ouvrir le document.', 'DOCUMENT_DOWNLOAD_ERROR')
+    error.value = userError(
+      errorValue,
+      "Impossible d’ouvrir le document.",
+      "DOCUMENT_DOWNLOAD_ERROR",
+    );
   }
 }
 
 async function loadReferences() {
   const results = await Promise.allSettled([
-    marqueService.listMarques({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
-    cooperativeService.listCooperatives({ page: 1, page_size: 100, sort_by: 'nom', sort_order: 'asc' }),
-  ])
-  if (results[0].status === 'fulfilled') marques.value = results[0].value.items
-  if (results[1].status === 'fulfilled') cooperatives.value = results[1].value.items
+    allPages((params) => marqueService.listMarques(params), {
+      page: 1,
+      page_size: 100,
+      sort_by: "nom",
+      sort_order: "asc",
+    }),
+    allPages((params) => cooperativeService.listCooperatives(params), {
+      page: 1,
+      page_size: 100,
+      sort_by: "nom",
+      sort_order: "asc",
+    }),
+  ]);
+  if (results[0].status === "fulfilled") marques.value = results[0].value.items;
+  if (results[1].status === "fulfilled")
+    cooperatives.value = results[1].value.items;
 }
 async function load() {
   try {
-    await loadReferences()
-    if (section.value === 'vehicules') { vehicule.value = await vehiculeService.getVehicule(id.value); modele.value = await modeleService.getModele(vehicule.value.id_modele) }
-    else if (section.value === 'chauffeurs') {
-      chauffeur.value = await chauffeurService.getChauffeur(id.value)
+    await loadReferences();
+    if (section.value === "vehicules") {
+      vehicule.value = await vehiculeService.getVehicule(id.value);
+      modele.value = await modeleService.getModele(vehicule.value.id_modele);
+    } else if (section.value === "chauffeurs") {
+      chauffeur.value = await chauffeurService.getChauffeur(id.value);
       const results = await Promise.allSettled([
         chauffeurService.listAssignments(id.value),
         chauffeurService.listAvailableVehicules(id.value, {
           date_debut: assignmentForm.value.date_debut,
         }),
-        vehiculeService.listVehicules({ page: 1, page_size: 100, id_cooperative: chauffeur.value.id_cooperative, sort_by: 'immatriculation', sort_order: 'asc' }),
-      ])
-      if (results[0].status === 'fulfilled') assignments.value = results[0].value
-      if (results[1].status === 'fulfilled') assignmentVehicles.value = results[1].value || []
-      if (results[2].status === 'fulfilled') assignmentVehicleCatalog.value = results[2].value.items || []
-    }
-    else if (section.value === 'marques') { marque.value = await marqueService.getMarque(id.value); marqueModeles.value = (await modeleService.listModeles({ page: 1, page_size: 100, id_marque: id.value, sort_by: 'nom', sort_order: 'asc' })).items }
-    else modele.value = await modeleService.getModele(id.value)
-  } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de charger les détails.', 'DETAIL_LOAD_ERROR') }
-  finally { loading.value = false }
+        allPages((params) => vehiculeService.listVehicules(params), {
+          page: 1,
+          page_size: 100,
+          id_cooperative: chauffeur.value.id_cooperative,
+          sort_by: "immatriculation",
+          sort_order: "asc",
+        }),
+      ]);
+      if (results[0].status === "fulfilled")
+        assignments.value = results[0].value;
+      if (results[1].status === "fulfilled")
+        assignmentVehicles.value = results[1].value || [];
+      if (results[2].status === "fulfilled")
+        assignmentVehicleCatalog.value = results[2].value.items || [];
+    } else if (section.value === "marques") {
+      marque.value = await marqueService.getMarque(id.value);
+      marqueModeles.value = (
+        await allPages((params) => modeleService.listModeles(params), {
+          page: 1,
+          page_size: 100,
+          id_marque: id.value,
+          sort_by: "nom",
+          sort_order: "asc",
+        })
+      ).items;
+    } else modele.value = await modeleService.getModele(id.value);
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible de charger les détails.",
+      "DETAIL_LOAD_ERROR",
+    );
+  } finally {
+    loading.value = false;
+  }
 }
 async function loadAvailableAssignmentVehicles() {
-  if (!chauffeur.value || hasActiveAssignment.value) {
-    assignmentVehicles.value = []
-    return
+  if (!chauffeur.value || hasAssignmentConflict.value) {
+    assignmentVehicles.value = [];
+    return;
   }
   try {
-    assignmentVehicles.value = await chauffeurService.listAvailableVehicules(chauffeur.value.id, {
-      date_debut: assignmentForm.value.date_debut || undefined,
-      date_fin: assignmentForm.value.date_fin || undefined,
-    })
-    if (!assignmentVehicles.value.some(vehicle => vehicle.id === assignmentForm.value.id_vehicule)) {
-      assignmentForm.value.id_vehicule = 0
+    assignmentVehicles.value = await chauffeurService.listAvailableVehicules(
+      chauffeur.value.id,
+      {
+        date_debut: assignmentForm.value.date_debut || undefined,
+        date_fin: assignmentForm.value.date_fin || undefined,
+      },
+    );
+    if (
+      !assignmentVehicles.value.some(
+        (vehicle) => vehicle.id === assignmentForm.value.id_vehicule,
+      )
+    ) {
+      assignmentForm.value.id_vehicule = 0;
     }
   } catch (errorValue: unknown) {
-    error.value = userError(errorValue, 'Impossible de charger les véhicules disponibles.', 'ASSIGNMENT_VEHICLES_LOAD_ERROR')
+    error.value = userError(
+      errorValue,
+      "Impossible de charger les véhicules disponibles.",
+      "ASSIGNMENT_VEHICLES_LOAD_ERROR",
+    );
   }
 }
 async function assignVehicle() {
-  if (!chauffeur.value || !assignmentForm.value.id_vehicule || assignmentSubmitting.value || hasActiveAssignment.value) return
-  assignmentSubmitting.value = true; error.value = ''
+  if (
+    !chauffeur.value ||
+    !assignmentForm.value.id_vehicule ||
+    assignmentSubmitting.value ||
+    hasAssignmentConflict.value
+  )
+    return;
+  assignmentSubmitting.value = true;
+  error.value = "";
   try {
     const created = await chauffeurService.assignVehicule(chauffeur.value.id, {
       id_vehicule: assignmentForm.value.id_vehicule,
       date_debut: assignmentForm.value.date_debut,
-      ...(assignmentForm.value.date_fin ? { date_fin: assignmentForm.value.date_fin } : {}),
-    })
-    assignments.value.unshift(created)
-    success.value = 'Affectation enregistrée avec succès.'
-    assignmentForm.value.id_vehicule = 0
-    await loadAvailableAssignmentVehicles()
-  } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible d’enregistrer l’affectation.', 'ASSIGNMENT_ADD_ERROR') }
-  finally { assignmentSubmitting.value = false }
+      ...(assignmentForm.value.date_fin
+        ? { date_fin: assignmentForm.value.date_fin }
+        : {}),
+    });
+    assignments.value.unshift(created);
+    success.value = "Affectation enregistrée avec succès.";
+    assignmentForm.value.id_vehicule = 0;
+    await loadAvailableAssignmentVehicles();
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible d’enregistrer l’affectation.",
+      "ASSIGNMENT_ADD_ERROR",
+    );
+  } finally {
+    assignmentSubmitting.value = false;
+  }
 }
-async function closeAssignment(assignment: { id_vehicule: number; date_debut: string }) {
-  if (!chauffeur.value || assignmentSubmitting.value) return
-  assignmentSubmitting.value = true; error.value = ''
+async function cancelPlannedAssignment(assignment: {
+  id_vehicule: number;
+  date_debut: string;
+}) {
+  if (!chauffeur.value || assignmentSubmitting.value) return;
+  assignmentSubmitting.value = true;
+  error.value = "";
   try {
-    await chauffeurService.closeAssignment(chauffeur.value.id, assignment.id_vehicule, assignment.date_debut)
-    assignments.value = assignments.value.map(item => item.id_vehicule === assignment.id_vehicule && item.date_debut === assignment.date_debut ? { ...item, is_active: false, date_fin: localIsoDate() } : item)
-    await loadAvailableAssignmentVehicles()
-    success.value = 'Affectation clôturée avec succès.'
-  } catch (errorValue: unknown) { error.value = userError(errorValue, 'Impossible de clôturer l’affectation.', 'ASSIGNMENT_CLOSE_ERROR') }
-  finally { assignmentSubmitting.value = false }
+    await chauffeurService.cancelPlannedAssignment(
+      chauffeur.value.id,
+      assignment.id_vehicule,
+      assignment.date_debut,
+    );
+    assignments.value = await chauffeurService.listAssignments(
+      chauffeur.value.id,
+    );
+    await loadAvailableAssignmentVehicles();
+    success.value = "Affectation planifiée annulée.";
+  } catch (value) {
+    error.value = userError(
+      value,
+      "Impossible d’annuler cette affectation.",
+      "ASSIGNMENT_CANCEL_ERROR",
+    );
+  } finally {
+    assignmentSubmitting.value = false;
+  }
+}
+async function closeAssignment(assignment: {
+  id_vehicule: number;
+  date_debut: string;
+}) {
+  if (!chauffeur.value || assignmentSubmitting.value) return;
+  assignmentSubmitting.value = true;
+  error.value = "";
+  try {
+    await chauffeurService.closeAssignment(
+      chauffeur.value.id,
+      assignment.id_vehicule,
+      assignment.date_debut,
+    );
+    assignments.value = assignments.value.map((item) =>
+      item.id_vehicule === assignment.id_vehicule &&
+      item.date_debut === assignment.date_debut
+        ? {
+            ...item,
+            is_active: false,
+            is_cancelled: true,
+            date_fin: localIsoDate(),
+          }
+        : item,
+    );
+    await loadAvailableAssignmentVehicles();
+    success.value = "Affectation clôturée avec succès.";
+  } catch (errorValue: unknown) {
+    error.value = userError(
+      errorValue,
+      "Impossible de clôturer l’affectation.",
+      "ASSIGNMENT_CLOSE_ERROR",
+    );
+  } finally {
+    assignmentSubmitting.value = false;
+  }
 }
 watch(
   () => [assignmentForm.value.date_debut, assignmentForm.value.date_fin],
   () => {
-    if (chauffeur.value && !hasActiveAssignment.value) void loadAvailableAssignmentVehicles()
+    if (chauffeur.value && !hasAssignmentConflict.value)
+      void loadAvailableAssignmentVehicles();
   },
-)
-onMounted(load)
+);
+onMounted(load);
 </script>
 
 <template>
   <AppLayout>
     <template #title>{{ title }}</template>
-    <div class="page-intro"><div><p class="eyebrow">GESTION DE LA FLOTTE</p><h2>{{ title }}</h2><p>Consultez les informations détaillées de cet élément.</p></div><div class="form-actions"><RouterLink class="secondary-button" :to="listPath">Retour à la liste</RouterLink><RouterLink v-if="!loading && !error" class="primary-button compact-button" :to="editPath">Modifier</RouterLink></div></div>
+    <div class="page-intro">
+      <div>
+        <p class="eyebrow">GESTION DE LA FLOTTE</p>
+        <h2>{{ title }}</h2>
+        <p>Consultez les informations détaillées de cet élément.</p>
+      </div>
+      <div class="form-actions">
+        <RouterLink class="secondary-button" :to="listPath"
+          >Retour à la liste</RouterLink
+        ><RouterLink
+          v-if="!loading && !error"
+          class="primary-button compact-button"
+          :to="editPath"
+          >Modifier</RouterLink
+        >
+      </div>
+    </div>
     <p v-if="loading" class="status-msg">Chargement des détails en cours…</p>
     <p v-else-if="error && !vehicule" class="error-banner">{{ error }}</p>
-    <p v-if="success" class="success-banner">{{ success }}</p><p v-if="error && vehicule" class="error-banner">{{ error }}</p>
-    <p v-if="route.query.upload_error && vehicule" class="error-banner" role="alert">Le véhicule a été créé, mais au moins un document n’a pas pu être téléversé. Ajoutez-le ci-dessous.</p>
+    <p v-if="success" class="success-banner">{{ success }}</p>
+    <p v-if="error && vehicule" class="error-banner">{{ error }}</p>
+    <p
+      v-if="route.query.upload_error && vehicule"
+      class="error-banner"
+      role="alert"
+    >
+      Le véhicule a été créé, mais au moins un document n’a pas pu être
+      téléversé. Ajoutez-le ci-dessous.
+    </p>
 
     <template v-if="section === 'vehicules' && vehicule">
-      <PageTabs v-model="fleetTab" aria-label="Sections du véhicule" :tabs="[{ id: 'overview', label: 'Informations' }, { id: 'documents', label: 'Documents', count: vehicule.documents.length }]" />
+      <PageTabs
+        v-model="fleetTab"
+        aria-label="Sections du véhicule"
+        :tabs="[
+          { id: 'overview', label: 'Informations' },
+          {
+            id: 'documents',
+            label: 'Documents',
+            count: vehicule.documents.length,
+          },
+        ]"
+      />
       <template v-if="fleetTab === 'overview'">
-      <BaseCard><div class="card-heading"><div><h2>{{ vehicule.immatriculation }}</h2><p><span :class="['status-badge', vehicule.is_active ? 'active' : 'inactive']">{{ vehicule.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Modèle</span><strong>{{ modele?.nom || '—' }}</strong></div><div class="detail-item"><span class="detail-label">Marque</span><strong>{{ displayBrand(modele?.id_marque) }}</strong></div><div class="detail-item"><span class="detail-label">Propriétaire</span><strong>{{ displayCooperative(vehicule.id_cooperative) }}</strong></div><div class="detail-item"><span class="detail-label">Nombre de places</span><strong>{{ vehicule.nombre_places }}</strong></div><div class="detail-item"><span class="detail-label">Puissance</span><strong>{{ vehicule.chevaux ? `${vehicule.chevaux} CV` : '—' }}</strong></div><div class="detail-item"><span class="detail-label">Disponibilité</span><strong>{{ vehicule.disponibilite ? 'Disponible' : 'Indisponible' }}</strong></div><div class="detail-item"><span class="detail-label">État</span><strong>{{ vehicule.etat }}</strong></div><div class="detail-item"><span class="detail-label">Créé le</span><strong>{{ formatDate(vehicule.created_at) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ vehicule.description || 'Aucune description.' }}</strong></div></div></BaseCard>
+        <BaseCard
+          ><div class="card-heading">
+            <div>
+              <h2>{{ vehicule.immatriculation }}</h2>
+              <p>
+                <span
+                  :class="[
+                    'status-badge',
+                    vehicule.is_active ? 'active' : 'inactive',
+                  ]"
+                  >{{ vehicule.is_active ? "Actif" : "Inactif" }}</span
+                >
+              </p>
+            </div>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">Modèle</span
+              ><strong>{{ modele?.nom || "—" }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Marque</span
+              ><strong>{{ displayBrand(modele?.id_marque) }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Propriétaire</span
+              ><strong>{{
+                displayCooperative(vehicule.id_cooperative)
+              }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Nombre de places</span
+              ><strong>{{ vehicule.nombre_places }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Puissance</span
+              ><strong>{{
+                vehicule.chevaux ? `${vehicule.chevaux} CV` : "—"
+              }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Disponibilité</span
+              ><strong>{{
+                vehicule.disponibilite ? "Disponible" : "Indisponible"
+              }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">État</span
+              ><strong>{{ vehicule.etat }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Créé le</span
+              ><strong>{{ formatDate(vehicule.created_at) }}</strong>
+            </div>
+            <div class="detail-item detail-wide">
+              <span class="detail-label">Description</span
+              ><strong>{{
+                vehicule.description || "Aucune description."
+              }}</strong>
+            </div>
+          </div></BaseCard
+        >
       </template>
       <BaseCard v-if="fleetTab === 'documents'">
-        <div class="card-heading"><div><h2>Documents du véhicule</h2><p>Ajoutez plusieurs documents et consultez leur validité.</p></div></div>
-        <form v-if="canManageDocuments" class="management-form document-form" @submit.prevent="addVehicleDocument">
-          <div class="field-group"><label for="document-type">Type <span>*</span></label><select id="document-type" v-model="documentType"><option value="CARTE_GRISE">Carte grise</option><option value="ASSURANCE">Assurance</option><option value="VISITE_TECHNIQUE">Visite technique</option><option value="AUTRE_DOCUMENT">Autre document</option></select></div>
-          <div class="field-group"><label for="document-number">Numéro</label><input id="document-number" v-model="documentNumber" placeholder="CG-001" /></div>
-          <div class="field-group"><label for="document-issue">Date de délivrance</label><input id="document-issue" v-model="documentIssueDate" type="date" /></div>
-          <div class="field-group"><label for="document-expiration">Date d'expiration</label><input id="document-expiration" v-model="documentExpirationDate" type="date" /></div>
-          <div class="field-group field-wide"><label for="vehicle-document-file">Fichier <span>*</span></label><input id="vehicle-document-file" type="file" accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx" @change="onDocumentFileChange" /><span class="field-hint">PDF, image, Word ou Excel — 10 Mo maximum.</span></div>
-          <label class="check-field field-wide"><input v-model="documentIsValid" type="checkbox" /> Document déclaré valide</label>
-          <div class="form-actions"><button class="primary-button compact-button" type="submit" :disabled="documentSubmitting">{{ documentSubmitting ? 'Ajout…' : 'Ajouter le document' }}</button></div>
+        <div class="card-heading">
+          <div>
+            <h2>Documents du véhicule</h2>
+            <p>Ajoutez plusieurs documents et consultez leur validité.</p>
+          </div>
+        </div>
+        <form
+          v-if="canManageDocuments"
+          class="management-form document-form"
+          @submit.prevent="addVehicleDocument"
+        >
+          <div class="field-group">
+            <label for="document-type">Type <span>*</span></label
+            ><select id="document-type" v-model="documentType">
+              <option value="CARTE_GRISE">Carte grise</option>
+              <option value="ASSURANCE">Assurance</option>
+              <option value="VISITE_TECHNIQUE">Visite technique</option>
+              <option value="AUTRE_DOCUMENT">Autre document</option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="document-number">Numéro</label
+            ><input
+              id="document-number"
+              v-model="documentNumber"
+              placeholder="CG-001"
+            />
+          </div>
+          <div class="field-group">
+            <label for="document-issue">Date de délivrance</label
+            ><input
+              id="document-issue"
+              v-model="documentIssueDate"
+              type="date"
+            />
+          </div>
+          <div class="field-group">
+            <label for="document-expiration">Date d'expiration</label
+            ><input
+              id="document-expiration"
+              v-model="documentExpirationDate"
+              type="date"
+            />
+          </div>
+          <div class="field-group field-wide">
+            <label for="vehicle-document-file">Fichier <span>*</span></label
+            ><input
+              id="vehicle-document-file"
+              type="file"
+              accept=".pdf,.png,.jpg,.jpeg,.gif,.webp,.doc,.docx,.xls,.xlsx"
+              @change="onDocumentFileChange"
+            /><span class="field-hint"
+              >PDF, image, Word ou Excel — 10 Mo maximum.</span
+            >
+          </div>
+          <label class="check-field field-wide"
+            ><input v-model="documentIsValid" type="checkbox" /> Document
+            déclaré valide</label
+          >
+          <div class="form-actions">
+            <button
+              class="primary-button compact-button"
+              type="submit"
+              :disabled="documentSubmitting"
+            >
+              {{ documentSubmitting ? "Ajout…" : "Ajouter le document" }}
+            </button>
+          </div>
         </form>
         <div v-if="vehicule.documents.length" class="detail-list document-list">
-          <div class="document-list-head"><span>Type</span><span>N° / dates</span><span>Statut</span><span>Actions</span></div>
-          <div v-for="document in vehicule.documents" :key="document.id" class="detail-list-row document-row"><strong>{{ documentTypeLabel(document.type_document) }}</strong><span>N° {{ document.numero_document || '—' }}<br />Délivré le {{ formatDate(document.date_delivrance) }}<br />Expire le {{ formatDate(document.date_expiration) }}</span><span :class="['status-badge', documentStatusClass(document)]">{{ documentStatus(document) }}</span><span class="document-actions"><button v-if="document.fichier_path" class="table-action table-link" type="button" @click="openVehicleDocument(document)">Ouvrir</button><button v-if="canManageDocuments" class="table-action" type="button" @click="toggleVehicleDocument(document)">{{ document.is_active ? 'Désactiver' : 'Activer' }}</button><button v-if="canManageDocuments" class="table-action danger-action" type="button" @click="removeVehicleDocument(document)">Supprimer</button></span></div>
+          <div class="document-list-head">
+            <span>Type</span><span>N° / dates</span><span>Statut</span
+            ><span>Actions</span>
+          </div>
+          <div
+            v-for="document in vehicule.documents"
+            :key="document.id"
+            class="detail-list-row document-row"
+          >
+            <strong>{{ documentTypeLabel(document.type_document) }}</strong
+            ><span
+              >N° {{ document.numero_document || "—" }}<br />Délivré le
+              {{ formatDate(document.date_delivrance) }}<br />Expire le
+              {{ formatDate(document.date_expiration) }}</span
+            ><span :class="['status-badge', documentStatusClass(document)]">{{
+              documentStatus(document)
+            }}</span
+            ><span class="document-actions"
+              ><button
+                v-if="document.fichier_path"
+                class="table-action table-link"
+                type="button"
+                @click="openVehicleDocument(document)"
+              >
+                Ouvrir</button
+              ><button
+                v-if="canManageDocuments"
+                class="table-action"
+                type="button"
+                @click="toggleVehicleDocument(document)"
+              >
+                {{ document.is_active ? "Désactiver" : "Activer" }}</button
+              ><button
+                v-if="canManageDocuments"
+                class="table-action danger-action"
+                type="button"
+                @click="removeVehicleDocument(document)"
+              >
+                Supprimer
+              </button></span
+            >
+          </div>
         </div>
         <div v-else class="empty-state">Aucun document enregistré.</div>
       </BaseCard>
     </template>
 
-    <BaseCard v-else-if="section === 'chauffeurs' && chauffeur"><div class="card-heading"><div><h2>{{ displayUser(chauffeur.id_user) }}</h2><p><span :class="['status-badge', chauffeur.is_active ? 'active' : 'inactive']">{{ chauffeur.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Utilisateur</span><strong>{{ displayUser(chauffeur.id_user) }}</strong></div><div class="detail-item"><span class="detail-label">Coopérative</span><strong>{{ displayCooperative(chauffeur.id_cooperative) }}</strong></div><div class="detail-item"><span class="detail-label">Numéro de permis</span><strong>{{ chauffeur.numero_permis }}</strong></div><div class="detail-item"><span class="detail-label">Catégorie</span><strong>{{ chauffeur.categorie_permis }}</strong></div><div class="detail-item"><span class="detail-label">Expiration du permis</span><strong>{{ formatDate(chauffeur.date_expiration_permis) }}</strong></div><div class="detail-item"><span class="detail-label">Disponibilité</span><strong>{{ chauffeur.disponibilite ? 'Disponible' : 'Indisponible' }}</strong></div></div></BaseCard>
-    <BaseCard v-else-if="section === 'marques' && marque"><div class="card-heading"><div><h2>{{ marque.nom }}</h2><p><span :class="['status-badge', marque.is_active ? 'active' : 'inactive']">{{ marque.is_active ? 'Active' : 'Inactive' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Nom</span><strong>{{ marque.nom }}</strong></div><div class="detail-item"><span class="detail-label">Créée le</span><strong>{{ formatDate(marque.created_at) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ marque.description || 'Aucune description.' }}</strong></div></div><div class="detail-subsection"><h3>Modèles de cette marque</h3><div v-if="marqueModeles.length" class="detail-list"><div v-for="item in marqueModeles" :key="item.id" class="detail-list-row"><strong>{{ item.nom }}</strong><span>{{ item.description || 'Aucune description.' }}</span></div></div><div v-else class="empty-state">Aucun modèle rattaché.</div></div></BaseCard>
-    <BaseCard v-else-if="section === 'modeles' && modele"><div class="card-heading"><div><h2>{{ modele.nom }}</h2><p><span :class="['status-badge', modele.is_active ? 'active' : 'inactive']">{{ modele.is_active ? 'Actif' : 'Inactif' }}</span></p></div></div><div class="detail-grid"><div class="detail-item"><span class="detail-label">Nom du modèle</span><strong>{{ modele.nom }}</strong></div><div class="detail-item"><span class="detail-label">Marque</span><strong>{{ displayBrand(modele.id_marque) }}</strong></div><div class="detail-item detail-wide"><span class="detail-label">Description</span><strong>{{ modele.description || 'Aucune description.' }}</strong></div><div class="detail-item"><span class="detail-label">Créé le</span><strong>{{ formatDate(modele.created_at) }}</strong></div></div></BaseCard>
-    <BaseCard v-if="section === 'chauffeurs' && chauffeur">
-      <div class="card-heading"><div><h2>Affectations véhicule</h2><p>Historique et affectation actuelle du chauffeur.</p></div></div>
-      <p v-if="canManageAssignment && hasActiveAssignment" class="status-msg">Ce chauffeur possède déjà une affectation active. Clôturez-la avant d'en créer une nouvelle.</p>
-      <form v-else-if="canManageAssignment" class="management-form" @submit.prevent="assignVehicle">
-        <div class="field-group"><label for="assignment-vehicle">Véhicule</label><select id="assignment-vehicle" v-model.number="assignmentForm.id_vehicule" required><option :value="0" disabled>{{ assignmentVehicles.length ? 'Choisir un véhicule' : 'Aucun véhicule disponible' }}</option><option v-for="vehicle in assignmentVehicles" :key="vehicle.id" :value="vehicle.id">{{ vehicle.immatriculation }}</option></select></div>
-        <div class="field-group"><label for="assignment-start">Début</label><input id="assignment-start" v-model="assignmentForm.date_debut" type="date" required /></div>
-        <div class="field-group"><label for="assignment-end">Fin</label><input id="assignment-end" v-model="assignmentForm.date_fin" type="date" /></div>
-        <div class="form-actions"><button class="primary-button compact-button" type="submit" :disabled="assignmentSubmitting || !assignmentVehicles.length">{{ assignmentSubmitting ? 'Enregistrement…' : 'Affecter le véhicule' }}</button></div>
-      </form>
-      <div v-if="assignments.length" class="table-scroll"><table class="data-table"><caption>Historique des affectations</caption><thead><tr><th>Véhicule</th><th>Début</th><th>Fin</th><th>Statut</th><th>Action</th></tr></thead><tbody><tr v-for="assignment in assignments" :key="`${assignment.id_vehicule}-${assignment.date_debut}`"><td>{{ assignmentVehicleCatalog.find(vehicle => vehicle.id === assignment.id_vehicule)?.immatriculation || `Véhicule #${assignment.id_vehicule}` }}</td><td>{{ formatDate(assignment.date_debut) }}</td><td>{{ formatDate(assignment.date_fin) }}</td><td><span :class="['status-badge', assignment.is_active ? 'active' : 'inactive']">{{ assignment.is_active ? 'Active' : 'Clôturée' }}</span></td><td class="assignment-actions"><RouterLink class="table-action table-link" :to="`/vehicules/${assignment.id_vehicule}`">Voir</RouterLink><button v-if="assignment.is_active && canManageAssignment" class="table-action" type="button" :disabled="assignmentSubmitting" @click="closeAssignment(assignment)">Clôturer</button><span v-else class="assignment-closed-action">Historique conservé</span></td></tr></tbody></table></div>
-      <div v-else class="empty-state">Aucune affectation enregistrée.</div>
-    </BaseCard>
+    <template v-else-if="section === 'chauffeurs' && chauffeur">
+      <PageTabs
+        v-model="driverTab"
+        panel-prefix="driver-detail"
+        aria-label="Sections du chauffeur"
+        :tabs="[
+          { id: 'overview', label: 'Informations' },
+          {
+            id: 'assignments',
+            label: 'Affectations',
+            count: assignments.length,
+          },
+        ]"
+      />
+      <PageTabPanel
+        prefix="driver-detail"
+        name="overview"
+        :active="driverTab === 'overview'"
+      >
+        <BaseCard
+          ><div class="card-heading">
+            <div>
+              <h2>{{ displayUser(chauffeur.id_user) }}</h2>
+              <p>
+                <span
+                  :class="[
+                    'status-badge',
+                    chauffeur.is_active ? 'active' : 'inactive',
+                  ]"
+                  >{{ chauffeur.is_active ? "Actif" : "Inactif" }}</span
+                >
+              </p>
+            </div>
+          </div>
+          <div class="detail-grid">
+            <div class="detail-item">
+              <span class="detail-label">Utilisateur</span
+              ><strong>{{ displayUser(chauffeur.id_user) }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Coopérative</span
+              ><strong>{{
+                displayCooperative(chauffeur.id_cooperative)
+              }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Numéro de permis</span
+              ><strong>{{ chauffeur.numero_permis }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Catégorie</span
+              ><strong>{{ chauffeur.categorie_permis }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Expiration du permis</span
+              ><strong>{{
+                formatDate(chauffeur.date_expiration_permis)
+              }}</strong>
+            </div>
+            <div class="detail-item">
+              <span class="detail-label">Disponibilité</span
+              ><strong>{{
+                chauffeur.disponibilite ? "Disponible" : "Indisponible"
+              }}</strong>
+            </div>
+          </div></BaseCard
+        >
+      </PageTabPanel>
+    </template>
+    <BaseCard v-else-if="section === 'marques' && marque"
+      ><div class="card-heading">
+        <div>
+          <h2>{{ marque.nom }}</h2>
+          <p>
+            <span
+              :class="[
+                'status-badge',
+                marque.is_active ? 'active' : 'inactive',
+              ]"
+              >{{ marque.is_active ? "Active" : "Inactive" }}</span
+            >
+          </p>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-item">
+          <span class="detail-label">Nom</span><strong>{{ marque.nom }}</strong>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Créée le</span
+          ><strong>{{ formatDate(marque.created_at) }}</strong>
+        </div>
+        <div class="detail-item detail-wide">
+          <span class="detail-label">Description</span
+          ><strong>{{ marque.description || "Aucune description." }}</strong>
+        </div>
+      </div>
+      <div class="detail-subsection">
+        <h3>Modèles de cette marque</h3>
+        <div v-if="marqueModeles.length" class="detail-list">
+          <div
+            v-for="item in marqueModeles"
+            :key="item.id"
+            class="detail-list-row"
+          >
+            <strong>{{ item.nom }}</strong
+            ><span>{{ item.description || "Aucune description." }}</span>
+          </div>
+        </div>
+        <div v-else class="empty-state">Aucun modèle rattaché.</div>
+      </div></BaseCard
+    >
+    <BaseCard v-else-if="section === 'modeles' && modele"
+      ><div class="card-heading">
+        <div>
+          <h2>{{ modele.nom }}</h2>
+          <p>
+            <span
+              :class="[
+                'status-badge',
+                modele.is_active ? 'active' : 'inactive',
+              ]"
+              >{{ modele.is_active ? "Actif" : "Inactif" }}</span
+            >
+          </p>
+        </div>
+      </div>
+      <div class="detail-grid">
+        <div class="detail-item">
+          <span class="detail-label">Nom du modèle</span
+          ><strong>{{ modele.nom }}</strong>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Marque</span
+          ><strong>{{ displayBrand(modele.id_marque) }}</strong>
+        </div>
+        <div class="detail-item detail-wide">
+          <span class="detail-label">Description</span
+          ><strong>{{ modele.description || "Aucune description." }}</strong>
+        </div>
+        <div class="detail-item">
+          <span class="detail-label">Créé le</span
+          ><strong>{{ formatDate(modele.created_at) }}</strong>
+        </div>
+      </div></BaseCard
+    >
+    <PageTabPanel
+      v-if="section === 'chauffeurs' && chauffeur"
+      prefix="driver-detail"
+      name="assignments"
+      :active="driverTab === 'assignments'"
+    >
+      <BaseCard>
+        <div class="card-heading">
+          <div>
+            <h2>Affectations véhicule</h2>
+            <p>Historique et affectation actuelle du chauffeur.</p>
+          </div>
+        </div>
+        <p
+          v-if="canManageAssignment && hasAssignmentConflict"
+          class="status-msg"
+        >
+          Une affectation couvre déjà cette période. Choisissez des dates sans
+          chevauchement.
+        </p>
+        <form
+          v-if="canManageAssignment"
+          class="management-form"
+          @submit.prevent="assignVehicle"
+        >
+          <div class="field-group">
+            <label for="assignment-vehicle">Véhicule</label
+            ><select
+              id="assignment-vehicle"
+              v-model.number="assignmentForm.id_vehicule"
+              required
+            >
+              <option :value="0" disabled>
+                {{
+                  assignmentVehicles.length
+                    ? "Choisir un véhicule"
+                    : "Aucun véhicule disponible"
+                }}
+              </option>
+              <option
+                v-for="vehicle in assignmentVehicles"
+                :key="vehicle.id"
+                :value="vehicle.id"
+              >
+                {{ vehicle.immatriculation }}
+              </option>
+            </select>
+          </div>
+          <div class="field-group">
+            <label for="assignment-start">Début</label
+            ><input
+              id="assignment-start"
+              v-model="assignmentForm.date_debut"
+              type="date"
+              required
+            />
+          </div>
+          <div class="field-group">
+            <label for="assignment-end">Fin</label
+            ><input
+              id="assignment-end"
+              v-model="assignmentForm.date_fin"
+              type="date"
+            />
+          </div>
+          <div class="form-actions">
+            <button
+              class="primary-button compact-button"
+              type="submit"
+              :disabled="
+                assignmentSubmitting ||
+                hasAssignmentConflict ||
+                !assignmentVehicles.length
+              "
+            >
+              {{
+                assignmentSubmitting
+                  ? "Enregistrement…"
+                  : "Affecter le véhicule"
+              }}
+            </button>
+          </div>
+        </form>
+        <div v-if="assignments.length" class="table-scroll">
+          <table class="data-table">
+            <caption>
+              Historique des affectations
+            </caption>
+            <thead>
+              <tr>
+                <th>Véhicule</th>
+                <th>Début</th>
+                <th>Fin</th>
+                <th>Statut</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr
+                v-for="assignment in assignments"
+                :key="`${assignment.id_vehicule}-${assignment.date_debut}`"
+              >
+                <td>
+                  {{
+                    assignmentVehicleCatalog.find(
+                      (vehicle) => vehicle.id === assignment.id_vehicule,
+                    )?.immatriculation || `Véhicule #${assignment.id_vehicule}`
+                  }}
+                </td>
+                <td>{{ formatDate(assignment.date_debut) }}</td>
+                <td>{{ formatDate(assignment.date_fin) }}</td>
+                <td>
+                  <span
+                    :class="[
+                      'status-badge',
+                      assignment.is_active ? 'active' : 'inactive',
+                    ]"
+                    >{{
+                      assignment.is_active
+                        ? "Active"
+                        : assignment.is_cancelled
+                          ? "Clôturée / annulée"
+                          : assignment.date_debut > localIsoDate()
+                            ? "Planifiée"
+                            : "Terminée"
+                    }}</span
+                  >
+                </td>
+                <td class="assignment-actions">
+                  <RouterLink
+                    class="table-action table-link"
+                    :to="`/vehicules/${assignment.id_vehicule}`"
+                    >Voir</RouterLink
+                  ><button
+                    v-if="assignment.is_active && canManageAssignment"
+                    class="table-action"
+                    type="button"
+                    :disabled="assignmentSubmitting"
+                    @click="closeAssignment(assignment)"
+                  >
+                    Clôturer</button
+                  ><button
+                    v-else-if="
+                      !assignment.is_cancelled &&
+                      assignment.date_debut > localIsoDate() &&
+                      canManageAssignment
+                    "
+                    class="table-action danger-action"
+                    type="button"
+                    :disabled="assignmentSubmitting"
+                    @click="cancelPlannedAssignment(assignment)"
+                  >
+                    Annuler la planification</button
+                  ><span v-else class="assignment-closed-action"
+                    >Historique conservé</span
+                  >
+                </td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <div v-else class="empty-state">Aucune affectation enregistrée.</div>
+      </BaseCard>
+    </PageTabPanel>
   </AppLayout>
 </template>

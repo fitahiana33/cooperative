@@ -1,34 +1,51 @@
-import { api } from '../api'
-import type { Depart, DepartCreate, DepartStatus, PublicProgramme } from '../../models/depart/model'
+import type { Page } from "../pagination";
+import { api } from "../api";
+import type {
+  Depart,
+  DepartCreate,
+  DepartStatus,
+  PublicProgramme,
+} from "../../models/depart/model";
 
 export const departService = {
-  async list(params?: Record<string, unknown>) {
-    return (await api.get('/departs', { params })).data
+  async list(params?: Record<string, unknown>): Promise<Page<Depart>> {
+    return (await api.get("/departs", { params })).data;
   },
-  async publicProgramme(params?: Record<string, unknown>): Promise<{ items: PublicProgramme[]; total: number; page: number; page_size: number; pages: number }> {
-    return (await api.get('/departs/public/programme', { params })).data
+  async publicProgramme(params?: Record<string, unknown>): Promise<{
+    items: PublicProgramme[];
+    total: number;
+    page: number;
+    page_size: number;
+    pages: number;
+  }> {
+    return (await api.get("/departs/public/programme", { params })).data;
   },
   async publicGet(id: number): Promise<PublicProgramme> {
-    return (await api.get<PublicProgramme>(`/departs/public/${id}`)).data
+    return (await api.get<PublicProgramme>(`/departs/public/${id}`)).data;
   },
-  async listMine(params?: Record<string, unknown>) {
-    return (await api.get('/departs/mes-departs', { params })).data
+  async listMine(params?: Record<string, unknown>): Promise<Page<Depart>> {
+    return (await api.get("/departs/mes-departs", { params })).data;
   },
   async get(id: number): Promise<Depart> {
-    return (await api.get<Depart>(`/departs/${id}`)).data
+    return (await api.get<Depart>(`/departs/${id}`)).data;
   },
   async create(data: DepartCreate): Promise<Depart> {
-    return (await api.post<Depart>('/departs', data)).data
+    return (await api.post<Depart>("/departs", data)).data;
   },
   async update(id: number, data: Partial<DepartCreate>): Promise<Depart> {
-    return (await api.put<Depart>(`/departs/${id}`, data)).data
+    return (await api.put<Depart>(`/departs/${id}`, data)).data;
   },
   async updateStatus(id: number, statut: DepartStatus): Promise<Depart> {
-    return (await api.patch<Depart>(`/departs/${id}/status`, { statut })).data
+    return (await api.patch<Depart>(`/departs/${id}/status`, { statut })).data;
+  },
+  async pointage(id: number, type: "DEPART" | "ARRIVEE"): Promise<Depart> {
+    return (await api.post<Depart>(`/departs/${id}/pointage`, { type })).data;
   },
   async cancel(id: number, idCaisse?: number): Promise<Depart> {
-    return (await api.post<Depart>(`/departs/${id}/cancel`, null, {
-      params: idCaisse ? { id_caisse: idCaisse } : undefined,
-    })).data
+    return (
+      await api.post<Depart>(`/departs/${id}/cancel`, null, {
+        params: idCaisse ? { id_caisse: idCaisse } : undefined,
+      })
+    ).data;
   },
-}
+};

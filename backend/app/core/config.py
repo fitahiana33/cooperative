@@ -5,7 +5,7 @@ from pydantic import Field, model_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
-DEVELOPMENT_ENVIRONMENTS = {"development", "production", "dev", "local", "test"}
+DEVELOPMENT_ENVIRONMENTS = {"development", "dev", "local", "test"}
 # Values shipped in the example configuration; never acceptable outside development.
 DEFAULT_SECRET_PREFIXES = ("change-me", "changeme", "change_me")
 DEFAULT_ADMIN_PASSWORDS = {"Admin123!", "admin", "password"}
@@ -37,6 +37,7 @@ class Settings(BaseSettings):
     smtp_from: str | None = None
     smtp_use_tls: bool = True
     smtp_use_ssl: bool = False
+    notification_email_enabled: bool = False
     uploads_dir: Path = BACKEND_DIR / "uploads"
     # Periodic maintenance (reservation expiry, assignment sync, cleanup).
     scheduler_enabled: bool = True
@@ -48,12 +49,19 @@ class Settings(BaseSettings):
     # Returns the password-reset link in the API response. Local debugging only.
     debug_return_reset_url: bool = False
     # Minutes a reservation holds its seats before it must be paid.
-    reservation_hold_minutes: int = 30
+    reservation_hold_minutes: int = Field(default=30, gt=0)
     # Limits applied to passengers booking for themselves.
-    passenger_max_pending_reservations: int = 2
-    passenger_max_seats_per_reservation: int = 6
+    passenger_max_pending_reservations: int = Field(default=2, gt=0)
+    passenger_max_seats_per_reservation: int = Field(default=10, gt=0, le=10)
+    deposit_rate: float = Field(default=0.25, gt=0, le=1)
+    minimum_deposit_amount: int = Field(default=300, ge=0)
     # A passenger may cancel a paid reservation until this many minutes before departure.
     cancellation_deadline_minutes: int = 120
+    # Reservations stop before the operational departure/boarding window.
+    # Administrators may override this through BookingSettings (0..180 min).
+    booking_close_minutes: int = Field(default=10, ge=0, le=180)
+    # Some stations collect the balance before boarding; make that policy explicit.
+    boarding_requires_full_payment: bool = True
     # Station-specific rest/repositioning buffer between two driver trips.
     # Zero keeps the rule disabled until the station defines its real value.
     driver_min_rest_minutes: int = Field(default=0, ge=0)
@@ -62,7 +70,7 @@ class Settings(BaseSettings):
     online_payment_enabled: bool = False
     payment_provider: str = "mock"
     payment_webhook_secret: str = "change-me-webhook-secret"
-    default_commission_rate: float = 0.0
+    default_commission_rate: float = Field(default=0.0, ge=0, le=100)
     # Papi payment-link integration. These values must only exist in the API environment.
     papi_env: str = "sandbox"
     papi_base_url: str = "https://app.papi.mg/engine/api"

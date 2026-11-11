@@ -3,10 +3,10 @@ import io
 import secrets
 from datetime import date, datetime
 
-from fastapi import APIRouter, Depends, HTTPException, Query, Request, Response, status
+from fastapi import APIRouter, Header, Depends, HTTPException, Query, Request, Response, status
 from sqlalchemy.orm import Session
 
-from app.api.controllers.authentication.dependencies import has_permission, resolve_owner_scope, is_staff, get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission, get_optional_current_user
+from app.api.controllers.authentication.dependencies import driver_scope, ensure_depart_access, station_agent_scope, has_permission, resolve_owner_scope, is_staff, get_user_cooperative_ids, get_user_gare_ids, has_active_role, has_global_cooperative_access, ensure_cooperative_access, require_permission, get_optional_current_user
 from app.core.rate_limiter import limiter
 from app.db.session import get_db
 from app.models.depart import Depart
@@ -15,6 +15,7 @@ from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
 from app.schemas.reservation import CounterSaleCreate, DepartPlaceRead, DepartPlaceStatusUpdate, PublicReservationCreate, PublicReservationCreateRead, ReservationCreate, ReservationRead, ReservationUpdate
 from app.services.finance import FinanceService
+from app.schemas.finance.schema import PaiementEnLigneRead, PublicPaymentCreate
 from app.services.reservation import ReservationService
 from app.services.audit import AuditService
 
@@ -30,12 +31,23 @@ def list_reservations(
     page: int = Query(1, ge=1), page_size: int = Query(20, ge=1, le=100),
     search: str | None = Query(None, max_length=100), status_filter: str | None = Query(None, alias="statut"),
     date_from: date | None = None, date_to: date | None = None,
+    id_cooperative: int | None = Query(None, ge=1),
+    id_gare: int | None = Query(None, ge=1),
+    id_itineraire: int | None = Query(None, ge=1),
+    id_depart: int | None = Query(None, ge=1),
     sort_by: str = Query("created_at", pattern="^(created_at|date_expiration|montant_total|statut|date_depart)$"),
     sort_order: str = Query("desc", pattern="^(asc|desc)$"),
     current_user: User = Depends(require_permission("RESERVATION_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return ReservationService(db).list_reservations(page=page, page_size=page_size, search=search, statut=status_filter, date_from=date_from, date_to=date_to, sort_by=sort_by, sort_order=sort_order, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return ReservationService(db).list_reservations(
+        page=page, page_size=page_size, search=search, statut=status_filter,
+        date_from=date_from, date_to=date_to, id_cooperative=id_cooperative,
+        id_gare=id_gare, id_itineraire=id_itineraire, id_depart=id_depart,
+        sort_by=sort_by, sort_order=sort_order, owner_id=owner_id,
+        cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user),
+        gare_ids=station_agent_scope(db, current_user),
+    )
 
 
 @router.get("/departs/{depart_id}/places", response_model=list[DepartPlaceRead])
@@ -48,15 +60,16 @@ def list_depart_places(
         from fastapi import HTTPException
         raise HTTPException(404, "Départ introuvable.")
     if is_staff(current_user) or not has_active_role(current_user, UserRole.PASSAGER):
-        ensure_cooperative_access(db, current_user, depart.id_cooperative)
+        ensure_depart_access(db, current_user, depart)
     return ReservationService(db).list_places(depart_id, include_unavailable=not available_only)
 
 
-@router.get("/public/departs/{depart_id}/places", response_model=list[DepartPlaceRead])
+@router.get("/public/departs/{depart_id}/places", response_model=list[DepartPlaceRead], include_in_schema=False)
+@router.get("/reservations/public/departs/{depart_id}/places", response_model=list[DepartPlaceRead])
 def list_public_depart_places(depart_id: int, db: Session = Depends(get_db)):
     service = ReservationService(db)
     service._get_open_depart(depart_id)
-    return service.list_places(depart_id, include_unavailable=False)
+    return service.list_places(depart_id, include_unavailable=True)
 
 
 @router.post("/reservations/public", response_model=PublicReservationCreateRead, status_code=status.HTTP_201_CREATED)
@@ -75,32 +88,40 @@ def create_public_reservation(
         telephone=data.telephone_reservataire,
         email=data.email_reservataire,
         user=current_user,
+        command_key=data.cle_idempotence,
     )
-    try:
-        payment = FinanceService(db).create_papi_payment(
-            reservation_id=reservation.id,
-            amount=data.montant_avance,
-            idempotency_key=f"PUBLIC-{secrets.token_urlsafe(24)}",
-            user_id=None,
-            client_name=data.nom_reservataire,
-            payer_phone=data.telephone_reservataire,
-            payer_email=data.email_reservataire,
-            provider=data.fournisseur,
-        )
-    except HTTPException:
-        service.cancel(reservation.id)
-        raise
-    return {
-        "reservation": reservation,
-        "access_token": access_token,
-        "payment": payment,
-        "acompte_minimum": payment["acompte_minimum"],
-    }
+    return {"reservation": reservation, "access_token": access_token, "payment": None,
+            "acompte_minimum": FinanceService._minimum_deposit(reservation.montant_total, reservation)}
+
+
+@router.get("/reservations/policy")
+def get_booking_policy(db: Session = Depends(get_db)):
+    from app.services.booking_policy import booking_policy
+    return booking_policy(db)
+
+
+@router.post("/reservations/public/{reservation_number}/paiement", response_model=PaiementEnLigneRead)
+def pay_public_reservation(reservation_number: str, data: PublicPaymentCreate,
+                           access_token: str = Header(..., alias="X-Reservation-Token"), db: Session = Depends(get_db)):
+    item = ReservationService(db).get_public_reservation(reservation_number, access_token)
+    return FinanceService(db).create_papi_payment(reservation_id=item.id, amount=data.montant,
+        idempotency_key=data.cle_idempotence, user_id=None, client_name=item.nom_reservataire,
+        payer_phone=data.telephone_paiement, payer_email=item.email_reservataire, provider=data.fournisseur)
+
+
+@router.post("/reservations/public/{reservation_number}/cancel", response_model=ReservationRead)
+def cancel_public_reservation(reservation_number: str, access_token: str = Header(..., alias="X-Reservation-Token"), db: Session = Depends(get_db)):
+    service = ReservationService(db)
+    item = service.get_public_reservation(reservation_number, access_token)
+    return service.cancel(item.id, owner_id=item.id_user)
 
 
 @router.get("/reservations/public/{reservation_number}", response_model=ReservationRead)
-def get_public_reservation(reservation_number: str, token: str = Query(..., min_length=20), db: Session = Depends(get_db)):
-    return ReservationService(db).get_public_reservation(reservation_number, token)
+def get_public_reservation(reservation_number: str, token: str | None = Query(default=None, min_length=20),
+                           access_token: str | None = Header(default=None, alias="X-Reservation-Token"), db: Session = Depends(get_db)):
+    if not (access_token or token):
+        raise HTTPException(404, "Réservation introuvable.")
+    return ReservationService(db).get_public_reservation(reservation_number, access_token or token)
 
 
 @router.get("/departs/{depart_id}/passagers")
@@ -113,7 +134,7 @@ def list_depart_passengers(
     depart = db.get(Depart, depart_id)
     if not depart:
         raise HTTPException(404, "Départ introuvable.")
-    ensure_cooperative_access(db, current_user, depart.id_cooperative)
+    ensure_depart_access(db, current_user, depart)
     return ReservationService(db).manifest_rows(depart_id)
 
 
@@ -127,7 +148,7 @@ def export_depart_manifest(
     if not depart:
         from fastapi import HTTPException
         raise HTTPException(404, "Départ introuvable.")
-    ensure_cooperative_access(db, current_user, depart.id_cooperative)
+    ensure_depart_access(db, current_user, depart)
     rows = ReservationService(db).manifest_rows(depart_id)
     output = io.StringIO()
     writer = csv.writer(output)
@@ -155,6 +176,11 @@ def create_reservation(
     current_user: User = Depends(require_permission("RESERVATION_CREATE")), db: Session = Depends(get_db),
 ):
     owner_id, _ = _scope(db, current_user)
+    if owner_id is None:
+        depart = db.get(Depart, data.id_depart)
+        if not depart:
+            raise HTTPException(404, "Départ introuvable.")
+        ensure_depart_access(db, current_user, depart)
     item = ReservationService(db).create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places], as_passenger=owner_id is not None)
     AuditService(db).record(user_id=current_user.id, action="RESERVATION_CREEE", entity_type="reservation", entity_id=item.id, after={"statut": item.statut, "montant_total": item.montant_total})
     db.commit()
@@ -168,40 +194,48 @@ def counter_sale(
 ):
     """Sell seats at the counter in one step: book, confirm, and take cash if a desk is given.
 
-    If a later step fails, the reservation is cancelled so its seats are not left blocked.
+    All database changes are committed together; failures roll back the sale.
     """
     if not is_staff(current_user):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "La vente au guichet est réservée au personnel.")
     if data.id_caisse is not None and not has_permission(current_user, "PAIEMENT_PROCESS"):
         raise HTTPException(status.HTTP_403_FORBIDDEN, "Vous ne pouvez pas encaisser de paiement.")
-    service = ReservationService(db)
-    created = service.create_reservation(user=current_user, depart_id=data.id_depart, places=[place.model_dump() for place in data.places])
-    try:
-        reservation = service.confirm(created.id)
-        if data.id_caisse is not None:
-            FinanceService(db).create_cash_payment(
-                reservation_id=reservation.id, caisse_id=data.id_caisse, amount=reservation.montant_total,
-                reference=data.reference_paiement, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user),
-            )
-    except HTTPException:
-        db.rollback()
-        service.cancel(created.id, agent_id=current_user.id)
-        raise
-    return service._get(created.id)
+    depart = db.get(Depart, data.id_depart)
+    if not depart:
+        raise HTTPException(404, "Départ introuvable.")
+    ensure_depart_access(db, current_user, depart)
+    from app.services.reservation.counter_sale import sell_at_counter
+    return sell_at_counter(db, user=current_user, depart_id=data.id_depart,
+        places=[place.model_dump() for place in data.places], caisse_id=data.id_caisse,
+        reference=data.reference_paiement, gare_ids=get_user_gare_ids(db, current_user))
 
 
 @router.get("/reservations/export.csv")
 def export_reservations(
     search: str | None = Query(None, max_length=100), status_filter: str | None = Query(None, alias="statut"),
     date_from: date | None = None, date_to: date | None = None,
+    id_cooperative: int | None = Query(None, ge=1),
+    id_gare: int | None = Query(None, ge=1),
+    id_itineraire: int | None = Query(None, ge=1),
+    id_depart: int | None = Query(None, ge=1),
     current_user: User = Depends(require_permission("RESERVATION_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    result = ReservationService(db).list_reservations(page=1, page_size=1000, search=search, statut=status_filter, date_from=date_from, date_to=date_to, sort_by="date_depart", sort_order="asc", owner_id=owner_id, cooperative_ids=cooperative_ids)
-    output = io.StringIO()
+    items = ReservationService(db).list_reservations(
+        for_export=True, search=search, statut=status_filter,
+        date_from=date_from, date_to=date_to, id_cooperative=id_cooperative,
+        id_gare=id_gare, id_itineraire=id_itineraire, id_depart=id_depart,
+        sort_by="date_depart", sort_order="asc", owner_id=owner_id,
+        cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user),
+        gare_ids=station_agent_scope(db, current_user),
+    )
+    from tempfile import TemporaryFile
+    from fastapi.responses import StreamingResponse
+    from starlette.background import BackgroundTask
+    output = TemporaryFile(mode="w+", encoding="utf-8-sig", newline="")
     writer = csv.writer(output)
     writer.writerow(["reservation", "depart", "date_depart", "heure_depart", "places", "montant", "statut"])
-    for item in result["items"]:
+    for item in items:
         writer.writerow([
             item.numero_reservation,
             item.id_depart,
@@ -211,7 +245,9 @@ def export_reservations(
             item.montant_total,
             item.statut,
         ])
-    return Response(content=output.getvalue(), media_type="text/csv; charset=utf-8", headers={"Content-Disposition": "attachment; filename=reservations.csv"})
+    output.seek(0)
+    return StreamingResponse(iter(lambda: output.read(65536), ""), media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": "attachment; filename=reservations.csv"}, background=BackgroundTask(output.close))
 
 
 @router.get("/reservations/{reservation_id}", response_model=ReservationRead)
@@ -220,7 +256,7 @@ def get_reservation(
     current_user: User = Depends(require_permission("RESERVATION_READ")), db: Session = Depends(get_db),
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
-    return ReservationService(db)._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return ReservationService(db)._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user))
 
 
 @router.patch("/reservations/{reservation_id}", response_model=ReservationRead)
@@ -231,14 +267,14 @@ def update_reservation(
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
     service = ReservationService(db)
-    before_item = service._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    before_item = service._get(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user))
     before = {"id_depart": before_item.id_depart, "places": [row.id_depart_place for row in before_item.places]}
     item = service.update_reservation(
         reservation_id,
         depart_id=data.id_depart,
         places=[place.model_dump() for place in data.places],
         owner_id=owner_id,
-        cooperative_ids=cooperative_ids,
+        cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user),
         default_passenger_name=f"{current_user.first_name or ''} {current_user.name or ''}".strip(),
     )
     AuditService(db).record(
@@ -262,7 +298,7 @@ def confirm_reservation(
     if owner_id is not None:
         # Seats booked by a passenger are only confirmed once paid.
         raise HTTPException(status.HTTP_403_FORBIDDEN, "La réservation sera confirmée lors du paiement.")
-    return ReservationService(db).confirm(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids)
+    return ReservationService(db).confirm(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), gare_ids=station_agent_scope(db, current_user))
 
 
 @router.post("/reservations/{reservation_id}/cancel", response_model=ReservationRead)
@@ -273,7 +309,7 @@ def cancel_reservation(
 ):
     owner_id, cooperative_ids = _scope(db, current_user)
     can_refund_now = has_permission(current_user, "PAIEMENT_REFUND") and has_permission(current_user, "CAISSE_MANAGE")
-    item = ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
+    item = ReservationService(db).cancel(reservation_id, owner_id=owner_id, cooperative_ids=cooperative_ids, chauffeur_id=driver_scope(db, current_user), caisse_id=id_caisse, agent_id=current_user.id, gare_ids=get_user_gare_ids(db, current_user), can_refund_now=can_refund_now)
     AuditService(db).record(user_id=current_user.id, action="RESERVATION_ANNULEE", entity_type="reservation", entity_id=reservation_id, after={"statut": item.statut})
     db.commit()
     return item
@@ -289,5 +325,11 @@ def update_depart_place(
         from fastapi import HTTPException
         raise HTTPException(404, "Place introuvable.")
     depart = db.get(Depart, place.id_depart)
-    ensure_cooperative_access(db, current_user, depart.id_cooperative)
+    ensure_depart_access(db, current_user, depart)
     return ReservationService(db).update_place_status(place_id, data.statut)
+
+
+@router.get("/reservations/public/{reservation_number}/paiement", response_model=PaiementEnLigneRead | None)
+def pending_public_payment(reservation_number: str, access_token: str = Header(..., alias="X-Reservation-Token"), db: Session = Depends(get_db)):
+    item = ReservationService(db).get_public_reservation(reservation_number, access_token)
+    return FinanceService(db).pending_online_payment(item.id)

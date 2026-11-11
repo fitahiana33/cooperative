@@ -1,8 +1,9 @@
+import type { Page } from "../pagination";
 import { api } from '../api'
 import type { Marque, MarqueCreate } from '../../models/marque/model'
 
 export const marqueService = {
-  async listMarques(params?: Record<string, any>) {
+  async listMarques(params?: Record<string, any>): Promise<Page<Marque>> {
     return (await api.get('/marques', { params })).data
   },
   async getMarque(id: number): Promise<Marque> {

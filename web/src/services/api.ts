@@ -41,8 +41,14 @@ const processQueue = (error: any, token: string | null = null) => {
 }
 
 api.interceptors.response.use(
-  (response) => response,
+  (response) => {
+    if (response.config.method?.toLowerCase() === 'get')
+      window.dispatchEvent(new CustomEvent('app:data-refreshed', { detail: { at: new Date().toISOString() } }))
+    return response
+  },
   async (error) => {
+    if (!error.response || error.response.status >= 500)
+      window.dispatchEvent(new Event('app:data-error'))
     const originalRequest = error.config
     if (!originalRequest) return Promise.reject(error)
 

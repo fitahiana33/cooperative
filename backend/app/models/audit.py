@@ -14,10 +14,14 @@ class AuditLog(Base):
         Index("idx_audit_logs_actor", "id_user"),
         Index("idx_audit_logs_entity", "entity_type", "entity_id"),
         Index("idx_audit_logs_created", "created_at"),
+        Index("idx_audit_logs_id_gare", "id_gare"),
+        Index("idx_audit_logs_id_cooperative", "id_cooperative"),
     )
 
     id: Mapped[int] = mapped_column("id_audit_log", BigInteger, Identity(always=True), primary_key=True)
     id_user: Mapped[int | None] = mapped_column(ForeignKey("users.id_user", ondelete="SET NULL"))
+    id_gare: Mapped[int | None] = mapped_column(ForeignKey("gares.id_gare", ondelete="SET NULL"))
+    id_cooperative: Mapped[int | None] = mapped_column(ForeignKey("cooperatives.id_cooperative", ondelete="SET NULL"))
     action: Mapped[str] = mapped_column(String(80), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(80), nullable=False)
     entity_id: Mapped[str | None] = mapped_column(String(80))

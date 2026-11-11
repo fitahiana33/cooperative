@@ -77,6 +77,7 @@ from app.models import (
 )
 from app.models.user import UserRole
 from app.services.authentication.password import hash_password
+from app.services.booking_policy import booking_policy
 
 DEMO_PASSWORD = "Demo123!"
 EMAIL_DOMAIN = "cooperative.com"
@@ -221,15 +222,25 @@ class DepartContext:
 
 
 class DemoSeeder:
-    def __init__(self, db: Session, rng: random.Random, *, write_qr: bool = True):
+    def __init__(self, db: Session, rng: random.Random, *, write_qr: bool = True,
+                 past_days: int | None = None, future_days: int | None = None,
+                 passenger_count: int = 25, fleet_copies: int = 1):
         self.db = db
         self.rng = rng
         self.write_qr = write_qr
+        self.past_days = PAST_DAYS if past_days is None else past_days
+        self.future_days = FUTURE_DAYS if future_days is None else future_days
+        self.passenger_count = passenger_count
+        self.fleet_copies = fleet_copies
         self.now = datetime.now(LOCAL_TZ).replace(microsecond=0)
         self.today = self.now.date()
         self.password_hash = hash_password(DEMO_PASSWORD)
+        policy = booking_policy(db)
+        self.deposit_rate = Decimal(str(policy["deposit_rate"]))
+        self.minimum_deposit_amount = Decimal(str(policy["minimum_deposit_amount"]))
         self.qr_dir = settings.uploads_dir / "qr_codes"
-        self.qr_dir.mkdir(parents=True, exist_ok=True)
+        if write_qr:
+            self.qr_dir.mkdir(parents=True, exist_ok=True)
         self.roles = {role.libelle: role for role in db.scalars(select(Role))}
         self.caisses: dict[tuple[int, date], Caisse] = {}
         self.pending_expiry_alerts: list[tuple[Cooperative, str]] = []
@@ -375,7 +386,7 @@ class DemoSeeder:
 
         self.responsables_gare = [self.user(f"responsable.gare{n}", UserRole.RESPONSABLE_GARE) for n in (1, 2)]
         self.agents = {slug: self.user(f"agent.{slug}", UserRole.AGENT_GARE) for slug in self.gares}
-        self.passengers = [self.user(f"passager{n:02d}", UserRole.PASSAGER, address=f"Lot {self.rng.randint(1, 300)} {self.rng.choice(['Analakely', 'Isotry', 'Ankorondrano', 'Ambohijatovo', 'Tsaralalana'])}") for n in range(1, 26)]
+        self.passengers = [self.user(f"passager{n:02d}", UserRole.PASSAGER, address=f"Lot {self.rng.randint(1, 300)} {self.rng.choice(['Analakely', 'Isotry', 'Ankorondrano', 'Ambohijatovo', 'Tsaralalana'])}") for n in range(1, self.passenger_count + 1)]
         self.passengers.append(self.user("passager.inactif", UserRole.PASSAGER, is_active=False))
         db.flush()
         self.active_passengers = [p for p in self.passengers if p.is_active]
@@ -410,6 +421,8 @@ class DemoSeeder:
         # Each agent works at one station and sees the cooperatives operating there.
         for slug, agent in self.agents.items():
             db.add(GareAgent(id_gare=self.gares[slug].id, id_user=agent.id))
+        for manager, station in zip(self.responsables_gare, self.gares.values()):
+            db.add(GareAgent(id_gare=station.id, id_user=manager.id))
         # A former partnership kept for history.
         db.add(GareCooperative(id_gare=self.gares["toliara"].id, id_cooperative=self.cooperatives["FTE"].id,
                                date_debut=joined - timedelta(days=365), date_fin=joined, is_active=False))
@@ -423,9 +436,19 @@ class DemoSeeder:
     def seed_routes(self) -> None:
         db = self.db
         self.destinations = {}
+        existing_destinations = {
+            item.nom: item for item in db.scalars(select(Destination))
+        }
         for nom, region, description, is_active in DESTINATIONS:
-            item = Destination(nom=nom, region=region, description=description, is_active=is_active)
-            db.add(item)
+            item = existing_destinations.get(nom)
+            if item is None:
+                item = Destination(
+                    nom=nom,
+                    region=region,
+                    description=description,
+                    is_active=is_active,
+                )
+                db.add(item)
             self.destinations[nom] = item
         db.flush()
 
@@ -434,19 +457,44 @@ class DemoSeeder:
         tarif_start = self.today - timedelta(days=120)
         for a, b, km, minutes, prix, is_active in ROUTES:
             for origin, destination in ((a, b), (b, a)):
-                item = Itineraire(
-                    id_destination_depart=self.destinations[origin].id,
-                    id_destination_arrivee=self.destinations[destination].id,
-                    distance_km=Decimal(km), duree_estimee_minutes=minutes,
-                    description=f"{origin} - {destination} par la route nationale.",
-                    is_active=is_active,
+                departure_id = self.destinations[origin].id
+                arrival_id = self.destinations[destination].id
+                item = db.scalar(
+                    select(Itineraire).where(
+                        Itineraire.id_destination_depart == departure_id,
+                        Itineraire.id_destination_arrivee == arrival_id,
+                    )
                 )
-                db.add(item)
-                db.flush()
+                created = item is None
+                if created:
+                    item = Itineraire(
+                        id_destination_depart=departure_id,
+                        id_destination_arrivee=arrival_id,
+                        distance_km=Decimal(km),
+                        duree_estimee_minutes=minutes,
+                        description=f"{origin} - {destination} par la route nationale.",
+                        is_active=is_active,
+                    )
+                    db.add(item)
+                    db.flush()
                 self.itineraires[(origin, destination)] = item
                 self.route_info[(origin, destination)] = (minutes, prix)
-                db.add(Tarif(id_itineraire=item.id, prix=Decimal(prix), date_debut=tarif_start))
-                if (a, b) in ROUTES_WITH_PRICE_HISTORY:
+                current_tariff = db.scalar(
+                    select(Tarif).where(
+                        Tarif.id_itineraire == item.id,
+                        Tarif.id_cooperative.is_(None),
+                        Tarif.is_active.is_(True),
+                    )
+                )
+                if current_tariff is None:
+                    db.add(
+                        Tarif(
+                            id_itineraire=item.id,
+                            prix=Decimal(prix),
+                            date_debut=tarif_start,
+                        )
+                    )
+                if created and (a, b) in ROUTES_WITH_PRICE_HISTORY:
                     db.add(Tarif(id_itineraire=item.id, prix=Decimal(round(prix * 0.9, -3)),
                                  date_debut=self.today - timedelta(days=400), date_fin=tarif_start - timedelta(days=1), is_active=False))
         for (sigle, a, b), prix in COOPERATIVE_FARES.items():
@@ -465,7 +513,7 @@ class DemoSeeder:
         db.flush()
 
         self.tarifs: dict[tuple[str, tuple[str, str]], Tarif] = {}
-        for tarif in db.scalars(select(Tarif).where(Tarif.is_active.is_(True))):
+        for tarif in db.scalars(select(Tarif).where(Tarif.is_active.is_(True), Tarif.id_itineraire.in_([item.id for item in self.itineraires.values()]))):
             route = next(key for key, it in self.itineraires.items() if it.id == tarif.id_itineraire)
             sigle = next((s for s, c in self.cooperatives.items() if c.id == tarif.id_cooperative), None)
             self.tarifs[(sigle, route)] = tarif
@@ -476,30 +524,75 @@ class DemoSeeder:
         modeles = {}
         for key, (marque_nom, modele_nom, _, _) in MODELS.items():
             if marque_nom not in marques:
-                marques[marque_nom] = Marque(nom=marque_nom, description=f"Véhicules {marque_nom}.")
-                db.add(marques[marque_nom])
+                marque = db.scalar(select(Marque).where(Marque.nom == marque_nom))
+                if marque is None:
+                    marque = Marque(
+                        nom=marque_nom,
+                        description=f"Véhicules {marque_nom}.",
+                    )
+                    db.add(marque)
+                marques[marque_nom] = marque
                 db.flush()
             front, per_row = SEAT_LAYOUTS.get(key, (2, 4))
-            modeles[key] = Modele(id_marque=marques[marque_nom].id, nom=modele_nom, description=f"{marque_nom} {modele_nom}",
-                                  places_avant=front, places_par_rangee=per_row)
-            db.add(modeles[key])
-        retired = Marque(nom=INACTIVE_BRAND[0], description=INACTIVE_BRAND[2], is_active=False)
-        db.add(retired)
+            modele = db.scalar(
+                select(Modele).where(
+                    Modele.id_marque == marques[marque_nom].id,
+                    Modele.nom == modele_nom,
+                )
+            )
+            if modele is None:
+                modele = Modele(
+                    id_marque=marques[marque_nom].id,
+                    nom=modele_nom,
+                    description=f"{marque_nom} {modele_nom}",
+                    places_avant=front,
+                    places_par_rangee=per_row,
+                )
+                db.add(modele)
+            modeles[key] = modele
+        retired = db.scalar(select(Marque).where(Marque.nom == INACTIVE_BRAND[0]))
+        if retired is None:
+            retired = Marque(
+                nom=INACTIVE_BRAND[0],
+                description=INACTIVE_BRAND[2],
+                is_active=False,
+            )
+            db.add(retired)
         db.flush()
-        db.add(Modele(id_marque=retired.id, nom=INACTIVE_BRAND[1], is_active=False))
+        retired_model = db.scalar(
+            select(Modele).where(
+                Modele.id_marque == retired.id,
+                Modele.nom == INACTIVE_BRAND[1],
+            )
+        )
+        if retired_model is None:
+            db.add(
+                Modele(
+                    id_marque=retired.id,
+                    nom=INACTIVE_BRAND[1],
+                    is_active=False,
+                )
+            )
         db.flush()
 
         self.operational: list[tuple[Vehicule, Chauffeur, str, tuple[str, str], time]] = []
-        plates = self.rng.sample(range(1000, 9999), len(FLEET))
+        fleet = FLEET * self.fleet_copies
+        existing_plates = set(db.scalars(select(Vehicule.immatriculation)))
+        plates: list[str] = []
+        while len(plates) < len(fleet):
+            plate = f"{self.rng.randint(1000, 9999)} T{self.rng.choice('ABCDEFGH')}{self.rng.choice('ABCDEFGH')}"
+            if plate not in existing_plates:
+                existing_plates.add(plate)
+                plates.append(plate)
         assigned_since = self.today - timedelta(days=180)
         driver_number = 0
-        for index, (sigle, model_key, route, hour, etat) in enumerate(FLEET):
+        for index, (sigle, model_key, route, hour, etat) in enumerate(fleet):
             _, _, places, chevaux = MODELS[model_key]
             coop = self.cooperatives[sigle]
             running = route is not None
             vehicule = Vehicule(
                 id_modele=modeles[model_key].id, id_cooperative=coop.id,
-                immatriculation=f"{plates[index]} T{self.rng.choice('ABCDEFGH')}{self.rng.choice('ABCDEFGH')}",
+                immatriculation=plates[index],
                 chevaux=chevaux, nombre_places=places, disponibilite=running, etat=etat,
                 description=None if running else "Immobilisé au garage de la coopérative.",
                 is_active=etat != "HORS_SERVICE",
@@ -557,7 +650,7 @@ class DemoSeeder:
     def seed_departures(self) -> None:
         db = self.db
         retarde_done = False
-        for offset in range(-PAST_DAYS, FUTURE_DAYS + 1):
+        for offset in range(-self.past_days, self.future_days + 1):
             day = self.today + timedelta(days=offset)
             for index, (vehicule, chauffeur, sigle, (a, b), hour) in enumerate(self.operational):
                 if self.rng.random() < 0.08:
@@ -583,6 +676,7 @@ class DemoSeeder:
                     id_gare=self.gares[slug].id,
                     id_vehicule=vehicule.id, id_chauffeur=chauffeur.id, id_tarif=tarif.id,
                     date_depart=day, heure_depart=hour, date_heure_depart=started, date_heure_arrivee=arrived,
+                    planifie_depart_at=dep_at, planifie_arrivee_at=arr_at,
                     nombre_places=vehicule.nombre_places, statut=statut,
                     created_at=min(dep_at - timedelta(days=self.rng.randint(5, 14)), self.now),
                 )
@@ -671,6 +765,8 @@ class DemoSeeder:
             id_depart=ctx.depart.id,
             id_user=owner.id,
             montant_total=ctx.prix * len(place_ids),
+            taux_acompte=self.deposit_rate,
+            plancher_acompte=self.minimum_deposit_amount,
             statut=ReservationStatus.EN_ATTENTE,
             date_expiration=(self.now if outcome == "EN_ATTENTE" else booked_at) + timedelta(minutes=settings.reservation_hold_minutes),
             created_at=booked_at,
@@ -736,9 +832,11 @@ class DemoSeeder:
             return
         if outcome == "REMBOURSEE":
             # Trigger cancels the reservation and frees its seats.
-            db.execute(update(Paiement).where(Paiement.id == payment.id).values(statut=PaiementStatus.REMBOURSE, updated_at=refund_at))
+            db.execute(update(Paiement).where(Paiement.id == payment.id).values(statut=PaiementStatus.REMBOURSE, updated_at=refund_at,
+                date_remboursement=refund_at, methode_remboursement=PaiementMethode.ESPECES,
+                reference_remboursement=f"REF-{payment.reference_paiement}"))
             caisse = self.caisse(ctx.gare, ctx.agent, refund_at)
-            db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.DEPENSE, montant=payment.montant, id_paiement=payment.id,
+            db.add(OperationCaisse(id_caisse=caisse.id, id_agent=ctx.agent.id, id_cooperative=ctx.depart.id_cooperative, type_operation=OperationType.DEPENSE, montant=payment.montant, id_paiement=payment.id,
                                    description=f"Remboursement {payment.reference_paiement}", date_operation=refund_at, created_at=refund_at))
             self.set_billets_status(billets, BilletStatus.ANNULE, refund_at)
             if notify:
@@ -749,6 +847,7 @@ class DemoSeeder:
             return
         if outcome == "NO_SHOW":
             self.set_billets_status(billets, BilletStatus.EXPIRE, ctx.arr_at)
+            self.set_reservation_status(reservation, ReservationStatus.TERMINEE, ctx.arr_at)
             return
 
         if ctx.depart.statut in (DepartStatus.EMBARQUEMENT, DepartStatus.RETARDE):
@@ -774,11 +873,11 @@ class DemoSeeder:
         db = self.db
         reference = f"CASH-{uuid4().hex[:12].upper()}"
         payment = Paiement(id_reservation=reservation.id, montant=reservation.montant_total, methode=PaiementMethode.ESPECES, reference_paiement=reference,
-                           statut=PaiementStatus.VALIDE, date_paiement=paid_at, id_agent=ctx.agent.id, created_at=paid_at)
+                           statut=PaiementStatus.VALIDE, date_paiement=paid_at, date_validation=paid_at, id_agent=ctx.agent.id, created_at=paid_at)
         db.add(payment)
         db.flush()  # trigger marks the reservation PAYEE
         caisse = self.caisse(ctx.gare, ctx.agent, paid_at)
-        db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.RECETTE, montant=payment.montant, id_paiement=payment.id,
+        db.add(OperationCaisse(id_caisse=caisse.id, id_agent=ctx.agent.id, type_operation=OperationType.RECETTE, montant=payment.montant, id_paiement=payment.id,
                                id_cooperative=ctx.depart.id_cooperative, description=f"Paiement {reference}",
                                date_operation=paid_at, created_at=paid_at))
         return payment
@@ -840,7 +939,7 @@ class DemoSeeder:
                     commission = (amount * Decimal("0.05")).quantize(Decimal("1"))
                     if commission > 0:
                         commissions += commission
-                        db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.COMMISSION, montant=commission,
+                        db.add(OperationCaisse(id_caisse=caisse.id, id_agent=caisse.id_agent, type_operation=OperationType.COMMISSION, montant=commission,
                                                id_cooperative=cooperative_id, description=f"Commission gare 5 % - {sigles[cooperative_id]}",
                                                date_operation=closing, created_at=closing))
                 elif type_operation == OperationType.DEPENSE:
@@ -849,7 +948,7 @@ class DemoSeeder:
                 expense = Decimal(self.rng.choice([5000, 10000, 15000, 20000]))
                 depenses += expense
                 moment = self.at(day, time(12, 0))
-                db.add(OperationCaisse(id_caisse=caisse.id, type_operation=OperationType.DEPENSE, montant=expense,
+                db.add(OperationCaisse(id_caisse=caisse.id, id_agent=caisse.id_agent, type_operation=OperationType.DEPENSE, montant=expense,
                                        description=self.rng.choice(["Nettoyage de la gare", "Achat de carnets de reçus", "Eau et électricité"]),
                                        date_operation=moment, created_at=moment))
             solde = Decimal(caisse.montant_ouverture) + recettes - depenses - commissions
@@ -857,6 +956,7 @@ class DemoSeeder:
                 caisse.montant_ouverture = Decimal(caisse.montant_ouverture) - solde
                 solde = Decimal(0)
             caisse.montant_cloture = solde
+            caisse.ecart_cloture = Decimal(0)
         db.flush()
 
     def seed_misc(self) -> None:
@@ -892,7 +992,32 @@ def has_business_data(db: Session) -> bool:
     return (db.scalar(select(func.count()).select_from(User)) or 0) > 1
 
 
+def has_demo_data(db: Session) -> bool:
+    """Detect this generator's signature so merge mode cannot duplicate it."""
+    demo_email = f"passager01@{EMAIL_DOMAIN}"
+    if db.scalar(select(User.id).where(User.email == demo_email)) is not None:
+        return True
+    demo_sigles = [item[0] for item in COOPERATIVES]
+    return (
+        db.scalar(select(Cooperative.id).where(Cooperative.sigle.in_(demo_sigles)))
+        is not None
+    )
+
+
 def print_summary(db: Session) -> None:
+    demo_drivers = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(User.email.like(f"chauffeur%@{EMAIL_DOMAIN}"))
+    ) or 0
+    demo_passengers = db.scalar(
+        select(func.count())
+        .select_from(User)
+        .where(
+            User.email.like(f"passager%@{EMAIL_DOMAIN}"),
+            User.is_active.is_(True),
+        )
+    ) or 0
     print("\nLignes par table :")
     for table in Base.metadata.sorted_tables:
         count = db.scalar(select(func.count()).select_from(table))
@@ -903,21 +1028,36 @@ Comptes de démonstration (mot de passe : {DEMO_PASSWORD}) :
   responsable de gare       responsable.gare1@{EMAIL_DOMAIN}, responsable.gare2@{EMAIL_DOMAIN}
   agent de gare             agent.<gare>@{EMAIL_DOMAIN}  (ex. agent.ampasampito, agent.toamasina)
   responsable coopérative   responsable.<sigle>@{EMAIL_DOMAIN}  (fte, mdt, smr, zav)
-  chauffeur                 chauffeur01@{EMAIL_DOMAIN} ... chauffeur14@{EMAIL_DOMAIN}
-  passager                  passager01@{EMAIL_DOMAIN} ... passager25@{EMAIL_DOMAIN}""")
+  chauffeur                 chauffeur01@{EMAIL_DOMAIN} ... ({demo_drivers} comptes)
+  passager                  passager01@{EMAIL_DOMAIN} ... ({demo_passengers} comptes actifs)""")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(prog="python -m app.db.seed_dev", description="Remplit la base avec des données de démonstration.")
     parser.add_argument("--reset", action="store_true", help="vide toutes les tables (et les QR codes générés) avant de remplir la base")
+    parser.add_argument("--merge", action="store_true", help="conserve les données existantes et ajoute le jeu de démonstration")
     parser.add_argument("--empty", action="store_true", help="avec --reset : ne recrée que les rôles, les permissions et le compte admin")
     parser.add_argument("-y", "--yes", action="store_true", help="ne pas demander de confirmation avant --reset")
     parser.add_argument("--seed", type=int, default=2026, help="graine aléatoire (défaut : 2026)")
     parser.add_argument("--no-qr", action="store_true", help="ne pas écrire les images QR (elles sont générées à la demande par l'API)")
+    parser.add_argument("--past-days", type=int, default=PAST_DAYS, help="nombre de jours historiques à générer")
+    parser.add_argument("--future-days", type=int, default=FUTURE_DAYS, help="nombre de jours futurs à générer")
+    parser.add_argument("--passengers", type=int, default=25, help="nombre de comptes passagers de démonstration")
+    parser.add_argument("--fleet-copies", type=int, default=1, help="multiplicateur de la flotte de démonstration")
     args = parser.parse_args(argv)
 
     if args.empty and not args.reset:
         parser.error("--empty s'utilise avec --reset")
+    if args.merge and args.reset:
+        parser.error("--merge et --reset sont incompatibles")
+    if args.merge and args.empty:
+        parser.error("--merge et --empty sont incompatibles")
+    if args.past_days < 0 or args.future_days < 0:
+        parser.error("--past-days et --future-days doivent être positifs")
+    if args.passengers < 5:
+        parser.error("--passengers doit être au moins égal à 5")
+    if not 1 <= args.fleet_copies <= 5:
+        parser.error("--fleet-copies doit être compris entre 1 et 5")
     if settings.environment.strip().lower() in {"production", "prod"}:
         print("Refusé : ENVIRONMENT vaut 'production'. Ce script est réservé au développement.", file=sys.stderr)
         return 1
@@ -931,7 +1071,10 @@ def main(argv: list[str] | None = None) -> int:
                     return 1
             reset_database(db)
             print("Base vidée.")
-        elif has_business_data(db):
+        elif args.merge and has_demo_data(db):
+            print("Le jeu de démonstration est déjà présent : aucun doublon n'a été créé.", file=sys.stderr)
+            return 1
+        elif has_business_data(db) and not args.merge:
             print("La base contient déjà des données. Relancez avec --reset pour la vider avant de la remplir.", file=sys.stderr)
             return 1
 
@@ -941,7 +1084,15 @@ def main(argv: list[str] | None = None) -> int:
             print_summary(db)
             return 0
 
-        seeder = DemoSeeder(db, random.Random(args.seed), write_qr=not args.no_qr)
+        seeder = DemoSeeder(
+            db,
+            random.Random(args.seed),
+            write_qr=not args.no_qr,
+            past_days=args.past_days,
+            future_days=args.future_days,
+            passenger_count=args.passengers,
+            fleet_copies=args.fleet_copies,
+        )
         try:
             seeder.run()
             db.commit()

@@ -1,10 +1,14 @@
 // Typed views of the API payloads used by the passenger and driver screens.
 // Parsing is tolerant: a missing optional field never crashes a screen.
 
-int _int(Object? value, [int fallback = 0]) => value is int ? value : int.tryParse('${value ?? ''}') ?? fallback;
-double _double(Object? value) => value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
-String _str(Object? value, [String fallback = '']) => value == null ? fallback : '$value';
-Map<String, dynamic> _map(Object? value) => value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
+int _int(Object? value, [int fallback = 0]) =>
+    value is int ? value : int.tryParse('${value ?? ''}') ?? fallback;
+double _double(Object? value) =>
+    value is num ? value.toDouble() : double.tryParse('${value ?? ''}') ?? 0;
+String _str(Object? value, [String fallback = '']) =>
+    value == null ? fallback : '$value';
+Map<String, dynamic> _map(Object? value) =>
+    value is Map ? Map<String, dynamic>.from(value) : <String, dynamic>{};
 
 class PageResult<T> {
   final List<T> items;
@@ -12,14 +16,25 @@ class PageResult<T> {
   final int page;
   final int pages;
 
-  const PageResult({required this.items, required this.total, required this.page, required this.pages});
+  const PageResult(
+      {required this.items,
+      required this.total,
+      required this.page,
+      required this.pages});
 
   bool get hasMore => page < pages;
 
-  static PageResult<T> fromJson<T>(Object? data, T Function(Map<String, dynamic>) parse) {
+  static PageResult<T> fromJson<T>(
+      Object? data, T Function(Map<String, dynamic>) parse) {
     final json = _map(data);
-    final items = (json['items'] as List? ?? const []).map((item) => parse(_map(item))).toList();
-    return PageResult(items: items, total: _int(json['total'], items.length), page: _int(json['page'], 1), pages: _int(json['pages'], 1));
+    final items = (json['items'] as List? ?? const [])
+        .map((item) => parse(_map(item)))
+        .toList();
+    return PageResult(
+        items: items,
+        total: _int(json['total'], items.length),
+        page: _int(json['page'], 1),
+        pages: _int(json['pages'], 1));
   }
 }
 
@@ -29,10 +44,17 @@ class Destination {
   final String? region;
   final bool isActive;
 
-  const Destination({required this.id, required this.name, this.region, this.isActive = true});
+  const Destination(
+      {required this.id,
+      required this.name,
+      this.region,
+      this.isActive = true});
 
-  factory Destination.fromJson(Map<String, dynamic> json) =>
-      Destination(id: _int(json['id']), name: _str(json['nom']), region: json['region'] as String?, isActive: json['is_active'] != false);
+  factory Destination.fromJson(Map<String, dynamic> json) => Destination(
+      id: _int(json['id']),
+      name: _str(json['nom']),
+      region: json['region'] as String?,
+      isActive: json['is_active'] != false);
 }
 
 class Departure {
@@ -68,7 +90,9 @@ class Departure {
     this.seatsPerRow = 4,
   });
 
-  bool get isBookable => const {'PROGRAMME', 'EMBARQUEMENT', 'RETARDE'}.contains(status) && freeSeats > 0;
+  bool get isBookable =>
+      const {'PROGRAMME', 'EMBARQUEMENT', 'RETARDE'}.contains(status) &&
+      freeSeats > 0;
 
   factory Departure.fromJson(Map<String, dynamic> json) {
     final route = _map(json['itineraire']);
@@ -102,8 +126,10 @@ class Seat {
 
   bool get isFree => status == 'DISPONIBLE';
 
-  factory Seat.fromJson(Map<String, dynamic> json) =>
-      Seat(id: _int(json['id']), number: _int(json['numero_place']), status: _str(json['statut']));
+  factory Seat.fromJson(Map<String, dynamic> json) => Seat(
+      id: _int(json['id']),
+      number: _int(json['numero_place']),
+      status: _str(json['statut']));
 }
 
 class PassengerSeat {
@@ -115,7 +141,14 @@ class PassengerSeat {
   final String? ticketNumber;
   final String? ticketStatus;
 
-  const PassengerSeat({required this.departurePlaceId, required this.seatNumber, required this.name, this.phone, this.ticketId, this.ticketNumber, this.ticketStatus});
+  const PassengerSeat(
+      {required this.departurePlaceId,
+      required this.seatNumber,
+      required this.name,
+      this.phone,
+      this.ticketId,
+      this.ticketNumber,
+      this.ticketStatus});
 
   factory PassengerSeat.fromJson(Map<String, dynamic> json) {
     final ticket = _map(json['billet']);
@@ -131,11 +164,52 @@ class PassengerSeat {
   }
 }
 
+class BookingPolicy {
+  final int maxSeats;
+  final bool onlinePaymentEnabled;
+  final double depositRate;
+  final double minimumDepositAmount;
+  const BookingPolicy(
+      {required this.maxSeats,
+      required this.onlinePaymentEnabled,
+      this.depositRate = 0,
+      this.minimumDepositAmount = 0});
+  factory BookingPolicy.fromJson(Map<String, dynamic> json) => BookingPolicy(
+      maxSeats: _int(json['max_seats']),
+      onlinePaymentEnabled: json['online_payment_enabled'] == true,
+      depositRate: _double(json['deposit_rate']),
+      minimumDepositAmount: _double(json['minimum_deposit_amount']));
+}
+
+class OnlinePayment {
+  final double? amount;
+  final String? checkoutUrl;
+  final String message;
+  final bool needsVerification;
+  const OnlinePayment(
+      {this.amount,
+      this.checkoutUrl,
+      required this.message,
+      required this.needsVerification});
+  factory OnlinePayment.fromJson(Map<String, dynamic> json) => OnlinePayment(
+      amount: _double(json['montant']),
+      checkoutUrl: json['checkout_url'] as String?,
+      message: _str(json['message']),
+      needsVerification: json['verification_requise'] == true);
+}
+
 class Reservation {
   final int id;
   final String number;
   final String status;
   final double amount;
+  final double paidAmount;
+  final double refundPendingAmount;
+  final bool? serverCanCancel;
+  final bool canPay;
+  final double minimumPayment;
+  final String? bookerPhone;
+  final String? cancellationDeadline;
   final String? expiresAt;
   final String createdAt;
   final int departureId;
@@ -152,6 +226,13 @@ class Reservation {
     required this.number,
     required this.status,
     required this.amount,
+    this.paidAmount = 0,
+    this.refundPendingAmount = 0,
+    this.serverCanCancel,
+    this.canPay = false,
+    this.minimumPayment = 0,
+    this.bookerPhone,
+    this.cancellationDeadline,
     required this.expiresAt,
     required this.createdAt,
     required this.departureId,
@@ -165,18 +246,34 @@ class Reservation {
   });
 
   bool get isPending => status == 'EN_ATTENTE';
-  bool get canBeCancelled => const {'EN_ATTENTE', 'CONFIRMEE', 'PAYEE'}.contains(status) && !const {'PARTI', 'TERMINE'}.contains(departureStatus);
+  double get remainingAmount => const {'ANNULEE', 'EXPIREE'}.contains(status)
+      ? 0
+      : (amount - paidAmount).clamp(0, amount).toDouble();
+  bool get canBeCancelled =>
+      serverCanCancel ??
+      (const {'EN_ATTENTE', 'CONFIRMEE', 'PAYEE'}.contains(status) &&
+          !const {'PARTI', 'TERMINE'}.contains(departureStatus) &&
+          !passengers.any((seat) => seat.ticketStatus == 'UTILISE'));
 
   factory Reservation.fromJson(Map<String, dynamic> json) {
     final departure = _map(json['depart']);
     final route = _map(departure['itineraire']);
-    final passengers = (json['places'] as List? ?? const []).map((item) => PassengerSeat.fromJson(_map(item))).toList()
+    final passengers = (json['places'] as List? ?? const [])
+        .map((item) => PassengerSeat.fromJson(_map(item)))
+        .toList()
       ..sort((a, b) => a.seatNumber.compareTo(b.seatNumber));
     return Reservation(
       id: _int(json['id']),
       number: _str(json['numero_reservation']),
       status: _str(json['statut']),
       amount: _double(json['montant_total']),
+      paidAmount: _double(json['montant_paye']),
+      refundPendingAmount: _double(json['montant_a_rembourser']),
+      serverCanCancel: json['peut_annuler'] as bool?,
+      canPay: json['peut_payer'] == true,
+      minimumPayment: _double(json['minimum_a_payer']),
+      bookerPhone: json['telephone_reservataire'] as String?,
+      cancellationDeadline: json['date_limite_annulation'] as String?,
       expiresAt: json['date_expiration'] as String?,
       createdAt: _str(json['created_at']),
       departureId: _int(json['id_depart']),
@@ -261,9 +358,16 @@ class AppNotification {
   final bool read;
   final String sentAt;
 
-  const AppNotification({required this.id, required this.type, required this.title, required this.message, required this.read, required this.sentAt});
+  const AppNotification(
+      {required this.id,
+      required this.type,
+      required this.title,
+      required this.message,
+      required this.read,
+      required this.sentAt});
 
-  factory AppNotification.fromJson(Map<String, dynamic> json) => AppNotification(
+  factory AppNotification.fromJson(Map<String, dynamic> json) =>
+      AppNotification(
         id: _int(json['id']),
         type: _str(json['type_notification']),
         title: _str(json['titre']),
@@ -279,8 +383,15 @@ class ManifestRow {
   final String phone;
   final bool boarded;
 
-  const ManifestRow({required this.seat, required this.passenger, required this.phone, required this.boarded});
+  const ManifestRow(
+      {required this.seat,
+      required this.passenger,
+      required this.phone,
+      required this.boarded});
 
-  factory ManifestRow.fromJson(Map<String, dynamic> json) =>
-      ManifestRow(seat: _int(json['place']), passenger: _str(json['passager']), phone: _str(json['telephone']), boarded: json['embarque'] == true);
+  factory ManifestRow.fromJson(Map<String, dynamic> json) => ManifestRow(
+      seat: _int(json['place']),
+      passenger: _str(json['passager']),
+      phone: _str(json['telephone']),
+      boarded: json['embarque'] == true);
 }

@@ -19,6 +19,7 @@ from app.models.embarquement import Embarquement, EmbarquementStatus
 from app.models.finance import Caisse, CaisseStatus, OperationCaisse, OperationType, Paiement, PaiementMethode, PaiementStatus
 from app.models.notification import Notification, NotificationChannel, NotificationType
 from app.models.audit import AuditLog
+from app.models.booking_settings import BookingSettings
 
 __all__ = [
     "User",

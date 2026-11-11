@@ -50,6 +50,7 @@ class ReservationCreate(BaseModel):
 
 
 class PublicReservationCreate(BaseModel):
+    cle_idempotence: str | None = Field(default=None, min_length=20, max_length=100)
     id_depart: int
     places: list[ReservationPlaceCreate] = Field(min_length=1, max_length=20)
     nom_reservataire: str = Field(min_length=2, max_length=150)
@@ -168,11 +169,20 @@ class ReservationDepartRead(BaseModel):
 
 
 class ReservationRead(BaseModel):
+    montant_rembourse: Decimal = Decimal("0")
+    etat_paiement: str = "NON_REGLE"
+    peut_annuler: bool = False
+    peut_payer: bool = False
+    minimum_a_payer: Decimal = Decimal("0")
+    date_limite_annulation: datetime | None = None
     id: int
     numero_reservation: str
     id_depart: int
     id_user: int
     montant_total: Decimal
+    montant_paye: Decimal = Decimal("0")
+    montant_restant: Decimal = Decimal("0")
+    montant_a_rembourser: Decimal = Decimal("0")
     statut: ReservationStatus
     date_expiration: datetime | None = None
     created_at: datetime
@@ -188,6 +198,6 @@ class ReservationRead(BaseModel):
 class PublicReservationCreateRead(BaseModel):
     reservation: ReservationRead
     access_token: str
-    payment: "PaiementEnLigneRead"
+    payment: "PaiementEnLigneRead | None" = None
     acompte_minimum: Decimal
 

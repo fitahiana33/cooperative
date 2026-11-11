@@ -1,3 +1,4 @@
+import type { Page } from "../pagination";
 import { api } from '../api'
 import type { Gare, GareCreate, GareAgent, PublicGare } from '../../models/gare/model'
 
@@ -14,7 +15,7 @@ export const gareService = {
   async removeAgent(gareId: number, userId: number): Promise<void> {
     await api.delete(`/gares/${gareId}/agents/${userId}`)
   },
-  async listGares(params?: Record<string, any>) {
+  async listGares(params?: Record<string, any>): Promise<Page<Gare>> {
     return (await api.get('/gares', { params })).data
   },
   async publicList(params?: Record<string, any>): Promise<{ items: PublicGare[]; total: number; page: number; page_size: number; pages: number }> {

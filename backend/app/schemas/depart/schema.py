@@ -17,6 +17,15 @@ DepartStatusValue = Literal[
 ]
 
 
+class IncidentCreate(BaseModel):
+    type: Literal["PANNE", "RETARD", "REMPLACEMENT", "EMBARQUEMENT", "AUTRE"]
+    description: str = Field(min_length=10, max_length=3000)
+
+
+class IncidentResolution(BaseModel):
+    description: str = Field(min_length=10, max_length=3000)
+
+
 class DepartCreate(BaseModel):
     id_itineraire: int
     id_cooperative: int
@@ -110,6 +119,8 @@ class DepartGareRead(BaseModel):
 
 
 class PublicVehiculeRead(BaseModel):
+    places_avant: int = 2
+    places_par_rangee: int = 4
     id: int
     nombre_places: int
 

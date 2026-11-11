@@ -1,7 +1,7 @@
 from datetime import datetime
 
 from app.schemas.common import StrongPassword
-from pydantic import BaseModel, ConfigDict, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, field_validator
 
 
 class UserCreate(BaseModel):
@@ -38,6 +38,7 @@ class UserRead(BaseModel):
     email: EmailStr
     telephone: str | None
     address: str | None
+    photo_version: str | None = None
     role: str
     is_active: bool
     created_at: datetime
@@ -63,6 +64,20 @@ class ProfileUpdate(BaseModel):
     first_name: str | None = Field(default=None, min_length=1, max_length=100)
     telephone: str | None = Field(default=None, max_length=30)
     address: str | None = Field(default=None, max_length=255)
+
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=True)
+
+    @field_validator("name", "first_name")
+    @classmethod
+    def require_name(cls, value):
+        if not value:
+            raise ValueError("Le nom et le prénom ne peuvent pas être vides.")
+        return value
+
+    @field_validator("telephone", "address")
+    @classmethod
+    def blank_to_none(cls, value):
+        return value or None
 
 
 class PasswordChange(BaseModel):

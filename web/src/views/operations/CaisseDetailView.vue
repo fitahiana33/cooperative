@@ -1,4 +1,5 @@
 <script setup lang="ts">
+import SearchSelect from "../../components/ui/SearchSelect.vue";
 import { onMounted, ref } from "vue";
 import { RouterLink, useRoute } from "vue-router";
 import AppLayout from "../../components/layout/AppLayout.vue";
@@ -37,7 +38,10 @@ async function load() {
     const id = Number(route.params.id);
     const [cash, ops] = await Promise.all([
       financeService.getCaisse(id),
-      financeService.listOperations(id, { page: operationPage.value, page_size: 20 }),
+      financeService.listOperations(id, {
+        page: operationPage.value,
+        page_size: 20,
+      }),
     ]);
     caisse.value = cash;
     operations.value = ops.items || ops;
@@ -45,7 +49,12 @@ async function load() {
     operationPages.value = ops.pages || 1;
     // Cooperative names only label the operations; agents may not be allowed to list them.
     cooperatives.value = await cooperativeService
-      .listCooperatives({ page: 1, page_size: 100, sort_by: "nom", sort_order: "asc" })
+      .listCooperatives({
+        page: 1,
+        page_size: 100,
+        sort_by: "nom",
+        sort_order: "asc",
+      })
       .then((page) => page.items || [])
       .catch(() => []);
   } catch (value: unknown) {
@@ -132,12 +141,13 @@ function changeOperationPage(next: number) {
         aria-label="Sections de la caisse"
         :tabs="[
           { id: 'summary', label: 'Résumé' },
-          ...(caisse.statut === 'OUVERTE' ? [{ id: 'expense', label: 'Dépense et clôture' }] : []),
+          ...(caisse.statut === 'OUVERTE'
+            ? [{ id: 'expense', label: 'Dépense et clôture' }]
+            : []),
           { id: 'operations', label: 'Opérations', count: operationTotal },
         ]"
       />
-      <BaseCard
-        v-if="caisseTab === 'summary'"
+      <BaseCard v-if="caisseTab === 'summary'"
         ><div class="card-heading">
           <div>
             <h2>Informations caisse</h2>
@@ -206,8 +216,13 @@ function changeOperationPage(next: number) {
             ><strong>{{ caisse.solde }}</strong>
           </div>
         </div>
-        <PaginationControls :page="operationPage" :pages="operationPages" :total="operationTotal" item-label="opération(s)" @change="changeOperationPage" />
-      </BaseCard
+        <PaginationControls
+          :page="operationPage"
+          :pages="operationPages"
+          :total="operationTotal"
+          item-label="opération(s)"
+          @change="changeOperationPage"
+        /> </BaseCard
       ><BaseCard v-if="caisseTab === 'expense' && caisse.statut === 'OUVERTE'"
         ><div class="card-heading">
           <div>
@@ -225,14 +240,17 @@ function changeOperationPage(next: number) {
               step="0.01" /></label
           ><label class="form-field"
             ><span>Coopérative</span
-            ><select v-model="depenseCooperative">
-              <option :value="null">Aucune coopérative</option>
-              <option
-                v-for="cooperative in cooperatives"
-                :key="cooperative.id"
-                :value="cooperative.id"
-              >{{ cooperative.nom }}</option>
-            </select></label
+            ><SearchSelect
+              aria-label="Aucune coopérative"
+              v-model="depenseCooperative"
+              :options="
+                cooperatives.map((cooperative) => ({
+                  value: cooperative.id,
+                  label: `${cooperative.nom}`,
+                }))
+              "
+              placeholder="Aucune coopérative"
+              :empty-value="null" /></label
           ><label class="form-field full"
             ><span>Description</span
             ><input

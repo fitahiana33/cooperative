@@ -1,3 +1,4 @@
+import 'dart:typed_data';
 import 'package:dio/dio.dart';
 import '../../../core/network/api_client.dart';
 import '../../models/auth/login_request_dto.dart';
@@ -111,9 +112,32 @@ class AuthRemoteDataSource {
     }
   }
 
-  Future<void> changePassword({required String currentPassword, required String newPassword}) async {
+  Future<Uint8List> profilePhoto() async {
+    final response = await _apiClient.dio.get<List<int>>('/users/me/photo',
+        options: Options(responseType: ResponseType.bytes));
+    return Uint8List.fromList(response.data!);
+  }
+
+  Future<UserDto> uploadPhoto(Uint8List bytes, String filename) async {
+    final response = await _apiClient.dio.put('/users/me/photo',
+        data: FormData.fromMap(
+            {'file': MultipartFile.fromBytes(bytes, filename: filename)}),
+        options: Options(contentType: 'multipart/form-data'));
+    return UserDto.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<UserDto> removePhoto() async {
+    final response = await _apiClient.dio.delete('/users/me/photo');
+    return UserDto.fromJson(Map<String, dynamic>.from(response.data as Map));
+  }
+
+  Future<void> changePassword(
+      {required String currentPassword, required String newPassword}) async {
     try {
-      await _apiClient.post('/users/me/password', data: {'current_password': currentPassword, 'new_password': newPassword});
+      await _apiClient.post('/users/me/password', data: {
+        'current_password': currentPassword,
+        'new_password': newPassword
+      });
     } on DioException catch (e) {
       throw _handleDioError(e);
     }

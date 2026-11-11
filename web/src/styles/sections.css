@@ -1,0 +1,300 @@
+/* One work area at a time, while keeping navigation within reach. */
+.dashboard-shell {
+  --section-tabs-top: 80px;
+}
+.dashboard-shell .page-tabs {
+  position: sticky;
+  top: var(--section-tabs-top);
+  z-index: 10;
+  background: var(--surface, #fff);
+  scrollbar-width: thin;
+  overscroll-behavior-x: contain;
+}
+.page-tab-panel {
+  min-width: 0;
+  outline: none;
+}
+.page-tab-panel > .base-card {
+  padding: 22px;
+  margin-bottom: 20px;
+}
+.page-tab-panel:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 5px;
+}
+.form-section-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 18px;
+}
+.record-summary {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px 24px;
+  margin-bottom: 18px;
+  padding: 16px 20px;
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: var(--surface, #fff);
+}
+.record-summary > div {
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+}
+.record-summary small {
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.record-summary strong {
+  overflow-wrap: anywhere;
+}
+.record-summary .status-badge {
+  justify-self: start;
+}
+.task-actions {
+  position: sticky;
+  bottom: 0;
+  z-index: 8;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 0;
+  background: var(--surface, #fff);
+  border-top: 1px solid var(--line);
+}
+.booking-refactored .booking-heading > div {
+  padding-top: 24px;
+  padding-bottom: 24px;
+}
+.booking-refactored .booking-heading h1 {
+  margin: 6px 0 8px;
+  font-size: clamp(26px, 3vw, 36px);
+}
+.booking-refactored .booking-heading > div > span {
+  line-height: 1.6;
+}
+.booking-step-navigation {
+  margin: 16px auto 0;
+  padding: 8px 16px;
+  max-width: 1100px;
+}
+.booking-step-navigation ol {
+  display: flex;
+  justify-content: space-between;
+  gap: 8px;
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+}
+.booking-step-navigation li {
+  flex: 1;
+  min-width: 0;
+}
+.booking-step-navigation button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  min-height: 44px;
+  padding: 6px;
+  color: var(--ink-muted);
+  background: transparent;
+  font-size: 12px;
+  border-radius: 8px;
+}
+.booking-step-navigation button:disabled {
+  cursor: default;
+  opacity: 0.65;
+}
+.booking-step-navigation button[aria-current="step"] {
+  opacity: 1;
+  background: #eef4e9;
+}
+.booking-trip-summary {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 12px;
+  max-width: 1100px;
+  margin: 16px auto 0;
+  padding: 0 32px;
+}
+.booking-trip-summary > div {
+  display: grid;
+  gap: 3px;
+}
+.booking-trip-summary > div:last-of-type {
+  text-align: right;
+}
+.booking-trip-summary span,
+.booking-trip-summary small {
+  font-size: 12px;
+  color: var(--ink-muted);
+}
+.booking-refactored .booking-layout {
+  padding-top: 20px;
+}
+.booking-mobile-details {
+  display: none;
+}
+.booking-stage-actions {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 20px;
+  padding: 12px 0 0;
+  background: #fff;
+  border-top: 1px solid var(--line);
+}
+.booking-stage-actions > button {
+  flex: 1 1 auto;
+}
+.booking-next,
+.booking-back {
+  min-height: 46px;
+  border-radius: 8px;
+  padding: 10px 16px;
+}
+.booking-next {
+  background: var(--brand);
+  color: white;
+  font-weight: 600;
+}
+.booking-back {
+  background: #f1f5ee;
+  color: var(--brand);
+}
+.booking-next:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+.booking-stage-actions .booking-submit {
+  width: auto;
+}
+.booking-refactored [id^="booking-step-"] {
+  outline: none;
+  scroll-margin-top: 100px;
+}
+.public-footer-compact {
+  display: flex;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 12px;
+  max-width: 1100px;
+  margin: auto;
+  padding: 20px 32px;
+  border-top: 1px solid var(--line);
+  color: var(--ink-muted);
+  font-size: 12px;
+}
+.public-footer-compact nav {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 18px;
+}
+.public-footer-compact a {
+  color: inherit;
+}
+.booking-refactored .summary-sticky {
+  padding: 20px;
+}
+.booking-refactored .summary-sticky h2 {
+  margin-bottom: 12px;
+  font-size: 18px;
+}
+.booking-refactored .summary-route {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 12px;
+  padding: 12px;
+}
+.booking-refactored .summary-price {
+  padding-block: 14px;
+}
+.booking-refactored .summary-trust {
+  padding: 12px;
+  line-height: 1.5;
+}
+@media (max-width: 800px) {
+  .booking-refactored .booking-summary {
+    display: none;
+  }
+  .booking-mobile-details {
+    display: block;
+    flex-basis: 100%;
+    font-size: 12px;
+    color: var(--ink-muted);
+  }
+  .booking-mobile-details summary {
+    min-height: 32px;
+    display: list-item;
+    cursor: pointer;
+  }
+  .booking-mobile-details p {
+    margin-top: 4px;
+  }
+}
+@media (max-width: 760px) {
+  .dashboard-shell {
+    --section-tabs-top: 72px;
+  }
+  .page-tab-panel > .base-card {
+    padding: 16px;
+  }
+  .form-section-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .record-summary {
+    padding: 14px 16px;
+    gap: 12px;
+  }
+  .record-summary > div {
+    flex: 1 1 130px;
+  }
+}
+@media (max-width: 600px) {
+  .booking-step-navigation {
+    margin-inline: 20px;
+    padding: 6px;
+  }
+  .booking-step-navigation ol {
+    gap: 2px;
+  }
+  .booking-step-navigation button {
+    flex-direction: column;
+    gap: 4px;
+    font-size: 11px;
+  }
+  .booking-trip-summary {
+    padding-inline: 20px;
+  }
+  .booking-trip-summary > div:first-child {
+    flex: 1 1 180px;
+  }
+  .booking-stage-actions {
+    gap: 8px;
+    padding-bottom: max(12px, env(safe-area-inset-bottom));
+  }
+  .booking-stage-actions > button {
+    flex-basis: 100%;
+  }
+  .public-footer-compact {
+    padding: 18px 20px;
+  }
+}
+@media print {
+  .dashboard-shell .page-tabs,
+  .task-actions {
+    position: static;
+  }
+}

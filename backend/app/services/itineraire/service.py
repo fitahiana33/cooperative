@@ -11,6 +11,8 @@ from app.models.cooperative import Cooperative
 from app.models.destination import Destination
 from app.models.itineraire import Itineraire, ItineraireCooperative
 from app.core.clock import local_today
+from app.models.depart import Depart
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.itineraire")
 
@@ -116,6 +118,10 @@ class ItineraireService:
         item = self.get_itineraire(itineraire_id)
         departure_id = fields.get("id_destination_depart", item.id_destination_depart)
         arrival_id = fields.get("id_destination_arrivee", item.id_destination_arrivee)
+        if (departure_id, arrival_id) != (item.id_destination_depart, item.id_destination_arrivee) and self.db.scalar(select(Depart.id).where(Depart.id_itineraire == item.id).limit(1)):
+            raise HTTPException(409, "Cet itinéraire possède des départs : créez un nouvel itinéraire pour changer les villes et conserver l'historique des voyages.")
+        if fields.get("is_active") is False or fields.get("duree_estimee_minutes", item.duree_estimee_minutes) != item.duree_estimee_minutes:
+            ensure_planning_covered(self.db, resource="Cet itinéraire", id_itineraire=itineraire_id, inactive=True)
         self._validate_destinations(departure_id, arrival_id)
         duplicate = self.db.scalar(select(Itineraire).where(
             Itineraire.id_destination_depart == departure_id,
@@ -136,6 +142,8 @@ class ItineraireService:
 
     def toggle_itineraire(self, itineraire_id: int) -> Itineraire:
         item = self.get_itineraire(itineraire_id)
+        if item.is_active:
+            ensure_planning_covered(self.db, resource="Cet itinéraire", id_itineraire=itineraire_id, inactive=True)
         item.is_active = not item.is_active
         self.db.commit()
         return self.get_itineraire(item.id)
@@ -167,6 +175,7 @@ class ItineraireService:
             raise HTTPException(422, "La coopérative sélectionnée est inactive.")
         effective_start = date_debut or local_today()
         self._validate_dates(effective_start, date_fin)
+        ensure_planning_covered(self.db, resource="Cette autorisation d'itinéraire", id_itineraire=itineraire_id, id_cooperative=cooperative_id, starts=effective_start, ends=date_fin, inactive=not is_active)
         item = self.db.scalar(select(ItineraireCooperative).where(
             ItineraireCooperative.id_itineraire == itineraire_id,
             ItineraireCooperative.id_cooperative == cooperative_id,
@@ -207,9 +216,10 @@ class ItineraireService:
         next_start = fields.get("date_debut", item.date_debut)
         next_end = fields.get("date_fin", item.date_fin)
         self._validate_dates(next_start, next_end)
+        ensure_planning_covered(self.db, resource="Cette autorisation d'itinéraire", id_itineraire=itineraire_id, id_cooperative=cooperative_id, starts=next_start, ends=next_end, inactive=not fields.get("is_active", item.is_active))
 
         for key, value in fields.items():
-            if value is not None and hasattr(ItineraireCooperative, key):
+            if (value is not None or key == "date_fin") and hasattr(ItineraireCooperative, key):
                 setattr(item, key, value)
 
         self.db.commit()
@@ -217,6 +227,7 @@ class ItineraireService:
         return item
 
     def remove_cooperative(self, itineraire_id: int, cooperative_id: int) -> None:
+        ensure_planning_covered(self.db, resource="Cette autorisation d'itinéraire", id_itineraire=itineraire_id, id_cooperative=cooperative_id, inactive=True)
         item = self.db.scalar(select(ItineraireCooperative).where(
             ItineraireCooperative.id_itineraire == itineraire_id,
             ItineraireCooperative.id_cooperative == cooperative_id,

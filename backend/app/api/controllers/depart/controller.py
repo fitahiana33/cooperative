@@ -5,6 +5,7 @@ from sqlalchemy.orm import Session
 
 from app.api.controllers.authentication.dependencies import (
     has_permission,
+    ensure_depart_access,
     is_staff,
     ensure_cooperative_access,
     ensure_gare_access,
@@ -15,11 +16,13 @@ from app.api.controllers.authentication.dependencies import (
     require_permission,
 )
 from app.db.session import get_db
-from app.models.depart import DepartStatus
+from app.models.depart import Depart, DepartStatus
 from app.models.user import User, UserRole
 from app.schemas.common import PageResponse
 from app.schemas.depart import DepartCreate, DepartPointage, DepartRead, DepartStatusUpdate, DepartUpdate, PublicProgrammeRead
+from app.schemas.depart.schema import IncidentCreate, IncidentResolution
 from app.services.depart import DepartService
+from app.services.depart.incidents import DepartureIncidents
 from app.services.audit import AuditService
 
 router = APIRouter(prefix="/departs", tags=["departs"])
@@ -142,11 +145,10 @@ def public_programme(
 
 @router.get("/public/{depart_id}", response_model=PublicProgrammeRead)
 def public_depart(depart_id: int, db: Session = Depends(get_db)):
-    item = DepartService(db).get_depart(depart_id)
-    catalogue = DepartService(db).list_departs(page=1, page_size=1, date_from=item.date_depart, date_to=item.date_depart, public_programme=True)
-    if not any(depart.id == depart_id for depart in catalogue["items"]):
+    catalogue = DepartService(db).list_departs(page=1, page_size=1, id_depart=depart_id, public_programme=True)
+    if not catalogue["items"]:
         raise HTTPException(404, "Départ introuvable ou non disponible à la réservation.")
-    return item
+    return catalogue["items"][0]
 
 
 @router.post("", response_model=DepartRead, status_code=status.HTTP_201_CREATED)
@@ -262,3 +264,28 @@ def delete_depart(
         gare_ids=_gare_scope(db, current_user),
     )
     service.delete_depart(depart_id)
+
+
+def _incident_depart(db, user, depart_id):
+    item = db.get(Depart, depart_id)
+    if not item:
+        raise HTTPException(404, "Départ introuvable.")
+    ensure_depart_access(db, user, item)
+
+
+@router.get("/{depart_id}/incidents")
+def list_incidents(depart_id: int, current_user: User = Depends(require_permission("DEPART_READ")), db: Session = Depends(get_db)):
+    _incident_depart(db, current_user, depart_id)
+    return DepartureIncidents(db).list(depart_id)
+
+
+@router.post("/{depart_id}/incidents", status_code=201)
+def report_incident(depart_id: int, data: IncidentCreate, current_user: User = Depends(require_permission("DEPART_UPDATE")), db: Session = Depends(get_db)):
+    _incident_depart(db, current_user, depart_id)
+    return DepartureIncidents(db).report(depart_id, user_id=current_user.id, kind=data.type, description=data.description)
+
+
+@router.post("/{depart_id}/incidents/{incident_id}/resolution")
+def resolve_incident(depart_id: int, incident_id: int, data: IncidentResolution, current_user: User = Depends(require_permission("DEPART_UPDATE")), db: Session = Depends(get_db)):
+    _incident_depart(db, current_user, depart_id)
+    return DepartureIncidents(db).resolve(depart_id, incident_id, user_id=current_user.id, description=data.description)

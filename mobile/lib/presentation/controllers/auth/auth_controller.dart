@@ -12,11 +12,13 @@ import '../../../domain/services/auth/auth_service.dart';
 import 'auth_state.dart';
 import '../../../core/errors/user_error.dart';
 
-final Provider<SharedPreferences> authSharedPreferencesProvider = Provider<SharedPreferences>((ref) {
+final Provider<SharedPreferences> authSharedPreferencesProvider =
+    Provider<SharedPreferences>((ref) {
   throw UnimplementedError('SharedPreferences non initialisé.');
 });
 
-final Provider<TokenStorage> authTokenStorageProvider = Provider<TokenStorage>((ref) {
+final Provider<TokenStorage> authTokenStorageProvider =
+    Provider<TokenStorage>((ref) {
   final prefs = ref.watch(authSharedPreferencesProvider);
   return TokenStorage(prefs);
 });
@@ -31,12 +33,14 @@ final Provider<ApiClient> authApiClientProvider = Provider<ApiClient>((ref) {
   );
 });
 
-final Provider<AuthRemoteDataSource> authRemoteDataSourceProvider = Provider<AuthRemoteDataSource>((ref) {
+final Provider<AuthRemoteDataSource> authRemoteDataSourceProvider =
+    Provider<AuthRemoteDataSource>((ref) {
   final apiClient = ref.watch(authApiClientProvider);
   return AuthRemoteDataSource(apiClient);
 });
 
-final Provider<AuthRepository> authRepositoryProvider = Provider<AuthRepository>((ref) {
+final Provider<AuthRepository> authRepositoryProvider =
+    Provider<AuthRepository>((ref) {
   final remote = ref.watch(authRemoteDataSourceProvider);
   final storage = ref.watch(authTokenStorageProvider);
   return AuthRepositoryImpl(
@@ -106,7 +110,9 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (error) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: userError(error, 'Connexion impossible.', 'MOBILE_LOGIN_ERROR', unauthorizedMessage: 'Email ou mot de passe incorrect.'),
+        errorMessage: userError(
+            error, 'Connexion impossible.', 'MOBILE_LOGIN_ERROR',
+            unauthorizedMessage: 'Email ou mot de passe incorrect.'),
       );
       return false;
     }
@@ -140,7 +146,10 @@ class AuthController extends StateNotifier<AuthState> {
     } catch (error) {
       state = state.copyWith(
         status: AuthStatus.unauthenticated,
-        errorMessage: userError(error, 'Une erreur est survenue lors de la création du compte.', 'MOBILE_REGISTER_ERROR'),
+        errorMessage: userError(
+            error,
+            'Une erreur est survenue lors de la création du compte.',
+            'MOBILE_REGISTER_ERROR'),
       );
       return false;
     }
@@ -154,7 +163,10 @@ class AuthController extends StateNotifier<AuthState> {
       return true;
     } catch (error) {
       state = state.copyWith(
-        errorMessage: userError(error, 'Impossible d’envoyer la demande de réinitialisation.', 'MOBILE_FORGOT_PASSWORD_ERROR'),
+        errorMessage: userError(
+            error,
+            'Impossible d’envoyer la demande de réinitialisation.',
+            'MOBILE_FORGOT_PASSWORD_ERROR'),
       );
       return false;
     }
@@ -174,7 +186,8 @@ class AuthController extends StateNotifier<AuthState> {
       return true;
     } catch (error) {
       state = state.copyWith(
-        errorMessage: userError(error, 'Code ou jeton invalide ou expiré.', 'MOBILE_RESET_PASSWORD_ERROR'),
+        errorMessage: userError(error, 'Code ou jeton invalide ou expiré.',
+            'MOBILE_RESET_PASSWORD_ERROR'),
       );
       return false;
     }
@@ -186,19 +199,41 @@ class AuthController extends StateNotifier<AuthState> {
       state = state.copyWith(user: user);
       return null;
     } catch (error) {
-      return userError(error, 'Le profil n’a pas pu être enregistré.', 'MOBILE_PROFILE_ERROR');
+      return userError(error, 'Le profil n’a pas pu être enregistré.',
+          'MOBILE_PROFILE_ERROR');
+    }
+  }
+
+  Future<String?> changePhoto(
+      {Uint8List? bytes, String filename = 'photo.jpg'}) async {
+    try {
+      final user = bytes == null
+          ? await _authService.removePhoto()
+          : await _authService.uploadPhoto(bytes, filename);
+      state = state.copyWith(user: user);
+      return null;
+    } catch (error) {
+      return userError(error, 'La photo n’a pas pu être modifiée.',
+          'MOBILE_PROFILE_PHOTO_ERROR');
     }
   }
 
   /// Returns an error message, or null when the password was changed (the
   /// user is then signed out, as every session ends on a password change).
-  Future<String?> changePassword({required String currentPassword, required String newPassword}) async {
+  Future<String?> changePassword(
+      {required String currentPassword, required String newPassword}) async {
     try {
-      await _authService.changePassword(currentPassword: currentPassword, newPassword: newPassword);
-      state = const AuthState(status: AuthStatus.unauthenticated, infoMessage: 'Mot de passe modifié. Reconnectez-vous avec le nouveau mot de passe.');
+      await _authService.changePassword(
+          currentPassword: currentPassword, newPassword: newPassword);
+      state = const AuthState(
+          status: AuthStatus.unauthenticated,
+          infoMessage:
+              'Mot de passe modifié. Reconnectez-vous avec le nouveau mot de passe.');
       return null;
     } catch (error) {
-      return userError(error, 'Le mot de passe n’a pas pu être modifié.', 'MOBILE_PASSWORD_ERROR', unauthorizedMessage: 'Mot de passe actuel incorrect.');
+      return userError(error, 'Le mot de passe n’a pas pu être modifié.',
+          'MOBILE_PASSWORD_ERROR',
+          unauthorizedMessage: 'Mot de passe actuel incorrect.');
     }
   }
 

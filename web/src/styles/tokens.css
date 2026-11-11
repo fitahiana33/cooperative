@@ -1,0 +1,82 @@
+/* Shared product tokens. Public and staff interfaces use the same visual language. */
+:root {
+  --font-body: "DM Sans", system-ui, -apple-system, sans-serif;
+  --font-heading: "Manrope", system-ui, sans-serif;
+  --ink-strong: #172f2c;
+  --ink: #354e49;
+  --ink-muted: #63746b;
+  --line: #e2e8e4;
+  --canvas: #f5f7f5;
+  --surface: #fff;
+  --brand: #216553;
+  --brand-dark: #174b3e;
+  --brand-soft: #eaf3ec;
+  --accent: #bb542f;
+  --accent-soft: #fbefe5;
+  --navy: #163f35;
+  --radius-sm: 8px;
+  --radius: 12px;
+  --radius-lg: 20px;
+  --shadow: 0 4px 24px #18382d06;
+  --workspace-accent: var(--brand);
+}
+body {
+  font-family: var(--font-body);
+  color: var(--ink);
+  background: var(--canvas);
+  line-height: 1.5;
+}
+button,
+input,
+select,
+textarea {
+  font-family: inherit;
+}
+button,
+a,
+input,
+select,
+textarea {
+  -webkit-tap-highlight-color: transparent;
+}
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+:focus-visible {
+  outline: 3px solid #b56b37;
+  outline-offset: 3px;
+}
+html {
+  scroll-padding-top: 100px;
+}
+.app-icon {
+  flex-shrink: 0;
+  vertical-align: middle;
+}
+.navigation-open {
+  overflow: hidden;
+}
+.skip-link {
+  position: fixed;
+  top: -100px;
+  left: 20px;
+  z-index: 100;
+  padding: 12px 20px;
+  border-radius: 8px;
+  color: #fff;
+  background: var(--brand-dark);
+}
+.skip-link:focus {
+  top: 12px;
+}
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}

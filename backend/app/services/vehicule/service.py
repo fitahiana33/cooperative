@@ -12,6 +12,7 @@ from app.models.modele import Modele
 from app.models.cooperative import Cooperative
 from app.core.pagination import paginate
 from app.core.clock import local_today
+from app.services.planning_rules import ensure_planning_covered
 
 logger = logging.getLogger("cooperative.vehicule")
 DOCUMENT_UPLOAD_DIR = settings.uploads_dir / "vehicules"
@@ -180,6 +181,10 @@ class VehiculeService:
 
     def update_vehicule(self, vehicule_id: int, **fields) -> Vehicule:
         item = self.get_vehicule(vehicule_id)
+        if fields.get("is_active") is False or fields.get("disponibilite") is False or fields.get("etat") == "HORS_SERVICE" or fields.get("id_cooperative", item.id_cooperative) != item.id_cooperative:
+            ensure_planning_covered(self.db, resource="Ce véhicule", id_vehicule=vehicule_id, inactive=True)
+        if fields.get("nombre_places", item.nombre_places) is not None and fields.get("nombre_places", item.nombre_places) < item.nombre_places:
+            ensure_planning_covered(self.db, resource="La capacité de ce véhicule", id_vehicule=vehicule_id, inactive=True)
         if fields.get("id_modele") is not None:
             modele = self.db.get(Modele, fields["id_modele"])
             if not modele:
@@ -201,7 +206,7 @@ class VehiculeService:
                 )
         if fields.get("etat") == "HORS_SERVICE":
             fields["disponibilite"] = False
-        elif fields.get("disponibilite") is True and item.etat == "HORS_SERVICE":
+        elif fields.get("disponibilite") is True and fields.get("etat", item.etat) == "HORS_SERVICE":
             raise HTTPException(
                 status_code=422,
                 detail="Un vÃ©hicule hors service ne peut pas Ãªtre rendu disponible.",
@@ -238,6 +243,8 @@ class VehiculeService:
 
     def toggle_vehicule(self, vehicule_id: int) -> Vehicule:
         item = self.get_vehicule(vehicule_id)
+        if item.is_active:
+            ensure_planning_covered(self.db, resource="Ce véhicule", id_vehicule=vehicule_id, inactive=True)
         item.is_active = not item.is_active
         try:
             if not item.is_active:
@@ -257,6 +264,7 @@ class VehiculeService:
         ))
         for assignment in assignments:
             assignment.is_active = False
+            assignment.is_cancelled = True
             assignment.date_fin = max(today, assignment.date_debut)
 
     def delete_vehicule(self, vehicule_id: int) -> None:

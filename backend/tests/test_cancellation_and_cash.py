@@ -10,7 +10,7 @@ from app.models import Caisse, CaisseStatus, Depart, DepartPlace, DepartPlaceSta
 from tests.helpers import API, book, bookable_departure, free_place_ids, open_caisse_for, pay
 from tests.test_reservations import new_passenger
 
-CASHIER = "responsable.gare1@cooperative.com"
+CASHIER = "admin@cooperative.com"
 
 
 def paid_reservation(client, db, login, *, seats: int = 1):

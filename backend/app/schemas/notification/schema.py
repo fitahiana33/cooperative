@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict
 
 
 class NotificationRead(BaseModel):
+    delivery_status: str = "IN_APP"
+    delivered_at: datetime | None = None
     id: int
     id_user: int
     type_notification: str

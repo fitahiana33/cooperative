@@ -47,7 +47,7 @@ class Fmt {
     'ANNULE': 'Annulé',
     'EN_ATTENTE': 'En attente de paiement',
     'CONFIRMEE': 'Confirmée',
-    'PAYEE': 'Payée',
+    'PAYEE': 'Paiement reçu',
     'ANNULEE': 'Annulée',
     'EXPIREE': 'Expirée',
     'EMBARQUEE': 'Embarquée',

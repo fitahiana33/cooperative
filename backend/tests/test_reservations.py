@@ -58,7 +58,7 @@ def test_passenger_seats_per_booking_are_capped(client, db):
 
 def test_paying_a_pending_reservation_issues_its_tickets(client, db, login):
     passenger = new_passenger(client)
-    cashier = login("responsable.gare1@cooperative.com")
+    cashier = login("admin@cooperative.com")
     depart = bookable_departure(db, min_free=2)
     reservation = book(client, passenger, depart.id, free_place_ids(db, depart.id, 2)).json()
     assert reservation["statut"] == "EN_ATTENTE"
@@ -71,7 +71,7 @@ def test_paying_a_pending_reservation_issues_its_tickets(client, db, login):
 
 def test_payment_refused_after_hold_period(client, db, login):
     passenger = new_passenger(client)
-    cashier = login("responsable.gare1@cooperative.com")
+    cashier = login("admin@cooperative.com")
     depart = bookable_departure(db)
     reservation = book(client, passenger, depart.id, free_place_ids(db, depart.id, 1)).json()
     db.execute(update(Reservation).where(Reservation.id == reservation["id"]).values(date_expiration=datetime.now(timezone.utc) - timedelta(minutes=1)))
@@ -81,13 +81,16 @@ def test_payment_refused_after_hold_period(client, db, login):
     assert client.get(f"{API}/reservations/{reservation['id']}", headers=passenger).json()["statut"] == "EXPIREE"
 
 
-def test_every_passenger_of_a_reservation_can_board(client, db, login):
+def test_every_passenger_of_a_reservation_can_board(client, db, login, monkeypatch):
     """I-B04: the second ticket of a paid two-seat reservation used to be refused."""
+    fixed_now = local_now().replace(hour=10, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr("app.core.clock.local_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.reservation.service.local_now", lambda: fixed_now)
     passenger = new_passenger(client)
-    agent = login("responsable.gare1@cooperative.com")
+    agent = login("admin@cooperative.com")
     depart = bookable_departure(db, min_free=2)
     # Boarding happens on the day of the departure.
-    db.execute(update(Depart).where(Depart.id == depart.id).values(date_depart=local_now().date(), heure_depart=(local_now() + timedelta(hours=1)).time().replace(microsecond=0)))
+    db.execute(update(Depart).where(Depart.id == depart.id).values(date_depart=fixed_now.date(), heure_depart=(fixed_now + timedelta(hours=1)).time().replace(microsecond=0)))
     db.commit()
     reservation = book(client, passenger, depart.id, free_place_ids(db, depart.id, 2)).json()
     assert pay(client, agent, reservation, open_caisse_for(db, depart).id).status_code in (200, 201)

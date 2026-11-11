@@ -4,6 +4,8 @@ from pydantic import BaseModel, ConfigDict
 
 
 class AuditLogRead(BaseModel):
+    id_gare: int | None = None
+    id_cooperative: int | None = None
     id: int
     id_user: int | None = None
     action: str

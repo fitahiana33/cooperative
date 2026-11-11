@@ -1,104 +1,133 @@
 <script setup lang="ts">
-import { computed, onMounted, ref } from 'vue'
-import { RouterLink, useRoute } from 'vue-router'
-import AppLayout from '../../components/layout/AppLayout.vue'
-import BaseCard from '../../components/ui/BaseCard.vue'
-import PageTabs from '../../components/ui/PageTabs.vue'
-import { departService } from '../../services/depart/service'
-import { reservationService } from '../../services/reservation/service'
-import type { Depart, DepartStatus } from '../../models/depart/model'
-import type { DepartPlace, PlaceStatus } from '../../models/reservation/model'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-import { userError } from '../../utils/errors'
+import { computed, onMounted, ref } from "vue";
+import { RouterLink, useRoute } from "vue-router";
+import AppLayout from "../../components/layout/AppLayout.vue";
+import BaseCard from "../../components/ui/BaseCard.vue";
+import PageTabs from "../../components/ui/PageTabs.vue";
+import { departService } from "../../services/depart/service";
+import { reservationService } from "../../services/reservation/service";
+import type { Depart, DepartStatus } from "../../models/depart/model";
+import type { DepartPlace, PlaceStatus } from "../../models/reservation/model";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+import { userError } from "../../utils/errors";
 
-const route = useRoute()
+const route = useRoute();
 // Everyone who sees the departure sees its seats; only PLACE_MANAGE may change them.
-const canManage = computed(() => useAuthenticationStore().hasPermission('PLACE_MANAGE'))
-const departId = Number(route.params.id)
-const depart = ref<Depart | null>(null)
-const places = ref<DepartPlace[]>([])
-const loading = ref(true)
-const loadingPlaces = ref(false)
-const placesTab = ref('summary')
-const error = ref('')
-const busy = ref(false)
-const editingPlaceId = ref<number | null>(null)
-const newStatut = ref<PlaceStatus>('DISPONIBLE')
+const canManage = computed(() =>
+  useAuthenticationStore().hasPermission("PLACE_MANAGE"),
+);
+const departId = Number(route.params.id);
+const depart = ref<Depart | null>(null);
+const places = ref<DepartPlace[]>([]);
+const loading = ref(true);
+const loadingPlaces = ref(false);
+const placesTab = ref("summary");
+const error = ref("");
+const busy = ref(false);
+const editingPlaceId = ref<number | null>(null);
+const newStatut = ref<PlaceStatus>("DISPONIBLE");
 
-const labels: Record<DepartStatus, string> = { PROGRAMME: 'Programmé', EMBARQUEMENT: 'Embarquement', RETARDE: 'Retardé', PARTI: 'Parti', TERMINE: 'Terminé', ANNULE: 'Annulé' }
-const placeLabels: Record<PlaceStatus, string> = { DISPONIBLE: 'Disponible', RESERVEE: 'Réservée', BLOQUEE: 'Bloquée', OCCUPEE: 'Occupée' }
+const labels: Record<DepartStatus, string> = {
+  PROGRAMME: "Programmé",
+  EMBARQUEMENT: "Embarquement",
+  RETARDE: "Retardé",
+  PARTI: "Parti",
+  TERMINE: "Terminé",
+  ANNULE: "Annulé",
+};
+const placeLabels: Record<PlaceStatus, string> = {
+  DISPONIBLE: "Disponible",
+  RESERVEE: "Réservée",
+  BLOQUEE: "Bloquée",
+  OCCUPEE: "Occupée",
+};
 const vehicleLayout = computed(() => ({
   front: depart.value?.vehicule?.places_avant ?? 2,
   row: depart.value?.vehicule?.places_par_rangee ?? 4,
-}))
-const seatColumns = computed(() => Math.max(2, vehicleLayout.value.row))
+}));
+const seatColumns = computed(() => Math.max(2, vehicleLayout.value.row));
 const frontPlaces = computed(() => {
-  const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
-  return items.slice(0, vehicleLayout.value.front)
-})
+  const items = [...places.value].sort(
+    (a, b) => a.numero_place - b.numero_place,
+  );
+  return items.slice(0, vehicleLayout.value.front);
+});
 const seatRows = computed(() => {
-  const items = [...places.value].sort((a, b) => a.numero_place - b.numero_place)
-  const rowSize = seatColumns.value
-  const rows: DepartPlace[][] = []
-  for (let index = vehicleLayout.value.front; index < items.length; index += rowSize) {
-    rows.push(items.slice(index, index + rowSize))
+  const items = [...places.value].sort(
+    (a, b) => a.numero_place - b.numero_place,
+  );
+  const rowSize = seatColumns.value;
+  const rows: DepartPlace[][] = [];
+  for (
+    let index = vehicleLayout.value.front;
+    index < items.length;
+    index += rowSize
+  ) {
+    rows.push(items.slice(index, index + rowSize));
   }
-  return rows
-})
+  return rows;
+});
 
-function formatDate(value: string) { return new Date(`${value}T00:00:00`).toLocaleDateString('fr-FR') }
-function showError(value: unknown, fallback: string) { error.value = userError(value, fallback, 'DEPART_PLACES_ERROR') }
+function formatDate(value: string) {
+  return new Date(`${value}T00:00:00`).toLocaleDateString("fr-FR");
+}
+function showError(value: unknown, fallback: string) {
+  error.value = userError(value, fallback, "DEPART_PLACES_ERROR");
+}
 
 async function load() {
-  loading.value = true
+  loading.value = true;
   try {
-    depart.value = await departService.get(departId)
-    await loadPlaces()
+    depart.value = await departService.get(departId);
+    await loadPlaces();
   } catch (value: unknown) {
-    showError(value, 'Impossible de charger ce départ.')
+    showError(value, "Impossible de charger ce départ.");
   } finally {
-    loading.value = false
+    loading.value = false;
   }
 }
 
 async function loadPlaces() {
-  loadingPlaces.value = true
+  loadingPlaces.value = true;
   try {
-    places.value = await reservationService.places(departId, false)
+    places.value = await reservationService.places(departId, false);
   } catch (value: unknown) {
-    showError(value, 'Impossible de charger les places.')
+    showError(value, "Impossible de charger les places.");
   } finally {
-    loadingPlaces.value = false
+    loadingPlaces.value = false;
   }
 }
 
 function startEdit(place: DepartPlace) {
-  if (busy.value || !canManage.value) return
-  editingPlaceId.value = place.id
-  newStatut.value = place.statut
+  if (busy.value || !canManage.value) return;
+  editingPlaceId.value = place.id;
+  newStatut.value = place.statut;
 }
 
 function cancelEdit() {
-  editingPlaceId.value = null
+  editingPlaceId.value = null;
 }
 
 async function confirmEdit(place: DepartPlace) {
-  if (busy.value) return
-  busy.value = true
-  error.value = ''
+  if (busy.value) return;
+  busy.value = true;
+  error.value = "";
   try {
-    const updated = await reservationService.updatePlace(place.id, newStatut.value)
-    const idx = places.value.findIndex((p) => p.id === place.id)
-    if (idx !== -1) places.value[idx] = updated
-    editingPlaceId.value = null
+    const updated = await reservationService.updatePlace(
+      place.id,
+      newStatut.value,
+    );
+    const idx = places.value.findIndex((p) => p.id === place.id);
+    if (idx !== -1) places.value[idx] = updated;
+    editingPlaceId.value = null;
   } catch (value: unknown) {
-    showError(value, 'Impossible de modifier le statut de la place.')
+    showError(value, "Impossible de modifier le statut de la place.");
   } finally {
-    busy.value = false
+    busy.value = false;
   }
 }
 
-onMounted(load)
+onMounted(load);
 </script>
 
 <template>
@@ -111,8 +140,12 @@ onMounted(load)
         <p>Consultez et gérez le statut de chaque place du départ.</p>
       </div>
       <div class="form-actions">
-        <RouterLink class="secondary-button" :to="`/departs/${departId}`">Retour au détail</RouterLink>
-        <RouterLink class="secondary-button" to="/departs">Liste des départs</RouterLink>
+        <RouterLink class="secondary-button" :to="`/departs/${departId}`"
+          >Retour au détail</RouterLink
+        >
+        <RouterLink class="secondary-button" to="/departs"
+          >Liste des départs</RouterLink
+        >
       </div>
     </div>
     <p v-if="loading" class="status-msg">Chargement…</p>
@@ -131,17 +164,54 @@ onMounted(load)
           <div>
             <h2>Départ #{{ depart.id }}</h2>
             <p>
-              <span :class="['status-badge', depart.statut === 'ANNULE' ? 'inactive' : 'active']">{{ labels[depart.statut] }}</span>
+              <span
+                :class="[
+                  'status-badge',
+                  depart.statut === 'ANNULE' ? 'inactive' : 'active',
+                ]"
+                >{{ labels[depart.statut] }}</span
+              >
             </p>
           </div>
         </div>
         <div class="detail-grid">
-          <div class="detail-item"><span class="detail-label">Date</span><strong>{{ formatDate(depart.date_depart) }}</strong></div>
-          <div class="detail-item"><span class="detail-label">Heure</span><strong>{{ depart.heure_depart.slice(0, 5) }}</strong></div>
-          <div class="detail-item"><span class="detail-label">Véhicule</span><strong>{{ depart.vehicule?.immatriculation || `#${depart.id_vehicule}` }}</strong></div>
-          <div class="detail-item"><span class="detail-label">Chauffeur</span><strong>Permis {{ depart.chauffeur?.numero_permis || `#${depart.id_chauffeur}` }}</strong></div>
-          <div class="detail-item"><span class="detail-label">Places disponibles</span><strong>{{ depart.places_disponibles }} / {{ depart.nombre_places }}</strong></div>
-          <div class="detail-item"><span class="detail-label">Places réservées</span><strong>{{ depart.places_reservees }} / {{ depart.nombre_places }}</strong></div>
+          <div class="detail-item">
+            <span class="detail-label">Date</span
+            ><strong>{{ formatDate(depart.date_depart) }}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Heure</span
+            ><strong>{{ depart.heure_depart.slice(0, 5) }}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Véhicule</span
+            ><strong>{{
+              depart.vehicule?.immatriculation || `#${depart.id_vehicule}`
+            }}</strong>
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Chauffeur</span
+            ><strong
+              >Permis
+              {{
+                depart.chauffeur?.numero_permis || `#${depart.id_chauffeur}`
+              }}</strong
+            >
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Places disponibles</span
+            ><strong
+              >{{ depart.places_disponibles }} /
+              {{ depart.nombre_places }}</strong
+            >
+          </div>
+          <div class="detail-item">
+            <span class="detail-label">Places réservées</span
+            ><strong
+              >{{ depart.places_reservees }} /
+              {{ depart.nombre_places }}</strong
+            >
+          </div>
         </div>
       </BaseCard>
       <BaseCard v-if="placesTab === 'layout'">
@@ -150,7 +220,10 @@ onMounted(load)
         <div v-if="!loadingPlaces" class="seat-layout">
           <div class="bus-cabin">
             <div class="front-row">
-              <div class="driver-seat" aria-label="Place du chauffeur non réservable">
+              <div
+                class="driver-seat"
+                aria-label="Place du chauffeur non réservable"
+              >
                 <span class="driver-icon">CH</span>
                 <span>Chauffeur</span>
               </div>
@@ -161,8 +234,20 @@ onMounted(load)
                     <option value="BLOQUEE">Bloquée</option>
                   </select>
                   <div class="seat-edit-actions">
-                    <button class="primary-button compact-button" :disabled="busy" @click="confirmEdit(place)">OK</button>
-                    <button class="secondary-button compact-button" :disabled="busy" @click="cancelEdit">×</button>
+                    <button
+                      class="primary-button compact-button"
+                      :disabled="busy"
+                      @click="confirmEdit(place)"
+                    >
+                      OK
+                    </button>
+                    <button
+                      class="secondary-button compact-button"
+                      :disabled="busy"
+                      @click="cancelEdit"
+                    >
+                      ×
+                    </button>
                   </div>
                 </div>
                 <button
@@ -173,9 +258,11 @@ onMounted(load)
                     available: place.statut === 'DISPONIBLE',
                     reserved: place.statut === 'RESERVEE',
                     occupied: place.statut === 'OCCUPEE',
-                    blocked: place.statut === 'BLOQUEE'
+                    blocked: place.statut === 'BLOQUEE',
                   }"
-                  :disabled="['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy"
+                  :disabled="
+                    ['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy
+                  "
                   :title="placeLabels[place.statut]"
                   @click="startEdit(place)"
                 >
@@ -183,7 +270,12 @@ onMounted(load)
                 </button>
               </template>
             </div>
-            <div v-for="(row, rowIndex) in seatRows" :key="row[0]?.id || rowIndex" class="seat-row" :style="{ '--seat-columns': seatColumns }">
+            <div
+              v-for="(row, rowIndex) in seatRows"
+              :key="row[0]?.id || rowIndex"
+              class="seat-row"
+              :style="{ '--seat-columns': seatColumns }"
+            >
               <template v-for="place in row" :key="place.id">
                 <div v-if="editingPlaceId === place.id" class="seat-edit">
                   <select v-model="newStatut" :disabled="busy">
@@ -191,8 +283,20 @@ onMounted(load)
                     <option value="BLOQUEE">Bloquée</option>
                   </select>
                   <div class="seat-edit-actions">
-                    <button class="primary-button compact-button" :disabled="busy" @click="confirmEdit(place)">OK</button>
-                    <button class="secondary-button compact-button" :disabled="busy" @click="cancelEdit">×</button>
+                    <button
+                      class="primary-button compact-button"
+                      :disabled="busy"
+                      @click="confirmEdit(place)"
+                    >
+                      OK
+                    </button>
+                    <button
+                      class="secondary-button compact-button"
+                      :disabled="busy"
+                      @click="cancelEdit"
+                    >
+                      ×
+                    </button>
                   </div>
                 </div>
                 <button
@@ -203,9 +307,11 @@ onMounted(load)
                     available: place.statut === 'DISPONIBLE',
                     reserved: place.statut === 'RESERVEE',
                     occupied: place.statut === 'OCCUPEE',
-                    blocked: place.statut === 'BLOQUEE'
+                    blocked: place.statut === 'BLOQUEE',
                   }"
-                  :disabled="['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy"
+                  :disabled="
+                    ['RESERVEE', 'OCCUPEE'].includes(place.statut) || busy
+                  "
                   :title="placeLabels[place.statut]"
                   @click="startEdit(place)"
                 >
@@ -214,7 +320,9 @@ onMounted(load)
               </template>
             </div>
           </div>
-          <p v-if="!places.length" class="status-msg">Aucune place configurée pour ce départ.</p>
+          <p v-if="!places.length" class="status-msg">
+            Aucune place configurée pour ce départ.
+          </p>
         </div>
       </BaseCard>
     </template>
@@ -237,9 +345,13 @@ onMounted(load)
   width: min(100%, 460px);
   margin: 0 auto;
   padding: 1rem 0.75rem 0.75rem;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--border-color, var(--line));
   border-radius: 18px;
-  background: linear-gradient(180deg, rgba(15, 23, 42, 0.03), rgba(15, 23, 42, 0.08));
+  background: linear-gradient(
+    180deg,
+    rgba(15, 23, 42, 0.03),
+    rgba(15, 23, 42, 0.08)
+  );
 }
 
 .front-row {
@@ -257,10 +369,10 @@ onMounted(load)
   align-items: center;
   justify-content: center;
   gap: 0.2rem;
-  border: 1px solid #cbd5e1;
+  border: 1px solid #d5dfd2;
   border-radius: 12px;
-  background: #e2e8f0;
-  color: #475569;
+  background: var(--line);
+  color: var(--ink);
   font-size: 0.7rem;
   font-weight: 700;
   text-align: center;
@@ -313,7 +425,7 @@ onMounted(load)
 .real-seat.reserved {
   background: #e5e7eb;
   border-color: #94a3b8;
-  color: #475569;
+  color: var(--ink);
 }
 
 .real-seat.occupied {
@@ -345,7 +457,7 @@ onMounted(load)
   padding: 0.25rem 0.5rem;
   font-size: 0.75rem;
   border-radius: 6px;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--border-color, var(--line));
   background: #fff;
 }
 .seat-edit-actions {

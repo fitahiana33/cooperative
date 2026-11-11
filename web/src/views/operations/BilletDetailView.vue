@@ -26,7 +26,9 @@ function printTicket() {
 }
 async function loadQr(id: number) {
   try {
-    const response = await api.get<Blob>(`/billets/${id}/qr.png`, { responseType: "blob" });
+    const response = await api.get<Blob>(`/billets/${id}/qr.png`, {
+      responseType: "blob",
+    });
     qrSrc.value = URL.createObjectURL(response.data);
   } catch {
     qrSrc.value = "";
@@ -56,7 +58,13 @@ onMounted(load);
         <h2>Détail du billet</h2>
         <p>Billet {{ item?.numero_billet || `#${route.params.id}` }}</p>
       </div>
-      <button class="primary-button print-action" type="button" @click="printTicket">Imprimer / enregistrer en PDF</button>
+      <button
+        class="primary-button print-action"
+        type="button"
+        @click="printTicket"
+      >
+        Imprimer / enregistrer en PDF
+      </button>
       <RouterLink class="secondary-button" to="/billets"
         >Retour à la liste</RouterLink
       >
@@ -164,7 +172,7 @@ onMounted(load);
   gap: 1rem;
   margin: 1.25rem 0;
   padding: 1rem;
-  border: 1px solid var(--border-color, #d1d5db);
+  border: 1px solid var(--border-color, var(--line));
   border-radius: 12px;
   background: #fff;
 }

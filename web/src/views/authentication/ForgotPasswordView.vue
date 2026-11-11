@@ -1,31 +1,33 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { useRoute, useRouter } from 'vue-router'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-document.title = 'Mot de passe oublié | Gestion'
+import AuthLayout from "../../components/layout/AuthLayout.vue";
+import { onMounted, ref } from "vue";
+import { useRoute, useRouter } from "vue-router";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+document.title = "Mot de passe oublié | Coopérative";
 
-const router = useRouter()
-const route = useRoute()
-const auth = useAuthenticationStore()
+const router = useRouter();
+const route = useRoute();
+const auth = useAuthenticationStore();
 
-const email = ref('')
-const token = ref('')
-const newPassword = ref('')
-const showNewPassword = ref(false)
-const isResetStep = ref(false)
-const successMessage = ref('')
+const email = ref("");
+const token = ref("");
+const newPassword = ref("");
+const showNewPassword = ref(false);
+const isResetStep = ref(false);
+const successMessage = ref("");
 
 async function requestToken() {
   try {
-    const res = await auth.forgotPassword({ email: email.value })
-    successMessage.value = res.message || 'Jeton de réinitialisation généré avec succès.'
+    const res = await auth.forgotPassword({ email: email.value });
+    successMessage.value =
+      res.message || "Code de réinitialisation généré avec succès.";
     if (res.reset_url) {
-      const resetToken = new URL(res.reset_url).searchParams.get('token')
-      if (resetToken) token.value = resetToken
+      const resetToken = new URL(res.reset_url).searchParams.get("token");
+      if (resetToken) token.value = resetToken;
     }
-    isResetStep.value = true
+    isResetStep.value = true;
   } catch (error) {
-    console.error('[FORGOT_PASSWORD_ERROR]', error)
+    if (import.meta.env.DEV) console.error("[FORGOT_PASSWORD_ERROR]", error);
   }
 }
 
@@ -34,44 +36,43 @@ async function submitReset() {
     const res = await auth.resetPassword({
       token: token.value,
       new_password: newPassword.value,
-    })
-    successMessage.value = res.message || 'Mot de passe réinitialisé. Vous pouvez vous connecter.'
+    });
+    successMessage.value =
+      res.message || "Mot de passe réinitialisé. Vous pouvez vous connecter.";
     setTimeout(() => {
-      router.push({ name: 'login' })
-    }, 2000)
+      router.push({ name: "login" });
+    }, 2000);
   } catch (error) {
-    console.error('[RESET_PASSWORD_ERROR]', error)
+    if (import.meta.env.DEV) console.error("[RESET_PASSWORD_ERROR]", error);
   }
 }
 
 onMounted(() => {
-  const queryToken = typeof route.query.token === 'string' ? route.query.token : ''
+  const queryToken =
+    typeof route.query.token === "string" ? route.query.token : "";
   if (queryToken) {
-    token.value = queryToken
-    isResetStep.value = true
+    token.value = queryToken;
+    isResetStep.value = true;
   }
-})
+});
 </script>
 
 <template>
-  <main class="forgot-page">
-    <div class="forgot-card">
-      <div class="brand">
-        <span class="brand-mark">C</span>
-        <span>Coopérative</span>
-      </div>
-
+  <AuthLayout>
+    <div>
       <h1>Mot de passe oublié</h1>
-      <p class="subtitle">
+      <p class="auth-lead">
         {{
           isResetStep
-            ? 'Entrez le jeton reçu et votre nouveau mot de passe.'
-            : 'Saisissez votre adresse email pour réinitialiser votre accès.'
+            ? "Entrez le code reçu et votre nouveau mot de passe."
+            : "Saisissez votre adresse email pour réinitialiser votre accès."
         }}
       </p>
 
-      <p v-if="successMessage" class="form-success">{{ successMessage }}</p>
-      <p v-if="auth.error" class="form-error">{{ auth.error }}</p>
+      <p v-if="successMessage" class="form-success" role="status">
+        {{ successMessage }}
+      </p>
+      <p v-if="auth.error" class="form-error" role="alert">{{ auth.error }}</p>
 
       <!-- Step 1: Email Request -->
       <form v-if="!isResetStep" @submit.prevent="requestToken">
@@ -80,23 +81,24 @@ onMounted(() => {
           id="email"
           v-model="email"
           type="email"
-          placeholder="admin@cooperative.com"
+          placeholder="vous@exemple.com"
           required
         />
 
         <button class="primary-button" type="submit" :disabled="auth.loading">
-          {{ auth.loading ? 'Envoi en cours…' : 'Envoyer les instructions' }} <span>→</span>
+          {{ auth.loading ? "Envoi en cours…" : "Envoyer les instructions" }}
+          <span>→</span>
         </button>
       </form>
 
       <!-- Step 2: Reset Token & Password -->
       <form v-else @submit.prevent="submitReset">
-        <label for="token">Jeton de réinitialisation</label>
+        <label for="token">Code de réinitialisation</label>
         <input
           id="token"
           v-model="token"
           type="text"
-          placeholder="Entrez le jeton JWT"
+          placeholder="Collez le code reçu par e-mail"
           required
         />
 
@@ -104,177 +106,35 @@ onMounted(() => {
         <div class="password-field">
           <input
             id="newPassword"
+            autocomplete="new-password"
+            minlength="8"
             v-model="newPassword"
             :type="showNewPassword ? 'text' : 'password'"
             placeholder="Au moins 8 caractères"
             required
           />
-          <button type="button" class="toggle-pwd" @click="showNewPassword = !showNewPassword">
-            {{ showNewPassword ? 'Masquer' : 'Afficher' }}
+          <button
+            type="button"
+            class="toggle-pwd"
+            @click="showNewPassword = !showNewPassword"
+          >
+            {{ showNewPassword ? "Masquer" : "Afficher" }}
           </button>
         </div>
 
         <button class="primary-button" type="submit" :disabled="auth.loading">
-          {{ auth.loading ? 'Réinitialisation…' : 'Réinitialiser le mot de passe' }} <span>→</span>
+          {{
+            auth.loading ? "Réinitialisation…" : "Réinitialiser le mot de passe"
+          }}
+          <span>→</span>
         </button>
       </form>
 
-      <div class="login-footer">
-        <router-link to="/login" class="login-link">← Retour à la connexion</router-link>
+      <div class="auth-switch">
+        <router-link to="/login" class="login-link"
+          >← Retour à la connexion</router-link
+        >
       </div>
     </div>
-  </main>
+  </AuthLayout>
 </template>
-
-<style scoped>
-.forgot-page {
-  min-height: 100vh;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, #0f172a 0%, #1e293b 100%);
-  color: #f8fafc;
-  padding: 2rem 1rem;
-}
-
-.forgot-card {
-  width: 100%;
-  max-width: 440px;
-  background: rgba(30, 41, 59, 0.85);
-  padding: 2.5rem;
-  border-radius: 1.25rem;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.35);
-}
-
-.brand {
-  display: flex;
-  align-items: center;
-  gap: 0.75rem;
-  font-weight: 700;
-  font-size: 1.2rem;
-  margin-bottom: 1.5rem;
-}
-
-.brand-mark {
-  background: #3b82f6;
-  color: white;
-  width: 2rem;
-  height: 2rem;
-  border-radius: 0.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-}
-
-h1 {
-  font-size: 1.75rem;
-  font-weight: 700;
-  margin: 0;
-}
-
-.subtitle {
-  color: #94a3b8;
-  font-size: 0.9rem;
-  margin-bottom: 1.5rem;
-}
-
-label {
-  display: block;
-  font-size: 0.85rem;
-  font-weight: 600;
-  color: #cbd5e1;
-  margin-top: 1rem;
-  margin-bottom: 0.4rem;
-}
-
-input {
-  width: 100%;
-  padding: 0.75rem 1rem;
-  background: rgba(15, 23, 42, 0.6);
-  border: 1px solid rgba(255, 255, 255, 0.15);
-  border-radius: 0.5rem;
-  color: white;
-  font-size: 0.95rem;
-  outline: none;
-  transition: border-color 0.2s;
-}
-
-input:focus {
-  border-color: #3b82f6;
-}
-
-.password-field {
-  position: relative;
-  display: flex;
-  align-items: center;
-}
-
-.toggle-pwd {
-  position: absolute;
-  right: 0.75rem;
-  background: none;
-  border: none;
-  color: #94a3b8;
-  font-size: 0.8rem;
-  cursor: pointer;
-}
-
-.form-error {
-  color: #f87171;
-  background: rgba(239, 68, 68, 0.15);
-  border: 1px solid rgba(239, 68, 68, 0.3);
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.5rem;
-  font-size: 0.85rem;
-  margin-top: 1rem;
-}
-
-.form-success {
-  color: #34d399;
-  background: rgba(16, 185, 129, 0.15);
-  border: 1px solid rgba(16, 185, 129, 0.3);
-  padding: 0.6rem 0.8rem;
-  border-radius: 0.5rem;
-  font-size: 0.85rem;
-  margin-top: 1rem;
-}
-
-.primary-button {
-  width: 100%;
-  padding: 0.85rem;
-  background: #2563eb;
-  color: white;
-  border: none;
-  border-radius: 0.5rem;
-  font-size: 1rem;
-  font-weight: 600;
-  cursor: pointer;
-  margin-top: 1.5rem;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 0.5rem;
-  transition: background 0.2s;
-}
-
-.primary-button:hover:not(:disabled) {
-  background: #1d4ed8;
-}
-
-.login-footer {
-  margin-top: 1.5rem;
-  text-align: center;
-  font-size: 0.9rem;
-}
-
-.login-link {
-  color: #60a5fa;
-  font-weight: 600;
-  text-decoration: none;
-}
-
-.login-link:hover {
-  text-decoration: underline;
-}
-</style>

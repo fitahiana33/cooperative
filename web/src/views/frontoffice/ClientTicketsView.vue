@@ -1,27 +1,246 @@
 <script setup lang="ts">
-import { onMounted, ref } from 'vue'
-import { RouterLink, useRouter } from 'vue-router'
-import { billetService } from '../../services/billet/service'
-import type { Billet } from '../../models/billet/model'
-import { useAuthenticationStore } from '../../stores/authentication/store'
-import { userError } from '../../utils/errors'
+import PaginationControls from "../../components/ui/PaginationControls.vue";
+import ClientNavigation from "../../components/layout/ClientNavigation.vue";
+import PublicLayout from "../../components/layout/PublicLayout.vue";
+import { onMounted, onBeforeUnmount, ref } from "vue";
+import { RouterLink } from "vue-router";
+import { api } from "../../services/api";
+import { billetService } from "../../services/billet/service";
+import type { Billet } from "../../models/billet/model";
+import { useAuthenticationStore } from "../../stores/authentication/store";
+import { userError } from "../../utils/errors";
 
-const auth = useAuthenticationStore()
-const router = useRouter()
-const items = ref<Billet[]>([])
-const loading = ref(true)
-const error = ref('')
-function statusClass(status: string) { return status.toLowerCase() }
-function formatDate(value?: string) { return value ? new Intl.DateTimeFormat('fr-FR', { day: '2-digit', month: 'long', year: 'numeric' }).format(new Date(`${value}T00:00:00`)) : 'Date à confirmer' }
-async function load() { loading.value = true; error.value = ''; try { const result = await billetService.list({ page: 1, page_size: 50, sort_by: 'date_emission', sort_order: 'desc' }); items.value = result.items || [] } catch (value: unknown) { error.value = userError(value, 'Impossible de charger vos billets.', 'CLIENT_TICKETS_ERROR') } finally { loading.value = false } }
-async function logout() { await auth.logout(); await router.push({ name: 'frontoffice' }) }
-onMounted(load)
+const auth = useAuthenticationStore();
+const items = ref<Billet[]>([]);
+const loading = ref(true);
+const error = ref("");
+const search = ref("");
+const status = ref("");
+const sortOrder = ref("desc");
+const page = ref(1);
+const pages = ref(1);
+const total = ref(0);
+const qrSources = ref<Record<number, string>>({});
+const qrLoading = ref<Record<number, boolean>>({});
+const qrErrors = ref<Record<number, string>>({});
+const ticketLabels: Record<string, string> = {
+  VALIDE: "Valide",
+  UTILISE: "Utilisé",
+  ANNULE: "Annulé",
+};
+async function loadQr(id: number) {
+  if (qrLoading.value[id] || qrSources.value[id]) return;
+  qrLoading.value[id] = true;
+  qrErrors.value[id] = "";
+  try {
+    const response = await api.get<Blob>(`/billets/${id}/qr.png`, {
+      responseType: "blob",
+    });
+    qrSources.value[id] = URL.createObjectURL(response.data);
+  } catch {
+    qrErrors.value[id] =
+      "Le QR Code est indisponible. Réessayez ou présentez la référence du billet à la gare.";
+  } finally {
+    qrLoading.value[id] = false;
+  }
+}
+onBeforeUnmount(() =>
+  Object.values(qrSources.value).forEach((url) => URL.revokeObjectURL(url)),
+);
+function statusClass(status: string) {
+  return status.toLowerCase();
+}
+function formatDate(value?: string) {
+  return value
+    ? new Intl.DateTimeFormat("fr-FR", {
+        day: "2-digit",
+        month: "long",
+        year: "numeric",
+      }).format(new Date(`${value}T00:00:00`))
+    : "Date à confirmer";
+}
+async function load() {
+  loading.value = true;
+  error.value = "";
+  try {
+    const result = await billetService.list({
+      page: page.value,
+      page_size: 12,
+      search: search.value.trim() || undefined,
+      statut: status.value || undefined,
+      sort_by: "date_emission",
+      sort_order: sortOrder.value,
+    });
+    items.value = result.items || [];
+    total.value = result.total || 0;
+    pages.value = Math.max(1, Math.ceil(total.value / 12));
+  } catch (value: unknown) {
+    error.value = userError(
+      value,
+      "Impossible de charger vos billets.",
+      "CLIENT_TICKETS_ERROR",
+    );
+  } finally {
+    loading.value = false;
+  }
+}
+onMounted(load);
 </script>
 
 <template>
-  <main class="client-ticket-page"><header class="client-ticket-header"><RouterLink class="client-ticket-brand" to="/"><span>C</span> Coopérative</RouterLink><nav><RouterLink to="/espace-client">Mon espace</RouterLink><RouterLink to="/mes-reservations">Mes réservations</RouterLink><RouterLink class="active" to="/mes-billets">Mes billets</RouterLink><RouterLink to="/mon-profil">Mon profil</RouterLink></nav><button type="button" @click="logout">Déconnexion</button></header><section class="client-ticket-hero"><p>ESPACE PASSAGER</p><h1>Mes billets</h1><span>Vos billets confirmés et leurs informations d’embarquement.</span></section><section class="client-ticket-content"><div class="client-ticket-heading"><div><p>VOYAGES CONFIRMÉS</p><h2>{{ items.length }} billet{{ items.length > 1 ? 's' : '' }}</h2></div><RouterLink class="client-ticket-primary" to="/recherche">Réserver un voyage →</RouterLink></div><p v-if="loading" class="client-ticket-state">Chargement de vos billets…</p><p v-else-if="error" class="client-ticket-error" role="alert">{{ error }} <button type="button" @click="load">Réessayer</button></p><div v-else-if="items.length" class="client-ticket-grid"><article v-for="item in items" :key="item.id" class="client-ticket-card"><div class="client-ticket-card-top"><span class="client-ticket-status" :class="statusClass(item.statut)">{{ item.statut }}</span><strong>{{ item.numero_billet }}</strong></div><h3>{{ item.destination_depart || 'Départ' }} → {{ item.destination_arrivee || 'Destination' }}</h3><p>{{ formatDate(item.date_depart) }} · départ à {{ item.heure_depart?.slice(0, 5) || '—' }}</p><div class="client-ticket-details"><span><small>Place</small><b>{{ item.numero_place || '—' }}</b></span><span><small>Réservation</small><b>{{ item.numero_reservation || '—' }}</b></span><span><small>Coopérative</small><b>{{ item.nom_cooperative || '—' }}</b></span></div><div class="client-ticket-qr"><small>Référence QR</small><code>{{ item.qr_code_uuid }}</code></div></article></div><div v-else class="client-ticket-empty"><strong>Aucun billet disponible.</strong><span>Un billet apparaît après confirmation de l’avance de votre réservation.</span><RouterLink class="client-ticket-primary" to="/mes-reservations">Voir mes réservations</RouterLink></div></section></main>
+  <PublicLayout class="client-ticket-page"
+    ><ClientNavigation />
+    <section class="client-ticket-hero">
+      <p>ESPACE PASSAGER</p>
+      <h1>Mes billets</h1>
+      <span>Vos billets confirmés et leurs informations d’embarquement.</span>
+    </section>
+    <section class="client-ticket-content">
+      <div class="client-ticket-heading">
+        <div>
+          <p>VOYAGES CONFIRMÉS</p>
+          <h2>{{ loading ? "…" : total }} billet{{ total > 1 ? "s" : "" }}</h2>
+        </div>
+        <RouterLink class="client-ticket-primary" to="/recherche"
+          >Réserver un voyage →</RouterLink
+        >
+      </div>
+      <form
+        class="client-history-filters"
+        @submit.prevent="
+          page = 1;
+          load();
+        "
+      >
+        <label
+          >Référence<input
+            v-model="search"
+            type="search"
+            placeholder="Rechercher une billet" /></label
+        ><label
+          >Statut<select
+            v-model="status"
+            @change="
+              page = 1;
+              load();
+            "
+          >
+            <option value="">Tous les statuts</option>
+            <option value="VALIDE">Valide</option>
+            <option value="UTILISE">Utilisé</option>
+            <option value="ANNULE">Annulé</option>
+          </select></label
+        ><label
+          >Ordre chronologique<select
+            v-model="sortOrder"
+            @change="
+              page = 1;
+              load();
+            "
+          >
+            <option value="desc">Plus récents d’abord</option>
+            <option value="asc">Plus anciens d’abord</option>
+          </select></label
+        ><button
+          class="client-ticket-primary"
+          type="submit"
+          :disabled="loading"
+        >
+          Rechercher
+        </button>
+      </form>
+      <p v-if="loading" class="client-ticket-state">
+        Chargement de vos billets…
+      </p>
+      <p v-else-if="error" class="client-ticket-error" role="alert">
+        {{ error }} <button type="button" @click="load">Réessayer</button>
+      </p>
+      <div v-else-if="items.length" class="client-ticket-grid">
+        <article
+          v-for="item in items"
+          :key="item.id"
+          class="client-ticket-card"
+        >
+          <div class="client-ticket-card-top">
+            <span
+              class="client-ticket-status"
+              :class="statusClass(item.statut)"
+              >{{ ticketLabels[item.statut] || item.statut }}</span
+            ><strong>{{ item.numero_billet }}</strong>
+          </div>
+          <h3>
+            {{ item.destination_depart || "Départ" }} →
+            {{ item.destination_arrivee || "Destination" }}
+          </h3>
+          <p>
+            {{ formatDate(item.date_depart) }} · départ à
+            {{ item.heure_depart?.slice(0, 5) || "—" }}
+          </p>
+          <div class="client-ticket-details">
+            <span
+              ><small>Place</small><b>{{ item.numero_place || "—" }}</b></span
+            ><span
+              ><small>Réservation</small
+              ><b>{{ item.numero_reservation || "—" }}</b></span
+            ><span
+              ><small>Coopérative</small
+              ><b>{{ item.nom_cooperative || "—" }}</b></span
+            >
+          </div>
+          <div v-if="item.statut !== 'ANNULE'" class="client-ticket-qr">
+            <template v-if="qrSources[item.id]"
+              ><img
+                :src="qrSources[item.id]"
+                :alt="`QR Code du billet ${item.numero_billet}`"
+                width="160"
+                height="160"
+              /><small>Présentez ce QR Code au contrôle d’embarquement.</small
+              ><a
+                class="client-outline"
+                :href="qrSources[item.id]"
+                :download="`${item.numero_billet}.png`"
+                >Enregistrer le QR Code</a
+              ></template
+            ><button
+              v-else
+              class="client-outline"
+              type="button"
+              :disabled="qrLoading[item.id]"
+              @click="loadQr(item.id)"
+            >
+              {{ qrLoading[item.id] ? "Chargement…" : "Afficher mon QR Code" }}
+            </button>
+            <p
+              v-if="qrErrors[item.id]"
+              class="client-ticket-error"
+              role="alert"
+            >
+              {{ qrErrors[item.id] }}
+            </p>
+          </div>
+        </article>
+      </div>
+      <div v-else class="client-ticket-empty">
+        <strong>Aucun billet pour ces critères.</strong
+        ><span
+          >Un billet apparaît après confirmation de l’avance de votre
+          réservation.</span
+        ><RouterLink class="client-ticket-primary" to="/mes-reservations"
+          >Voir mes réservations</RouterLink
+        >
+      </div>
+      <PaginationControls
+        v-if="!error"
+        :page="page"
+        :pages="pages"
+        :total="total"
+        :loading="loading"
+        @change="
+          (next) => {
+            page = next;
+            load();
+          }
+        "
+      /></section
+  ></PublicLayout>
 </template>
-
-<style scoped>
-.client-ticket-page{min-height:100vh;color:#18324b;background:#f4f7fb;font-family:Inter,system-ui,sans-serif}.client-ticket-header{display:flex;align-items:center;gap:2rem;padding:.85rem max(1rem,calc((100vw - 1240px)/2));border-bottom:1px solid #e4ecf2;background:#fff}.client-ticket-brand{display:inline-flex;align-items:center;gap:.6rem;color:#123452;font-weight:900;text-decoration:none}.client-ticket-brand span{display:grid;place-items:center;width:2.15rem;height:2.15rem;border-radius:.55rem;color:#fff;background:#ef8d2f}.client-ticket-header nav{display:flex;gap:1.1rem;margin-left:auto}.client-ticket-header nav a,.client-ticket-header button{border:0;color:#607487;background:none;font-size:.78rem;font-weight:800;text-decoration:none;cursor:pointer}.client-ticket-header nav a.active,.client-ticket-header nav a:hover,.client-ticket-header button:hover{color:#e9782a}.client-ticket-hero{padding:3.7rem max(1rem,calc((100vw - 1180px)/2));color:#fff;background:linear-gradient(115deg,#0b2c4b,#164d74 70%,#d8752e)}.client-ticket-hero p,.client-ticket-heading>div>p{margin:0 0 .55rem;color:#ffc270;font-size:.7rem;font-weight:900;letter-spacing:.15em}.client-ticket-hero h1{margin:0;font:800 clamp(2rem,4vw,3.25rem)/1.1 Manrope,sans-serif;letter-spacing:-.06em}.client-ticket-hero span{display:block;margin-top:.75rem;color:#d8e4ec}.client-ticket-content{max-width:1180px;margin:auto;padding:3.2rem 1rem}.client-ticket-heading{display:flex;align-items:end;justify-content:space-between;gap:1rem;margin-bottom:1.5rem}.client-ticket-heading>div>p{color:#e9782a}.client-ticket-heading h2{margin:0;color:#123452;font:800 1.8rem Manrope,sans-serif}.client-ticket-primary{display:inline-flex;align-items:center;justify-content:center;min-height:42px;padding:0 1rem;border-radius:.4rem;color:#fff;background:#ef7828;font-size:.78rem;font-weight:800;text-decoration:none}.client-ticket-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:1rem}.client-ticket-card{padding:1.3rem;border:1px solid #e1e9ef;border-radius:.7rem;background:#fff;box-shadow:0 10px 25px #18324b0b}.client-ticket-card-top{display:flex;justify-content:space-between;gap:1rem;align-items:center}.client-ticket-card-top strong{color:#7b8b99;font-size:.7rem}.client-ticket-status{padding:.35rem .55rem;border-radius:99px;color:#16704d;background:#e8f8ef;font-size:.68rem;font-weight:900}.client-ticket-status.annule{color:#a13f36;background:#fff0ed}.client-ticket-card h3{margin:1rem 0 .35rem;color:#123452;font:800 1.1rem Manrope,sans-serif}.client-ticket-card>p{margin:0;color:#63798a;font-size:.8rem}.client-ticket-details{display:grid;grid-template-columns:repeat(3,1fr);gap:.7rem;margin-top:1.1rem;padding-top:1rem;border-top:1px solid #edf1f4}.client-ticket-details span{display:grid;gap:.2rem}.client-ticket-details small,.client-ticket-qr small{color:#8a9aa7;font-size:.66rem}.client-ticket-details b{font-size:.8rem}.client-ticket-qr{display:grid;gap:.35rem;margin-top:1rem;padding:.75rem;border-radius:.4rem;background:#f5f8fa}.client-ticket-qr code{overflow:hidden;color:#496174;font-size:.68rem;text-overflow:ellipsis}.client-ticket-state,.client-ticket-empty{display:grid;place-items:center;gap:.6rem;min-height:220px;padding:2rem;border:1px dashed #d7e1e8;border-radius:.7rem;color:#718596;text-align:center}.client-ticket-empty strong{color:#18324b}.client-ticket-empty .client-ticket-primary{margin-top:.5rem}.client-ticket-error{padding:1rem;border-radius:.5rem;color:#a43f36;background:#fff0ed}.client-ticket-error button{margin-left:.5rem;border:0;color:#a43f36;background:none;font-weight:800;cursor:pointer}@media(max-width:700px){.client-ticket-header{justify-content:space-between}.client-ticket-header nav{display:none}.client-ticket-heading{align-items:start;flex-direction:column}.client-ticket-grid{grid-template-columns:1fr}.client-ticket-details{grid-template-columns:1fr 1fr}}@media(max-width:440px){.client-ticket-content{padding-right:.75rem;padding-left:.75rem}.client-ticket-details{grid-template-columns:1fr}}
-</style>

@@ -16,7 +16,7 @@ class FakeSession:
         self.added = []
         self.commits = 0
 
-    def get(self, model, identifier):
+    def get(self, model, identifier, **kwargs):
         direct = self.objects.get((model, identifier))
         if direct is not None:
             return direct
@@ -27,6 +27,9 @@ class FakeSession:
 
     def add(self, item):
         self.added.append(item)
+
+    def execute(self, statement):
+        return SimpleNamespace(all=lambda: [])
 
     def commit(self):
         self.commits += 1
@@ -71,7 +74,7 @@ class BusinessRulesTests(unittest.TestCase):
             statut=PaiementStatus.VALIDE,
             reservation=reservation,
         )
-        caisse = SimpleNamespace(id=4, statut=CaisseStatus.OUVERTE)
+        caisse = SimpleNamespace(id=4, statut=CaisseStatus.OUVERTE, montant_ouverture=50000)
         session = FakeSession({"payment": payment, "caisse": caisse})
 
         service = FinanceService(session)

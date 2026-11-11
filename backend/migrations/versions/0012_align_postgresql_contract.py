@@ -28,6 +28,7 @@ _FK_TABLES = (
 
 
 def _drop_foreign_keys(bind) -> list[dict[str, str]]:
+    schema_name = bind.execute(sa.text("SELECT current_schema()")).scalar_one()
     rows = bind.execute(
         sa.text(
             """
@@ -43,7 +44,12 @@ def _drop_foreign_keys(bind) -> list[dict[str, str]]:
         {"tables": list(_FK_TABLES)},
     ).mappings().all()
     for row in rows:
-        op.drop_constraint(row["constraint_name"], row["table_name"], type_="foreignkey")
+        op.drop_constraint(
+            row["constraint_name"],
+            row["table_name"],
+            type_="foreignkey",
+            schema=schema_name,
+        )
     return [dict(row) for row in rows]
 
 
@@ -106,8 +112,9 @@ def _create_indexes() -> None:
 
 def upgrade() -> None:
     bind = op.get_bind()
+    schema_name = bind.execute(sa.text("SELECT current_schema()")).scalar_one()
     inspector = sa.inspect(bind)
-    if not inspector.has_table("users"):
+    if not inspector.has_table("users", schema=schema_name):
         return
 
     _drop_foreign_keys(bind)
@@ -170,7 +177,47 @@ def upgrade() -> None:
         ("vehicule_chauffeurs", "fk_vehicule_chauffeurs_chauffeur", "chauffeurs", ["id_chauffeur"], ["id_chauffeur"]),
     )
     for table, name, referred_table, local_cols, remote_cols in foreign_keys:
-        op.create_foreign_key(name, table, referred_table, local_cols, remote_cols, ondelete="CASCADE" if table in {"users_roles", "roles_permissions", "gare_cooperatives", "cooperative_members", "vehicule_documents", "vehicule_chauffeurs"} else ("SET NULL" if name == "fk_cooperative_responsable" else "RESTRICT"))
+        exists = bind.execute(
+            sa.text(
+                """
+                SELECT 1
+                FROM pg_constraint c
+                JOIN pg_class child ON child.oid = c.conrelid
+                JOIN pg_namespace n ON n.oid = child.relnamespace
+                WHERE c.contype = 'f'
+                  AND n.nspname = :schema_name
+                  AND child.relname = :table_name
+                  AND c.conname = :constraint_name
+                """
+            ),
+            {
+                "schema_name": schema_name,
+                "table_name": table,
+                "constraint_name": name,
+            },
+        ).first()
+        if exists:
+            continue
+        op.create_foreign_key(
+            name,
+            table,
+            referred_table,
+            local_cols,
+            remote_cols,
+            source_schema=schema_name,
+            referent_schema=schema_name,
+            ondelete="CASCADE"
+            if table
+            in {
+                "users_roles",
+                "roles_permissions",
+                "gare_cooperatives",
+                "cooperative_members",
+                "vehicule_documents",
+                "vehicule_chauffeurs",
+            }
+            else ("SET NULL" if name == "fk_cooperative_responsable" else "RESTRICT"),
+        )
 
     _create_indexes()
 

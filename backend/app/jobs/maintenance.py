@@ -16,6 +16,7 @@ from app.models.billet import Billet, BilletStatus
 from app.models.depart import Depart, DepartStatus
 from app.models.reservation import Reservation, ReservationPlace, ReservationStatus
 from app.services.chauffeur.service import ChauffeurService
+from app.services.depart.status import mark_overdue_departures
 from app.services.tarif.service import activate_scheduled_tarifs
 
 logger = logging.getLogger("cooperative.jobs")
@@ -77,11 +78,16 @@ def purge_revoked_tokens(db: Session) -> int:
 
 
 def run_maintenance(db: Session) -> dict[str, int]:
+    from app.services.dashboard import DashboardService
+    from app.services.notification.delivery import deliver_notifications
     result = {
         "reservations_expirees": expire_reservations(db),
+        "departs_retardes": mark_overdue_departures(db),
         "reservations_terminees": close_finished_departures(db),
         "jetons_purges": purge_revoked_tokens(db),
         "tarifs_actives": activate_scheduled_tarifs(db),
+        "rappels_crees": DashboardService(db).generate_reminders(),
+        "notifications_envoyees": deliver_notifications(db),
     }
     ChauffeurService(db).synchronize()
     return result
@@ -89,14 +95,17 @@ def run_maintenance(db: Session) -> dict[str, int]:
 
 def run_with_lock(db: Session) -> dict[str, int] | None:
     """Run the maintenance unless another process is already running it."""
-    acquired = db.scalar(select(func.pg_try_advisory_lock(MAINTENANCE_LOCK_ID)))
-    if not acquired:
-        return None
-    try:
-        return run_maintenance(db)
-    finally:
-        db.execute(select(func.pg_advisory_unlock(MAINTENANCE_LOCK_ID)))
-        db.commit()
+    # Maintenance commits repeatedly; pin its session-level lock to a separate
+    # connection instead of returning a locked connection to the pool.
+    with db.get_bind().connect() as lock_connection:
+        acquired = lock_connection.scalar(select(func.pg_try_advisory_lock(MAINTENANCE_LOCK_ID)))
+        if not acquired:
+            return None
+        try:
+            return run_maintenance(db)
+        finally:
+            lock_connection.execute(select(func.pg_advisory_unlock(MAINTENANCE_LOCK_ID)))
+            lock_connection.commit()
 
 
 if __name__ == "__main__":

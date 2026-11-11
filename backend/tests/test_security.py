@@ -77,5 +77,5 @@ def test_ticket_qr_requires_authentication_and_ownership(client, db, login):
         assert response.status_code == 200 and response.content[:4] == b"\x89PNG"
     stranger = "passager25@cooperative.com" if owner.email != "passager25@cooperative.com" else "passager24@cooperative.com"
     assert client.get(f"{API}/billets/{billet.id}/qr.png", headers=login(stranger)).status_code == 404
-    staff = client.get(f"{API}/billets/{billet.id}/qr.png", headers=login("responsable.gare1@cooperative.com"))
+    staff = client.get(f"{API}/billets/{billet.id}/qr.png", headers=login("admin@cooperative.com"))
     assert staff.status_code == 200

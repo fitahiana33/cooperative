@@ -38,12 +38,19 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
   }
 
   Future<void> _loadDestinations() async {
-    setState(() { _loadingDestinations = true; _error = null; });
+    setState(() {
+      _loadingDestinations = true;
+      _error = null;
+    });
     try {
-      final values = await ref.read(travelRepositoryProvider).listDestinations();
+      final values =
+          await ref.read(travelRepositoryProvider).listDestinations();
       if (mounted) setState(() => _destinations = values);
     } catch (error) {
-      if (mounted) setState(() => _error = userError(error, 'Impossible de charger les villes.', 'MOBILE_DESTINATIONS_ERROR'));
+      if (mounted) {
+        setState(() => _error = userError(error,
+            'Impossible de charger les villes.', 'MOBILE_DESTINATIONS_ERROR'));
+      }
     } finally {
       if (mounted) setState(() => _loadingDestinations = false);
     }
@@ -51,7 +58,19 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
 
   Future<void> _search({bool more = false}) async {
     if (_loading) return;
-    setState(() { _loading = true; _error = null; if (!more) { _page = 1; _results.clear(); } });
+    if (_originId != null && _originId == _destinationId) {
+      setState(() =>
+          _error = 'Le départ et la destination doivent être différents.');
+      return;
+    }
+    setState(() {
+      _loading = true;
+      _error = null;
+      if (!more) {
+        _page = 1;
+        _results.clear();
+      }
+    });
     try {
       final result = await ref.read(travelRepositoryProvider).searchDepartures(
             originId: _originId,
@@ -67,7 +86,10 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
         _searched = true;
       });
     } catch (error) {
-      if (mounted) setState(() => _error = userError(error, 'La recherche a échoué.', 'MOBILE_SEARCH_ERROR'));
+      if (mounted) {
+        setState(() => _error =
+            userError(error, 'La recherche a échoué.', 'MOBILE_SEARCH_ERROR'));
+      }
     } finally {
       if (mounted) setState(() => _loading = false);
     }
@@ -77,7 +99,9 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
     final today = DateTime.now();
     final picked = await showDatePicker(
       context: context,
-      initialDate: _date,
+      initialDate: _date.isBefore(DateTime(today.year, today.month, today.day))
+          ? today
+          : _date,
       firstDate: DateTime(today.year, today.month, today.day),
       lastDate: today.add(const Duration(days: 90)),
       locale: const Locale('fr', 'FR'),
@@ -91,15 +115,20 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
         _destinationId = origin;
       });
 
-  Widget _cityField(String label, int? value, ValueChanged<int?> onChanged) => DropdownButtonFormField<int?>(
+  Widget _cityField(String label, int? value, ValueChanged<int?> onChanged) =>
+      DropdownButtonFormField<int?>(
+        key: ValueKey('$label-$value'),
         initialValue: value,
         isExpanded: true,
-        decoration: InputDecoration(labelText: label, border: const OutlineInputBorder()),
+        decoration: InputDecoration(
+            labelText: label, border: const OutlineInputBorder()),
         items: [
-          const DropdownMenuItem<int?>(value: null, child: Text('Toutes les villes')),
-          ..._destinations.map((city) => DropdownMenuItem<int?>(value: city.id, child: Text(city.name))),
+          const DropdownMenuItem<int?>(
+              value: null, child: Text('Toutes les villes')),
+          ..._destinations.map((city) =>
+              DropdownMenuItem<int?>(value: city.id, child: Text(city.name))),
         ],
-        onChanged: onChanged,
+        onChanged: _loadingDestinations || _loading ? null : onChanged,
       );
 
   @override
@@ -108,12 +137,18 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
         body: ListView(padding: const EdgeInsets.all(16), children: [
           if (_loadingDestinations) const LinearProgressIndicator(),
           Row(crossAxisAlignment: CrossAxisAlignment.center, children: [
-            Expanded(child: Column(children: [
-              _cityField('Départ', _originId, (value) => setState(() => _originId = value)),
+            Expanded(
+                child: Column(children: [
+              _cityField('Départ', _originId,
+                  (value) => setState(() => _originId = value)),
               const SizedBox(height: 12),
-              _cityField('Arrivée', _destinationId, (value) => setState(() => _destinationId = value)),
+              _cityField('Arrivée', _destinationId,
+                  (value) => setState(() => _destinationId = value)),
             ])),
-            IconButton(tooltip: 'Inverser départ et arrivée', onPressed: _swap, icon: const Icon(Icons.swap_vert)),
+            IconButton(
+                tooltip: 'Inverser départ et arrivée',
+                onPressed: _swap,
+                icon: const Icon(Icons.swap_vert)),
           ]),
           const SizedBox(height: 12),
           OutlinedButton.icon(
@@ -123,20 +158,30 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
           ),
           const SizedBox(height: 12),
           ElevatedButton.icon(
-            onPressed: _loading ? null : () => _search(),
+            onPressed:
+                _loading || _loadingDestinations ? null : () => _search(),
             icon: const Icon(Icons.search),
-            label: Text(_loading && _results.isEmpty ? 'Recherche…' : 'Rechercher'),
+            label: Text(
+                _loading && _results.isEmpty ? 'Recherche…' : 'Rechercher'),
           ),
           const SizedBox(height: 16),
-          if (_error != null) ...[ErrorBanner(message: _error!), const SizedBox(height: 12)],
+          if (_error != null) ...[
+            ErrorBanner(message: _error!),
+            const SizedBox(height: 12)
+          ],
           if (_searched && _results.isEmpty && !_loading)
             const Padding(
               padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text('Aucun départ réservable pour ces critères. Essayez une autre date.', textAlign: TextAlign.center, style: TextStyle(color: Colors.white70)),
+              child: Text(
+                  'Aucun départ réservable pour ces critères. Essayez une autre date.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Colors.white70)),
             ),
           ..._results.map(_departureCard),
           if (_hasMore)
-            TextButton(onPressed: _loading ? null : () => _search(more: true), child: Text(_loading ? 'Chargement…' : 'Voir plus de départs')),
+            TextButton(
+                onPressed: _loading ? null : () => _search(more: true),
+                child: Text(_loading ? 'Chargement…' : 'Voir plus de départs')),
         ]),
       );
 
@@ -146,28 +191,46 @@ class _TripSearchPageState extends ConsumerState<TripSearchPage> {
         child: InkWell(
           borderRadius: BorderRadius.circular(12),
           onTap: () async {
-            await Navigator.push(context, MaterialPageRoute(builder: (_) => DeparturePage(departure: departure)));
+            await Navigator.push(
+                context,
+                MaterialPageRoute(
+                    builder: (_) => DeparturePage(departure: departure)));
             if (mounted) _search();
           },
           child: Padding(
             padding: const EdgeInsets.all(14),
-            child: Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
+            child:
+                Column(crossAxisAlignment: CrossAxisAlignment.start, children: [
               Row(children: [
-                Text(Fmt.time(departure.time), style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold)),
+                Text(Fmt.time(departure.time),
+                    style: const TextStyle(
+                        fontSize: 22, fontWeight: FontWeight.bold)),
                 const SizedBox(width: 12),
-                Expanded(child: Text('${departure.origin} → ${departure.destination}', style: const TextStyle(fontSize: 16, fontWeight: FontWeight.w600))),
+                Expanded(
+                    child: Text(
+                        '${departure.origin} → ${departure.destination}',
+                        style: const TextStyle(
+                            fontSize: 16, fontWeight: FontWeight.w600))),
                 StatusChip(departure.status),
               ]),
               const SizedBox(height: 8),
-              Text('${departure.cooperative} · ${departure.vehiclePlate}', style: const TextStyle(color: Colors.white70)),
+              Text('${departure.cooperative} · ${departure.vehiclePlate}',
+                  style: const TextStyle(color: Colors.white70)),
               const SizedBox(height: 6),
-              Row(children: [
-                const Icon(Icons.event_seat, size: 16, color: Colors.white54),
-                const SizedBox(width: 4),
-                Text('${departure.freeSeats} / ${departure.seats} places libres', style: const TextStyle(color: Colors.white70)),
-                const Spacer(),
-                Text(Fmt.money(departure.price, departure.currency), style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: AppTheme.primaryAccent)),
-              ]),
+              Wrap(
+                  spacing: 16,
+                  runSpacing: 8,
+                  crossAxisAlignment: WrapCrossAlignment.center,
+                  children: [
+                    Text(
+                        '${departure.freeSeats} / ${departure.seats} places libres',
+                        style: const TextStyle(color: Colors.white70)),
+                    Text(Fmt.money(departure.price, departure.currency),
+                        style: const TextStyle(
+                            fontSize: 16,
+                            fontWeight: FontWeight.bold,
+                            color: AppTheme.primaryAccent)),
+                  ]),
             ]),
           ),
         ),

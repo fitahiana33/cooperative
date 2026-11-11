@@ -10,12 +10,13 @@ from app.services.tarif.service import activate_scheduled_tarifs
 from tests.helpers import API, book, bookable_departure, free_place_ids, open_caisse_for, pay
 from tests.test_reservations import new_passenger
 
-MANAGER = "responsable.gare1@cooperative.com"
+MANAGER = "admin@cooperative.com"
 
 
 def schedule_payload(depart: Depart, *, day, at) -> dict:
     return {
         "id_itineraire": depart.id_itineraire, "id_cooperative": depart.id_cooperative,
+        "id_gare": depart.id_gare,
         "id_vehicule": depart.id_vehicule, "id_chauffeur": depart.id_chauffeur, "id_tarif": depart.id_tarif,
         "date_depart": day.isoformat(), "heure_depart": at.strftime("%H:%M:%S"),
     }
@@ -70,12 +71,17 @@ def test_reducing_seats_below_reserved_ones_is_a_clear_refusal(client, db, login
     assert response.status_code in (409, 422), response.text
 
 
-def test_boarding_refuses_ticket_of_another_departure(client, db, login):
+def test_boarding_refuses_ticket_of_another_departure(client, db, login, monkeypatch):
     """I-B09: only the date used to be checked."""
+    # Keep the boarding window on the same calendar day, even when this test
+    # runs after 22:00 at the station.
+    fixed_now = local_now().replace(hour=10, minute=0, second=0, microsecond=0)
+    monkeypatch.setattr("app.core.clock.local_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.reservation.service.local_now", lambda: fixed_now)
     agent = login(MANAGER)
     passenger = new_passenger(client)
     depart = bookable_departure(db)
-    db.execute(update(Depart).where(Depart.id == depart.id).values(date_depart=local_today(), heure_depart=(local_now() + timedelta(hours=2)).time().replace(microsecond=0)))
+    db.execute(update(Depart).where(Depart.id == depart.id).values(date_depart=fixed_now.date(), heure_depart=(fixed_now + timedelta(hours=2)).time().replace(microsecond=0)))
     db.commit()
     reservation = book(client, passenger, depart.id, free_place_ids(db, depart.id, 1)).json()
     assert pay(client, agent, reservation, open_caisse_for(db, depart).id).status_code in (200, 201)
