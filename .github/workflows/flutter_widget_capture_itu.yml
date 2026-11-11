@@ -23,6 +23,8 @@ jobs:
           flutter pub get
           export ROBOTO_FONT_PATH="$(find "$FLUTTER_ROOT" -iname 'Roboto-Regular.ttf' | head -n 1)"
           echo "Roboto source: $ROBOTO_FONT_PATH"
+          export MATERIAL_ICONS_FONT_PATH="$(find "$FLUTTER_ROOT" -iname 'MaterialIcons-Regular.otf' | head -n 1)"
+          echo "Material icons source: $MATERIAL_ICONS_FONT_PATH"
           flutter test --update-goldens test/memoire_captures_test.dart
           mkdir -p ../preuves/flutter_widgets
           cp -v test/goldens/*.png ../preuves/flutter_widgets/
