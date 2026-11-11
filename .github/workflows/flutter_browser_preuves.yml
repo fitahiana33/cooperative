@@ -1,0 +1,42 @@
+name: Flutter mobile UI - browser evidence
+on:
+  push:
+    branches:
+      - evidence/flutter-browser-2026-11-11
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  flutter-web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Compiler la vraie interface Flutter pour navigateur
+        run: |
+          mkdir -p preuves/flutter
+          cd mobile
+          flutter pub get > ../preuves/flutter/pubget.log 2>&1
+          flutter build web --release --dart-define=MOBILE_API_BASE_URL=https://cooperative-api-3yuz.onrender.com/api/v1 > ../preuves/flutter/build_web.log 2>&1
+      - name: Lancer Flutter et capturer en viewport mobile
+        run: |
+          python3 -m http.server 8080 --directory mobile/build/web >/tmp/flutter_server.log 2>&1 &
+          sleep 6
+          npm install --no-save playwright@1.56.1
+          npx playwright install --with-deps chromium
+          npx playwright screenshot --browser chromium --viewport-size "390,844" --wait-for-timeout 9000 http://127.0.0.1:8080/ preuves/flutter/flutter_mobile_browser.png
+          curl -Is http://127.0.0.1:8080/ | head -4 > preuves/flutter/http_headers.txt
+          printf 'Vraie interface Flutter executee dans Chromium a une largeur de 390 px. Ceci n est pas une capture Android native.\n' > preuves/flutter/NOTICE.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: captures-flutter-interface-mobile
+          path: preuves/flutter
+          if-no-files-found: warn
