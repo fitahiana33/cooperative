@@ -1,0 +1,35 @@
+name: Captures widgets Flutter pour memoire
+on:
+  push:
+    branches:
+      - evidence/flutter-goldens-itu-2026-11-11
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  renders:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+          cache: true
+      - name: Capturer les widgets reels de l'application
+        shell: bash
+        run: |
+          cd mobile
+          flutter pub get
+          export ROBOTO_FONT_PATH="$(find "$FLUTTER_ROOT" -iname 'Roboto-Regular.ttf' | head -n 1)"
+          echo "Roboto source: $ROBOTO_FONT_PATH"
+          flutter test --update-goldens test/memoire_captures_test.dart
+          mkdir -p ../preuves/flutter_widgets
+          cp -v test/goldens/*.png ../preuves/flutter_widgets/
+          printf '%s\n' 'Screenshots of actual Flutter application widgets, executed under flutter_test using deterministic demo fixtures, not a native emulator run or a live backend session.' > ../preuves/flutter_widgets/NOTICE.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: memoire-captures-flutter-widgets
+          path: preuves/flutter_widgets
+          if-no-files-found: warn
