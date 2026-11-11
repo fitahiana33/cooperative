@@ -11,10 +11,12 @@ import 'package:cooperative_mobile/presentation/pages/passenger/payment_page.dar
 class PaymentRepository implements TravelRepository {
   final completion = Completer<OnlinePayment>();
   int calls = 0;
+  String? lastPaymentPhone;
   @override
   Future<OnlinePayment> createOnlinePayment(
       int reservationId, double amount, String provider, String paymentPhone) {
     calls++;
+    lastPaymentPhone = paymentPhone;
     return completion.future;
   }
 
@@ -56,6 +58,7 @@ void main() {
     await tester.tap(find.text('Continuer le paiement'));
     await tester.pump();
     expect(repository.calls, 1);
+    expect(repository.lastPaymentPhone, '0340011122');
     expect(find.text('Préparation…'), findsOneWidget);
     await tester.tap(find.text('Préparation…'));
     expect(repository.calls, 1);

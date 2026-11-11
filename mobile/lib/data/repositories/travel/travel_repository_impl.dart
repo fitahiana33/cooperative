@@ -27,9 +27,10 @@ class TravelRepositoryImpl implements TravelRepository {
   Future<OnlinePayment> createOnlinePayment(int reservationId, double amount,
       String provider, String paymentPhone) async {
     final pending = await _api.get('/paiements/en-cours/$reservationId');
-    if (pending.data != null)
+    if (pending.data != null) {
       return OnlinePayment.fromJson(
           Map<String, dynamic>.from(pending.data as Map));
+    }
     final preferences = await SharedPreferences.getInstance();
     final storageKey = 'payment-command:$reservationId:$amount:$provider';
     var key = preferences.getString(storageKey);

@@ -180,11 +180,12 @@ class _VehiculesPageState extends State<VehiculesPage> {
       await widget.apiClient.patch('/vehicules/${item['id']}/toggle');
       await _load(showLoading: false);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _error = userError(
             error,
             'Impossible de modifier le statut.',
             'MOBILE_VEHICLE_TOGGLE_ERROR'));
+      }
     }
   }
 
@@ -194,11 +195,12 @@ class _VehiculesPageState extends State<VehiculesPage> {
       await widget.apiClient.delete('/vehicules/${item['id']}');
       await _load(showLoading: false);
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _error = userError(
             error,
             'Impossible de supprimer le vehicule.',
             'MOBILE_VEHICLE_DELETE_ERROR'));
+      }
     }
   }
 
@@ -492,8 +494,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                             ? null
                             : (value) => setDialogState(() {
                                   etat = value ?? 'BON_ETAT';
-                                  if (etat == 'HORS_SERVICE')
+                                  if (etat == 'HORS_SERVICE') {
                                     disponibilite = false;
+                                  }
                                 }),
                       ),
                       SwitchListTile(
@@ -559,8 +562,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                 onPressed: submitting
                     ? null
                     : () async {
-                        if (!(formKey.currentState?.validate() ?? false))
+                        if (!(formKey.currentState?.validate() ?? false)) {
                           return;
+                        }
                         setDialogState(() {
                           submitting = true;
                           formError = null;
@@ -608,8 +612,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                             await _uploadDocumentDraft(
                                 savedVehicle['id'] as int, document);
                           }
-                          if (dialogContext.mounted)
+                          if (dialogContext.mounted) {
                             Navigator.pop(dialogContext);
+                          }
                           await _load(showLoading: false);
                         } catch (error) {
                           setDialogState(() {
@@ -671,9 +676,10 @@ class _VehiculesPageState extends State<VehiculesPage> {
         ),
       );
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _error = userError(error,
             'Impossible de charger le detail.', 'MOBILE_VEHICLE_DETAIL_ERROR'));
+      }
     }
   }
 
@@ -817,8 +823,8 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                     onPressed: submitting
                                         ? null
                                         : () async {
-                                            final result = await FilePicker
-                                              .pickFiles(
+                                            final result =
+                                                await FilePicker.pickFiles(
                                                     type: FileType.custom,
                                                     allowedExtensions: [
                                                   'pdf',
@@ -830,10 +836,10 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                                   'xls',
                                                   'xlsx'
                                                 ]);
-                                            if (result.isNotEmpty)
+                                            if (result.isNotEmpty) {
                                               setDialogState(() =>
-                                                  selectedFile =
-                                                  result.first);
+                                                  selectedFile = result.first);
+                                            }
                                           },
                                     icon: const Icon(Icons.attach_file),
                                     label: Text(selectedFile?.name ??
@@ -850,7 +856,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                             ? null
                             : () async {
                                 if (!(formKey.currentState?.validate() ??
-                                    false)) return;
+                                    false)) {
+                                  return;
+                                }
                                 final deliveryDate =
                                     delivery.text.trim().isEmpty
                                         ? null
@@ -884,8 +892,7 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                       'date_delivrance': deliveryDate,
                                       'date_expiration': expirationDate,
                                       'is_valid': true,
-                                      'file': MultipartFile.fromBytes(
-                                          fileBytes,
+                                      'file': MultipartFile.fromBytes(fileBytes,
                                           filename: file.name)
                                     });
                                     await widget.apiClient.post(
@@ -907,8 +914,9 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                           'date_expiration': expirationDate
                                         });
                                   }
-                                  if (dialogContext.mounted)
+                                  if (dialogContext.mounted) {
                                     Navigator.pop(dialogContext);
+                                  }
                                 } catch (error) {
                                   setDialogState(() {
                                     submitting = false;
@@ -1004,12 +1012,15 @@ class _VehiculesPageState extends State<VehiculesPage> {
                                       isThreeLine: true,
                                       trailing: PopupMenuButton<String>(
                                           onSelected: (value) {
-                                            if (value == 'toggle')
+                                            if (value == 'toggle') {
                                               _toggle(item);
-                                            if (value == 'edit')
+                                            }
+                                            if (value == 'edit') {
                                               _showForm(item);
-                                            if (value == 'delete')
+                                            }
+                                            if (value == 'delete') {
                                               _delete(item);
+                                            }
                                           },
                                           itemBuilder: (_) => [
                                                 const PopupMenuItem(

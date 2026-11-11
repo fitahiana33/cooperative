@@ -78,6 +78,7 @@ def test_boarding_refuses_ticket_of_another_departure(client, db, login, monkeyp
     fixed_now = local_now().replace(hour=10, minute=0, second=0, microsecond=0)
     monkeypatch.setattr("app.core.clock.local_now", lambda: fixed_now)
     monkeypatch.setattr("app.services.reservation.service.local_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.depart.status.local_now", lambda: fixed_now)
     agent = login(MANAGER)
     passenger = new_passenger(client)
     depart = bookable_departure(db)

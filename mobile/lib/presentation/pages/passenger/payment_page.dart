@@ -82,11 +82,12 @@ class _PaymentPageState extends ConsumerState<PaymentPage>
         await _openCheckout();
       }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _error = userError(
             error,
             'Vérifiez le statut avant de renouveler le paiement.',
             'MOBILE_PAYMENT_ERROR'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -111,11 +112,12 @@ class _PaymentPageState extends ConsumerState<PaymentPage>
             'La confirmation du paiement n’a pas encore été reçue. Votre réservation reste consultable.');
       }
     } catch (error) {
-      if (mounted)
+      if (mounted) {
         setState(() => _error = userError(
             error,
             'Impossible de vérifier le paiement.',
             'MOBILE_PAYMENT_STATUS_ERROR'));
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

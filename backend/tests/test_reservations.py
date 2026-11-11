@@ -86,6 +86,7 @@ def test_every_passenger_of_a_reservation_can_board(client, db, login, monkeypat
     fixed_now = local_now().replace(hour=10, minute=0, second=0, microsecond=0)
     monkeypatch.setattr("app.core.clock.local_now", lambda: fixed_now)
     monkeypatch.setattr("app.services.reservation.service.local_now", lambda: fixed_now)
+    monkeypatch.setattr("app.services.depart.status.local_now", lambda: fixed_now)
     passenger = new_passenger(client)
     agent = login("admin@cooperative.com")
     depart = bookable_departure(db, min_free=2)
