@@ -426,6 +426,7 @@ def test_payment_link_is_idempotent_and_seat_hold_covers_its_validity(client, db
     second = FinanceService(db).create_papi_payment(**arguments)
     assert first["id_paiement"] == second["id_paiement"]
     assert len(calls) == 1
+    assert calls[0]["payer_phone"] == "0340011122"
     db.expire_all()
     assert db.get(Reservation, reservation["id"]).date_expiration >= before + timedelta(hours=1)
     _, _, other = pending_booking(client, db)

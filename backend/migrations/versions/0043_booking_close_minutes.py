@@ -22,8 +22,13 @@ def upgrade():
         """
         DO $$ BEGIN
           IF NOT EXISTS (
-            SELECT 1 FROM pg_constraint
-            WHERE conname = 'ck_booking_settings_close_minutes'
+            SELECT 1
+            FROM pg_constraint constraint_row
+            JOIN pg_class table_row ON table_row.oid = constraint_row.conrelid
+            JOIN pg_namespace schema_row ON schema_row.oid = table_row.relnamespace
+            WHERE constraint_row.conname = 'ck_booking_settings_close_minutes'
+              AND table_row.relname = 'booking_settings'
+              AND schema_row.nspname = current_schema()
           ) THEN
             ALTER TABLE booking_settings
             ADD CONSTRAINT ck_booking_settings_close_minutes
@@ -36,7 +41,11 @@ def upgrade():
 
 
 def downgrade():
-    op.drop_constraint(
-        "ck_booking_settings_close_minutes", "booking_settings", type_="check"
+    op.execute(
+        "ALTER TABLE booking_settings "
+        "DROP CONSTRAINT IF EXISTS ck_booking_settings_close_minutes"
     )
-    op.drop_column("booking_settings", "booking_close_minutes")
+    op.execute(
+        "ALTER TABLE booking_settings "
+        "DROP COLUMN IF EXISTS booking_close_minutes"
+    )

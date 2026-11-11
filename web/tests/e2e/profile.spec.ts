@@ -79,7 +79,9 @@ test("account menu, tabs and profile save work for staff without USER_READ", asy
   await page
     .getByRole("button", { name: "Enregistrer les modifications" })
     .click();
-  await expect(page.getByRole("status")).toContainText("enregistrées");
+  await expect(
+    page.getByRole("status").filter({ hasText: "enregistrées" }),
+  ).toBeVisible();
   await expect(page.locator(".header-user-copy")).toContainText("Hanitra");
 });
 

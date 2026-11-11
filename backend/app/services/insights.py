@@ -31,51 +31,6 @@ def project_passengers(
 def forecast_history(reference: date, observations: list[dict]) -> dict:
     """Calendar-day activity including days without service; not unconstrained demand."""
     if not observations:
-        recommendations.sort(
-            key=lambda item: (-item["departs_recommandes"], item["libelle"])
-        )
-        actionable = [
-            {
-                "type": "CAPACITE_A_ETUDIER",
-                "priorite": "HAUTE" if item["departs_recommandes"] >= 3 else "NORMALE",
-                "libelle": item["libelle"],
-                "cooperative": item["cooperative"],
-                "gare": item["gare"],
-                "id_itineraire": item["id_itineraire"],
-                "id_cooperative": item["id_cooperative"],
-                "id_gare": item["id_gare"],
-                "valeur": item["departs_recommandes"],
-                "message": (
-                    f"Étudier {item['departs_recommandes']} départ(s) ou une réaffectation "
-                    "de capacité sur les 7 prochains jours."
-                ),
-            }
-            for item in recommendations
-            if item["departs_recommandes"] > 0
-        ]
-        actionable.extend(
-            {
-                "type": "VERIFICATION_REQUISE",
-                "priorite": "NORMALE",
-                "libelle": item["libelle"],
-                "cooperative": item.get("cooperative", ""),
-                "gare": item.get("gare", ""),
-                "id_itineraire": item["id_itineraire"],
-                "id_cooperative": item["id_cooperative"],
-                "id_gare": item["id_gare"],
-                "valeur": item["valeur"],
-                "message": item["raison"],
-            }
-            for item in anomalies
-        )
-        priorities = sorted(
-            actionable,
-            key=lambda item: (
-                item["priorite"] != "HAUTE",
-                item["type"] != "CAPACITE_A_ETUDIER",
-                -float(item["valeur"]),
-            ),
-        )[:5]
         return {
             "qualite": "INSUFFISANT",
             "observations": 0,
@@ -390,6 +345,51 @@ class DecisionSupportService:
                             "raison": "Encaissements validés bruts inhabituels (> 2 écarts types, au moins 14 jours avec encaissements). Examiner les paiements et remboursements ; ce signal ne démontre pas une erreur.",
                         }
                     )
+        recommendations.sort(
+            key=lambda item: (-item["departs_recommandes"], item["libelle"])
+        )
+        actionable = [
+            {
+                "type": "CAPACITE_A_ETUDIER",
+                "priorite": "HAUTE" if item["departs_recommandes"] >= 3 else "NORMALE",
+                "libelle": item["libelle"],
+                "cooperative": item["cooperative"],
+                "gare": item["gare"],
+                "id_itineraire": item["id_itineraire"],
+                "id_cooperative": item["id_cooperative"],
+                "id_gare": item["id_gare"],
+                "valeur": item["departs_recommandes"],
+                "message": (
+                    f"Étudier {item['departs_recommandes']} départ(s) ou une réaffectation "
+                    "de capacité sur les 7 prochains jours."
+                ),
+            }
+            for item in recommendations
+            if item["departs_recommandes"] > 0
+        ]
+        actionable.extend(
+            {
+                "type": "VERIFICATION_REQUISE",
+                "priorite": "NORMALE",
+                "libelle": item["libelle"],
+                "cooperative": item.get("cooperative", ""),
+                "gare": item.get("gare", ""),
+                "id_itineraire": item["id_itineraire"],
+                "id_cooperative": item["id_cooperative"],
+                "id_gare": item["id_gare"],
+                "valeur": item["valeur"],
+                "message": item["raison"],
+            }
+            for item in anomalies
+        )
+        priorities = sorted(
+            actionable,
+            key=lambda item: (
+                item["priorite"] != "HAUTE",
+                item["type"] != "CAPACITE_A_ETUDIER",
+                -float(item["valeur"]),
+            ),
+        )[:5]
         return {
             "date_reference": reference,
             "periode_observee": {"du": start, "au": reference - timedelta(days=1)},

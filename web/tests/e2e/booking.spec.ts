@@ -77,7 +77,9 @@ test("mobile booking saves access before payment and retries without creating an
     "**/reservations/public/TEST-LOCAL/paiement",
     async (route) => {
       payments++;
-      keys.push(route.request().postDataJSON().cle_idempotence);
+      const payload = route.request().postDataJSON();
+      keys.push(payload.cle_idempotence);
+      expect(payload.telephone_paiement).toBe("0340011122");
       expect(route.request().headers()["x-reservation-token"]).toBe(token);
       await route.fulfill({
         json: {
@@ -110,6 +112,9 @@ test("mobile booking saves access before payment and retries without creating an
   await page
     .getByRole("button", { name: /Continuer vers le règlement/ })
     .click();
+  await expect(page.getByLabel("Numéro Mobile Money")).toHaveValue(
+    "0340011122",
+  );
   await expect(page.locator('input[type="number"]')).toHaveValue("10000");
   await page.locator(".booking-submit").click();
   await expect(

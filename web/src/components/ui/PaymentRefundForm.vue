@@ -43,11 +43,11 @@ onMounted(async () => {
   <section class="refund-form" role="dialog" aria-modal="true" aria-labelledby="refund-heading">
     <h2 id="refund-heading" ref="heading" tabindex="-1">Rembourser {{ formatMoney(Number(payment.montant)) }}</h2>
     <p>{{ payment.numero_reservation || payment.reference_paiement }}</p>
-    <form @submit.prevent="submit">
+    <form novalidate @submit.prevent="submit">
       <label>Mode de remboursement<select v-model="method" :disabled="busy"><option value="ESPECES">Espèces au guichet</option><option value="MOBILE_MONEY">Mobile Money déjà effectué</option><option value="VIREMENT">Virement déjà effectué</option><option value="CARTE">Carte déjà effectué</option></select></label>
       <label v-if="method === 'ESPECES'">Caisse qui rend les espèces<select v-model.number="caisseId" required :disabled="busy"><option :value="null" disabled>Choisir une caisse ouverte</option><option v-for="caisse in caisses" :key="caisse.id" :value="caisse.id">Caisse {{ caisse.id }} · solde {{ formatMoney(Number(caisse.solde)) }}</option></select></label>
       <p v-if="method === 'ESPECES' && !caisses.length" class="refund-warning">Ouvrez d’abord une caisse autorisée pour cette gare, ou choisissez un remboursement externe déjà effectué.</p>
-      <template v-else><p>Enregistrez uniquement un remboursement déjà confirmé par votre prestataire. Cette action ne déclenche pas elle-même le transfert.</p><label>Référence du remboursement déjà effectué<input v-model="reference" required minlength="8" maxlength="150" :disabled="busy" /></label></template>
+      <template v-if="method !== 'ESPECES'"><p>Enregistrez uniquement un remboursement déjà confirmé par votre prestataire. Cette action ne déclenche pas elle-même le transfert.</p><label>Référence du remboursement déjà effectué<input v-model="reference" required minlength="8" maxlength="150" :disabled="busy" /></label></template>
       <p v-if="error" role="alert">{{ error }}</p>
       <button type="submit" class="btn-primary" :disabled="busy">{{ busy ? 'Enregistrement…' : 'Confirmer le remboursement' }}</button>
       <button type="button" :disabled="busy" @click="emit('close')">Fermer</button>
