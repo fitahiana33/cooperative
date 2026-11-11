@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -67,7 +68,7 @@ void main() {
     final p = Platform.environment['ROBOTO_FONT_PATH'];
     if (p != null && p.isNotEmpty) {
       final loader = FontLoader('Roboto');
-      loader.addFont(File(p).readAsBytes());
+      loader.addFont(File(p).readAsBytes().then((bytes) => ByteData.sublistView(bytes)));
       await loader.load();
     }
   });
